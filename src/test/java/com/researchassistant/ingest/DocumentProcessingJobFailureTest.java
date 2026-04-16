@@ -3,6 +3,7 @@ package com.researchassistant.ingest;
 import com.researchassistant.common.storage.FileStoragePort;
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.ingest.model.FailureStage;
+import com.researchassistant.rag.VectorSearchPort;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ class DocumentProcessingJobFailureTest {
 
     @Mock
     private FileStoragePort fileStorage;
+
+    @Mock
+    private VectorSearchPort vectorSearchPort;
 
     @InjectMocks
     private DocumentProcessingJob documentProcessingJob;

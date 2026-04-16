@@ -2,6 +2,7 @@ package com.researchassistant.ingest;
 
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.ingest.model.FailureStage;
+import com.researchassistant.rag.RagChunk;
 import com.researchassistant.support.PostgresIntegrationTest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,10 +15,13 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 
 @TestPropertySource(properties = "app.storage.root=target/test-storage")
 class DocumentProcessingJobTest extends PostgresIntegrationTest {
@@ -30,6 +34,9 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
 
     @Autowired
     private DocumentProcessingJob documentProcessingJob;
+
+    @MockBean
+    private com.researchassistant.rag.VectorSearchPort vectorSearchPort;
 
     @Test
     void processDocumentExtractsTextAndIndexesChunks() throws Exception {
@@ -44,6 +51,9 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
         assertThat(documentRepository.findById(documentId).orElseThrow().status()).isEqualTo(DocumentStatus.INDEXED);
         assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
         assertThat(documentChunkRepository.findByDocumentId(documentId).get(0).id()).isPositive();
+        verify(vectorSearchPort).reindexDocument(eq(documentId), eq(documentChunkRepository.findByDocumentId(documentId).stream()
+                .map(row -> new RagChunk(row.id(), row.documentId(), row.chunkIndex(), row.content(), 0.0))
+                .toList()));
     }
 
     @Test
@@ -58,6 +68,9 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
         assertThat(documentRepository.findById(documentId)).isPresent();
         assertThat(documentRepository.findById(documentId).orElseThrow().status()).isEqualTo(DocumentStatus.INDEXED);
         assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
+        verify(vectorSearchPort).reindexDocument(eq(documentId), eq(documentChunkRepository.findByDocumentId(documentId).stream()
+                .map(row -> new RagChunk(row.id(), row.documentId(), row.chunkIndex(), row.content(), 0.0))
+                .toList()));
     }
 
     @Test
