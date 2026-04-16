@@ -18,22 +18,23 @@ public class DocumentIngestService {
     }
 
     public Map<String, Object> registerUpload(MultipartFile file) {
-        String originalFileName = normalizeOriginalFileName(file);
         String storagePath = fileStorage.save(file);
-        long documentId = documentRepository.insert(originalFileName, originalFileName, storagePath);
+        String originalFileName = FileStoragePort.normalizeOriginalFileName(file.getOriginalFilename());
+        try {
+            long documentId = documentRepository.insert(originalFileName, originalFileName, storagePath);
 
-        return Map.of(
-                "documentId", documentId,
-                "status", DocumentStatus.UPLOADED.name(),
-                "title", originalFileName
-        );
-    }
-
-    private String normalizeOriginalFileName(MultipartFile file) {
-        String originalFileName = file.getOriginalFilename();
-        if (originalFileName == null || originalFileName.isBlank()) {
-            return "upload.bin";
+            return Map.of(
+                    "documentId", documentId,
+                    "status", DocumentStatus.UPLOADED.name(),
+                    "title", originalFileName
+            );
+        } catch (RuntimeException e) {
+            try {
+                fileStorage.delete(storagePath);
+            } catch (RuntimeException deleteFailure) {
+                e.addSuppressed(deleteFailure);
+            }
+            throw e;
         }
-        return originalFileName;
     }
 }

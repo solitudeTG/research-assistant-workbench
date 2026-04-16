@@ -4,9 +4,13 @@ import com.researchassistant.support.PostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.hamcrest.Matchers.isA;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -20,18 +24,43 @@ class DocumentControllerTest extends PostgresIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @Test
-    void uploadRegistersDocumentAndReturnsAcceptedResponse() throws Exception {
+    void uploadRegistersDocumentPersistsRowAndStoresFile() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
-                "paper.txt",
+                "nested/path/paper.txt",
                 "text/plain",
                 "research notes".getBytes()
         );
 
-        mockMvc.perform(multipart("/api/documents/upload").file(file))
+        var result = mockMvc.perform(multipart("/api/documents/upload").file(file))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("UPLOADED"))
-                .andExpect(jsonPath("$.documentId", isA(Number.class)));
+                .andExpect(jsonPath("$.title").value("paper.txt"))
+                .andExpect(jsonPath("$.documentId", isA(Number.class)))
+                .andReturn();
+
+        long documentId = ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(),
+                "$.documentId"
+        )).longValue();
+
+        var row = jdbcTemplate.queryForMap("""
+                select title, original_file_name, storage_path, status
+                from research_document
+                where id = ?
+                """, documentId);
+
+        Path testStorageRoot = Path.of("target/test-storage").toAbsolutePath().normalize();
+        Path savedFile = Path.of((String) row.get("storage_path"));
+
+        org.assertj.core.api.Assertions.assertThat(row.get("title")).isEqualTo("paper.txt");
+        org.assertj.core.api.Assertions.assertThat(row.get("original_file_name")).isEqualTo("paper.txt");
+        org.assertj.core.api.Assertions.assertThat(row.get("status")).isEqualTo("UPLOADED");
+        org.assertj.core.api.Assertions.assertThat(savedFile).startsWith(testStorageRoot.resolve("uploads"));
+        org.assertj.core.api.Assertions.assertThat(Files.exists(savedFile)).isTrue();
     }
 }

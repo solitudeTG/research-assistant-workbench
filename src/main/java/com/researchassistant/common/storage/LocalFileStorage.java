@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,16 +25,21 @@ public class LocalFileStorage implements FileStoragePort {
     public String save(MultipartFile file) {
         Objects.requireNonNull(file, "file must not be null");
 
-        String originalFileName = sanitizeOriginalFileName(file.getOriginalFilename());
+        String originalFileName = FileStoragePort.normalizeOriginalFileName(file.getOriginalFilename());
         String storedFileName = UUID.randomUUID() + "_" + originalFileName;
         Path target = uploadsRoot.resolve(storedFileName).normalize();
 
         try {
             Files.createDirectories(uploadsRoot);
             try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, target);
+                Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (IOException suppressed) {
+                e.addSuppressed(suppressed);
+            }
             throw new IllegalStateException("Failed to store uploaded file", e);
         }
 
@@ -49,11 +55,12 @@ public class LocalFileStorage implements FileStoragePort {
         return uploadsRoot.resolve(resolvedPath).normalize();
     }
 
-    private String sanitizeOriginalFileName(String originalFileName) {
-        if (originalFileName == null || originalFileName.isBlank()) {
-            return "upload.bin";
+    @Override
+    public void delete(String storagePath) {
+        try {
+            Files.deleteIfExists(resolve(storagePath));
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to delete stored file", e);
         }
-        Path fileName = Paths.get(originalFileName).getFileName();
-        return fileName == null ? "upload.bin" : fileName.toString();
     }
 }
