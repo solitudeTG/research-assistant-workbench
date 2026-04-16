@@ -27,6 +27,12 @@ public interface FileStoragePort {
             return "upload.bin";
         }
 
+        candidate = candidate.replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]", "_");
+        candidate = candidate.replaceAll("[. ]+$", "");
+        if (candidate.isBlank() || ".".equals(candidate) || "..".equals(candidate)) {
+            return "upload.bin";
+        }
+
         return candidate;
     }
 }

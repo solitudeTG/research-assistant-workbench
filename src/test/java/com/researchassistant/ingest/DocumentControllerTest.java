@@ -31,7 +31,7 @@ class DocumentControllerTest extends PostgresIntegrationTest {
     void uploadRegistersDocumentPersistsRowAndStoresFile() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
-                "nested/path/paper.txt",
+                "nested/path/fo:o?.txt",
                 "text/plain",
                 "research notes".getBytes()
         );
@@ -39,7 +39,7 @@ class DocumentControllerTest extends PostgresIntegrationTest {
         var result = mockMvc.perform(multipart("/api/documents/upload").file(file))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("UPLOADED"))
-                .andExpect(jsonPath("$.title").value("paper.txt"))
+                .andExpect(jsonPath("$.title").value("fo_o_.txt"))
                 .andExpect(jsonPath("$.documentId", isA(Number.class)))
                 .andReturn();
 
@@ -57,10 +57,11 @@ class DocumentControllerTest extends PostgresIntegrationTest {
         Path testStorageRoot = Path.of("target/test-storage").toAbsolutePath().normalize();
         Path savedFile = Path.of((String) row.get("storage_path"));
 
-        org.assertj.core.api.Assertions.assertThat(row.get("title")).isEqualTo("paper.txt");
-        org.assertj.core.api.Assertions.assertThat(row.get("original_file_name")).isEqualTo("paper.txt");
+        org.assertj.core.api.Assertions.assertThat(row.get("title")).isEqualTo("fo_o_.txt");
+        org.assertj.core.api.Assertions.assertThat(row.get("original_file_name")).isEqualTo("fo_o_.txt");
         org.assertj.core.api.Assertions.assertThat(row.get("status")).isEqualTo("UPLOADED");
         org.assertj.core.api.Assertions.assertThat(savedFile).startsWith(testStorageRoot.resolve("uploads"));
+        org.assertj.core.api.Assertions.assertThat(savedFile.getFileName().toString()).endsWith("_fo_o_.txt");
         org.assertj.core.api.Assertions.assertThat(Files.exists(savedFile)).isTrue();
     }
 }
