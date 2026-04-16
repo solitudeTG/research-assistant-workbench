@@ -22,7 +22,7 @@ public class DocumentChunkRepository {
             """;
 
     private static final String FIND_BY_DOCUMENT_ID_SQL = """
-            select document_id, chunk_index, content, token_count, metadata_json
+            select id, document_id, chunk_index, content, token_count, metadata_json
             from document_chunk
             where document_id = ?
             order by chunk_index
