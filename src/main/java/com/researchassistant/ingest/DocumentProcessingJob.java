@@ -34,11 +34,11 @@ public class DocumentProcessingJob {
 
     @Async("indexingExecutor")
     public CompletableFuture<Void> processDocument(long documentId) {
-        ResearchDocument document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found: " + documentId));
-
         FailureStage failureStage = FailureStage.PARSING;
         try {
+            ResearchDocument document = documentRepository.findById(documentId)
+                    .orElseThrow(() -> new IllegalArgumentException("Document not found: " + documentId));
+
             documentRepository.updateStatus(documentId, DocumentStatus.PARSING, null, null);
 
             Path filePath = fileStorage.resolve(document.storagePath());
