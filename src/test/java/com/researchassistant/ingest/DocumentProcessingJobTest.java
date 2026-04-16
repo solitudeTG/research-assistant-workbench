@@ -15,7 +15,6 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,9 +33,6 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
 
     @Autowired
     private DocumentProcessingJob documentProcessingJob;
-
-    @MockBean
-    private com.researchassistant.rag.VectorSearchPort vectorSearchPort;
 
     @Test
     void processDocumentExtractsTextAndIndexesChunks() throws Exception {
