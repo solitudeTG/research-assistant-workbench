@@ -8,6 +8,8 @@ import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.jdbc.core.PreparedStatementCallback;
+import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -41,14 +43,15 @@ public class DocumentRepository {
     }
 
     public long insert(String title, String originalFileName, String storagePath) {
-        return jdbcTemplate.execute(connection -> {
+        PreparedStatementCreator creator = connection -> {
             PreparedStatement statement = connection.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS);
             statement.setString(1, title);
             statement.setString(2, originalFileName);
             statement.setString(3, storagePath);
             statement.setString(4, DocumentStatus.UPLOADED.name());
             return statement;
-        }, statement -> {
+        };
+        PreparedStatementCallback<Long> callback = statement -> {
             statement.executeUpdate();
             try (var keys = statement.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -56,7 +59,8 @@ public class DocumentRepository {
                 }
             }
             throw new IllegalStateException("Failed to insert research document");
-        });
+        };
+        return jdbcTemplate.execute(creator, callback);
     }
 
     public void updateStatus(long documentId, DocumentStatus status, FailureStage failureStage, String parseError) {
