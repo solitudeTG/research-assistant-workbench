@@ -11,23 +11,23 @@ public class DocumentIngestService {
 
     private final FileStoragePort fileStorage;
     private final DocumentRepository documentRepository;
+    private final DocumentProcessingJob documentProcessingJob;
 
-    public DocumentIngestService(FileStoragePort fileStorage, DocumentRepository documentRepository) {
+    public DocumentIngestService(
+            FileStoragePort fileStorage,
+            DocumentRepository documentRepository,
+            DocumentProcessingJob documentProcessingJob) {
         this.fileStorage = fileStorage;
         this.documentRepository = documentRepository;
+        this.documentProcessingJob = documentProcessingJob;
     }
 
     public Map<String, Object> registerUpload(MultipartFile file) {
         String storagePath = fileStorage.save(file);
         String originalFileName = FileStoragePort.normalizeOriginalFileName(file.getOriginalFilename());
+        long documentId;
         try {
-            long documentId = documentRepository.insert(originalFileName, originalFileName, storagePath);
-
-            return Map.of(
-                    "documentId", documentId,
-                    "status", DocumentStatus.UPLOADED.name(),
-                    "title", originalFileName
-            );
+            documentId = documentRepository.insert(originalFileName, originalFileName, storagePath);
         } catch (RuntimeException e) {
             try {
                 fileStorage.delete(storagePath);
@@ -36,5 +36,13 @@ public class DocumentIngestService {
             }
             throw e;
         }
+
+        documentProcessingJob.processDocument(documentId);
+
+        return Map.of(
+                "documentId", documentId,
+                "status", DocumentStatus.UPLOADED.name(),
+                "title", originalFileName
+        );
     }
 }
