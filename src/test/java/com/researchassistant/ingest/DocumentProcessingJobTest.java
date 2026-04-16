@@ -1,9 +1,11 @@
 package com.researchassistant.ingest;
 
 import com.researchassistant.ingest.model.DocumentStatus;
+import com.researchassistant.ingest.model.FailureStage;
 import com.researchassistant.support.PostgresIntegrationTest;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.CompletionException;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -15,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @TestPropertySource(properties = "app.storage.root=target/test-storage")
 class DocumentProcessingJobTest extends PostgresIntegrationTest {
@@ -40,6 +43,7 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
         assertThat(documentRepository.findById(documentId)).isPresent();
         assertThat(documentRepository.findById(documentId).orElseThrow().status()).isEqualTo(DocumentStatus.INDEXED);
         assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
+        assertThat(documentChunkRepository.findByDocumentId(documentId).get(0).id()).isPositive();
     }
 
     @Test
@@ -54,6 +58,23 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
         assertThat(documentRepository.findById(documentId)).isPresent();
         assertThat(documentRepository.findById(documentId).orElseThrow().status()).isEqualTo(DocumentStatus.INDEXED);
         assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
+    }
+
+    @Test
+    void processDocumentMarksFailedWhenStoragePathDoesNotExist() throws Exception {
+        Path missingPdf = Files.createTempFile("document-processing-missing-", ".pdf");
+        Files.deleteIfExists(missingPdf);
+
+        long documentId = documentRepository.insert("broken.pdf", "broken.pdf", missingPdf.toAbsolutePath().toString());
+
+        assertThatThrownBy(() -> documentProcessingJob.processDocument(documentId).join())
+                .isInstanceOf(CompletionException.class);
+
+        var document = documentRepository.findById(documentId).orElseThrow();
+        assertThat(document.status()).isEqualTo(DocumentStatus.FAILED);
+        assertThat(document.failureStage()).isEqualTo(FailureStage.PARSING);
+        assertThat(document.parseError()).isEqualTo(missingPdf.toAbsolutePath().toString());
+        assertThat(documentChunkRepository.findByDocumentId(documentId)).isEmpty();
     }
 
     private void createPdf(Path pdfPath, String text) throws Exception {

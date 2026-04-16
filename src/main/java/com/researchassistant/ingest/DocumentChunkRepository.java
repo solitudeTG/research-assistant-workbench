@@ -46,7 +46,7 @@ public class DocumentChunkRepository {
         for (int chunkIndex = 0; chunkIndex < chunks.size(); chunkIndex++) {
             String content = chunks.get(chunkIndex);
             int tokenCount = estimateTokenCount(content);
-            records.add(new ChunkRecord(documentId, chunkIndex, content, tokenCount, metadataJson(chunkIndex)));
+            records.add(new ChunkRecord(null, documentId, chunkIndex, content, tokenCount, metadataJson(chunkIndex)));
         }
 
         for (ChunkRecord record : records) {
@@ -64,6 +64,7 @@ public class DocumentChunkRepository {
 
     public List<ChunkRecord> findByDocumentId(long documentId) {
         return jdbcTemplate.query(FIND_BY_DOCUMENT_ID_SQL, (resultSet, rowNum) -> new ChunkRecord(
+                resultSet.getLong("id"),
                 resultSet.getLong("document_id"),
                 resultSet.getInt("chunk_index"),
                 resultSet.getString("content"),
