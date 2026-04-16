@@ -19,8 +19,7 @@ public abstract class PostgresIntegrationTest {
             DockerImageName.parse("pgvector/pgvector:pg17"))
             .withDatabaseName("research_assistant")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withCreateContainerCmdModifier(cmd -> cmd.withName("research_assistant"));
+            .withPassword("postgres");
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {

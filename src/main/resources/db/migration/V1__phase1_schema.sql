@@ -1,5 +1,15 @@
 create extension if not exists vector;
 
+create or replace function set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+    new.updated_at = now();
+    return new;
+end;
+$$;
+
 create table if not exists research_document (
     id bigserial primary key,
     title varchar(500) not null,
@@ -12,6 +22,11 @@ create table if not exists research_document (
     updated_at timestamptz not null default now()
 );
 
+create trigger trg_research_document_set_updated_at
+before update on research_document
+for each row
+execute function set_updated_at();
+
 create table if not exists document_chunk (
     id bigserial primary key,
     document_id bigint not null references research_document(id) on delete cascade,
@@ -21,6 +36,9 @@ create table if not exists document_chunk (
     metadata_json jsonb not null default '{}'::jsonb,
     created_at timestamptz not null default now()
 );
+
+alter table document_chunk
+    add constraint uq_document_chunk_document_id_chunk_index unique (document_id, chunk_index);
 
 create index if not exists idx_document_chunk_document_id on document_chunk(document_id);
 create index if not exists idx_document_chunk_fts
@@ -36,6 +54,11 @@ create table if not exists chat_session (
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
+
+create trigger trg_chat_session_set_updated_at
+before update on chat_session
+for each row
+execute function set_updated_at();
 
 create table if not exists chat_message (
     id bigserial primary key,
