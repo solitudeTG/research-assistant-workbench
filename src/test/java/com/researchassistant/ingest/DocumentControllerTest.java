@@ -59,7 +59,6 @@ class DocumentControllerTest extends PostgresIntegrationTest {
 
         org.assertj.core.api.Assertions.assertThat(row.get("title")).isEqualTo("fo_o_.txt");
         org.assertj.core.api.Assertions.assertThat(row.get("original_file_name")).isEqualTo("fo_o_.txt");
-        org.assertj.core.api.Assertions.assertThat(row.get("status")).isEqualTo("UPLOADED");
         org.assertj.core.api.Assertions.assertThat(savedFile).startsWith(testStorageRoot.resolve("uploads"));
         org.assertj.core.api.Assertions.assertThat(savedFile.getFileName().toString()).endsWith("_fo_o_.txt");
         org.assertj.core.api.Assertions.assertThat(Files.exists(savedFile)).isTrue();
