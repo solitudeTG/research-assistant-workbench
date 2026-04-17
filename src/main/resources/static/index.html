@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Research Assistant Phase 1</title>
+    <style>
+        :root {
+            --bg: #f5efe3;
+            --paper: #fffaf1;
+            --ink: #1e1f1c;
+            --accent: #0f766e;
+            --line: #d8ceb9;
+        }
+
+        body {
+            margin: 0;
+            background:
+                radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 35%),
+                linear-gradient(180deg, #f8f3ea 0%, var(--bg) 100%);
+            color: var(--ink);
+            font-family: Georgia, "Times New Roman", serif;
+        }
+
+        main {
+            max-width: 920px;
+            margin: 48px auto;
+            padding: 0 20px 40px;
+        }
+
+        h1 {
+            margin-bottom: 8px;
+            font-size: 2.4rem;
+        }
+
+        p {
+            color: #4a4d46;
+        }
+
+        .panel {
+            background: rgba(255, 250, 241, 0.85);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 20px;
+            margin-top: 18px;
+            box-shadow: 0 18px 60px rgba(46, 51, 46, 0.08);
+            backdrop-filter: blur(8px);
+        }
+
+        label {
+            display: block;
+            margin-top: 14px;
+            font-weight: bold;
+        }
+
+        textarea,
+        input,
+        button {
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 8px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            font: inherit;
+            background: #fffdf8;
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            border: none;
+            font-weight: bold;
+        }
+
+        button:hover {
+            filter: brightness(1.05);
+        }
+
+        #answer {
+            min-height: 140px;
+            white-space: pre-wrap;
+            line-height: 1.7;
+        }
+
+        #status {
+            margin-top: 12px;
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        #citations {
+            padding-left: 18px;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Research Assistant Phase 1</h1>
+    <p>Upload a paper, wait for indexing, and ask grounded questions with streaming citations.</p>
+
+    <section class="panel">
+        <label for="file">Upload a paper</label>
+        <input id="file" type="file">
+        <button id="upload">Upload</button>
+
+        <label for="documentId">Document ID</label>
+        <input id="documentId" type="text" placeholder="Auto-filled after upload">
+
+        <label for="question">Question</label>
+        <textarea id="question" rows="5" placeholder="What does multi-head attention improve?"></textarea>
+        <button id="ask">Ask via SSE</button>
+
+        <div id="status"></div>
+    </section>
+
+    <section class="panel">
+        <h2>Answer</h2>
+        <div id="answer"></div>
+        <h3>Citations</h3>
+        <ul id="citations"></ul>
+    </section>
+</main>
+
+<script>
+    const uploadButton = document.getElementById('upload');
+    const askButton = document.getElementById('ask');
+    const answer = document.getElementById('answer');
+    const citations = document.getElementById('citations');
+    const documentIdInput = document.getElementById('documentId');
+    const status = document.getElementById('status');
+
+    uploadButton.addEventListener('click', async () => {
+        const fileInput = document.getElementById('file');
+        if (!fileInput.files.length) {
+            status.textContent = 'Choose a paper first.';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        status.textContent = 'Uploading...';
+
+        const response = await fetch('/api/documents/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const payload = await response.json();
+        documentIdInput.value = payload.documentId ?? '';
+        status.textContent = `Upload accepted. Document ${payload.documentId} is ${payload.status}.`;
+    });
+
+    askButton.addEventListener('click', () => {
+        answer.textContent = '';
+        citations.innerHTML = '';
+        status.textContent = 'Streaming answer...';
+
+        const question = document.getElementById('question').value;
+        const documentId = documentIdInput.value;
+        const params = new URLSearchParams({
+            sessionKey: 'browser-session',
+            question
+        });
+        if (documentId) {
+            params.set('documentId', documentId);
+        }
+        const url = `/api/chat/stream?${params.toString()}`;
+        const source = new EventSource(url);
+
+        source.addEventListener('message', (event) => {
+            answer.textContent += `${event.data} `;
+        });
+
+        source.addEventListener('done', (event) => {
+            const payload = JSON.parse(event.data);
+            status.textContent = `Completed with ${payload.answerMode}.`;
+            payload.citations.forEach((citation) => {
+                const item = document.createElement('li');
+                item.textContent = `doc ${citation.documentId}, chunk ${citation.chunkIndex}: ${citation.excerpt}`;
+                citations.appendChild(item);
+            });
+            source.close();
+        });
+
+        source.onerror = () => {
+            status.textContent = 'Streaming failed.';
+            source.close();
+        };
+    });
+</script>
+</body>
+</html>
