@@ -39,6 +39,23 @@ function Wait-ForDatabase {
     throw "PostgreSQL did not become ready in time."
 }
 
+function Wait-ForAppHealth {
+    param([int]$Attempts = 30)
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            $response = Invoke-RestMethod http://localhost:8080/actuator/health -TimeoutSec 5
+            if ($response.status -eq "UP") {
+                return
+            }
+        } catch {
+        }
+        Start-Sleep -Seconds 2
+    }
+    Write-Host "Application did not become healthy in time. Recent app logs:"
+    docker compose logs --tail 100 app
+    throw "Research Assistant application did not become healthy in time."
+}
+
 if (-not (Test-CommandExists "docker")) {
     throw "Docker is not installed or not on PATH. Install Docker Desktop first."
 }
@@ -49,32 +66,15 @@ if ([string]::IsNullOrWhiteSpace($env:AI_DASHSCOPE_API_KEY)) {
     throw "AI_DASHSCOPE_API_KEY is missing. Set it in your environment or in .env."
 }
 
-if (-not (Test-CommandExists "mvn")) {
-    $fallbackMaven = "D:\apache-maven-3.9.11\bin\mvn.cmd"
-    if (Test-Path $fallbackMaven) {
-        $env:PATH = "D:\apache-maven-3.9.11\bin;$env:PATH"
-    } else {
-        throw "Maven was not found on PATH and fallback Maven was not found at D:\apache-maven-3.9.11\bin\mvn.cmd."
-    }
-}
-
-$mvnCommandInfo = Get-Command "mvn.cmd" -ErrorAction SilentlyContinue
-if (-not $mvnCommandInfo) {
-    $mvnCommandInfo = Get-Command "mvn" -ErrorAction SilentlyContinue
-}
-if (-not $mvnCommandInfo) {
-    throw "Maven command resolution failed even though Maven exists on PATH."
-}
-$mvnCommand = $mvnCommandInfo.Source
-
-$mavenRepo = Join-Path $repoRoot ".m2\repository"
-New-Item -ItemType Directory -Force -Path $mavenRepo | Out-Null
-
-Write-Host "Starting pgvector database..."
-docker compose up -d db
+Write-Host "Building and starting research assistant containers..."
+docker compose up --build -d
 
 Write-Host "Waiting for database health..."
 Wait-ForDatabase
 
-Write-Host "Starting Spring Boot application..."
-& $mvnCommand "-Dmaven.repo.local=$mavenRepo" "spring-boot:run"
+Write-Host "Waiting for application health..."
+Wait-ForAppHealth
+
+Write-Host "Research Assistant is ready."
+Write-Host "UI: http://localhost:8080"
+Write-Host "Logs: docker compose logs -f app"

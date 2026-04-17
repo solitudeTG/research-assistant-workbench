@@ -12,3 +12,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: research_assistant
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      AI_DASHSCOPE_API_KEY: ${AI_DASHSCOPE_API_KEY}
+      APP_STORAGE_ROOT: /app/storage
+    ports:
+      - "8080:8080"
+    volumes:
+      - app-storage:/app/storage
+    restart: unless-stopped
+
+volumes:
+  app-storage:

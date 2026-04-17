@@ -1,53 +1,89 @@
 # Research Assistant Phase 1
 
-## One-command start
+## Recommended startup
 
-After Docker Desktop and Maven are available, the easiest local startup path is:
+After Docker Desktop is available and `.env` contains a real `AI_DASHSCOPE_API_KEY`, the easiest startup path is:
+
+```powershell
+.\scripts\start-dev.cmd
+```
+
+PowerShell users can also run:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+The dev start script will:
+
+1. check that Docker is available
+2. load `.env`
+3. build the application image
+4. start PostgreSQL + pgvector and the Spring Boot app with Docker Compose
+5. wait until both the database and the application health endpoint are ready
+
+You can also start it directly without the script:
+
+```powershell
+docker compose up --build -d
+```
+
+Then open [http://localhost:8080](http://localhost:8080).
+
+Stop the project with:
+
+```powershell
+.\scripts\stop-dev.cmd
+```
+
+## Useful Docker commands
+
+Start:
+
+```powershell
+docker compose up --build -d
+```
+
+View status:
+
+```powershell
+docker compose ps
+```
+
+View logs:
+
+```powershell
+docker compose logs -f app
+```
+
+Stop:
+
+```powershell
+docker compose down
+```
+
+Stop and remove volumes:
+
+```powershell
+docker compose down -v
+```
+
+## Environment setup
+
+Copy `.env.example` to `.env` and fill the key:
+
+```powershell
+AI_DASHSCOPE_API_KEY=your-real-key
+```
+
+The application container will connect to PostgreSQL through the internal hostname `db`.
+
+Legacy compatibility entrypoints remain available:
 
 ```powershell
 .\start.ps1
-```
-
-You can also use:
-
-```cmd
 start.cmd
 ```
-
-The startup script will:
-
-1. start PostgreSQL + pgvector with `docker compose up -d db`
-2. wait until the database is actually healthy
-3. check that `AI_DASHSCOPE_API_KEY` is available from your environment or `.env`
-4. run the Spring Boot app with Maven and the workspace-local repository at `.m2/repository`
-
-## Manual startup
-
-### 1. Start the database
-
-```powershell
-docker compose up -d db
-```
-
-### 2. Provide environment variables
-
-```powershell
-$env:AI_DASHSCOPE_API_KEY="your-real-key"
-```
-
-You can copy `.env.example` to `.env` and fill the values instead.
-
-### 3. Run the app
-
-```powershell
-mvn spring-boot:run
-```
-
-If Maven is not on your `PATH`, the script will automatically fall back to `D:\apache-maven-3.9.11\bin\mvn.cmd`.
-
-### 4. Open the UI
-
-Visit [http://localhost:8080](http://localhost:8080).
 
 ## What Phase 1 supports
 
@@ -61,4 +97,4 @@ Visit [http://localhost:8080](http://localhost:8080).
 
 ## Current verification note
 
-The local non-Docker test set passes in the current environment. Docker/Testcontainers-based integration tests are already written, but they cannot run until Docker is installed and available to the current shell.
+The non-Docker Maven test set already passes locally. The Docker startup path should be verified with `docker compose up --build -d`, `docker compose ps`, and a health probe against `http://localhost:8080/actuator/health`.

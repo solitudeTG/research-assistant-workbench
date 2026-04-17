@@ -1,0 +1,7 @@
+.git
+.home
+.m2
+docs
+target
+storage
+*.log
