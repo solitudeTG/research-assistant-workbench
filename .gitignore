@@ -1,0 +1,5 @@
+.env
+.m2/
+.home/
+target/
+storage/

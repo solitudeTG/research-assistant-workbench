@@ -27,7 +27,14 @@ services:
       DB_NAME: research_assistant
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
-      AI_DASHSCOPE_API_KEY: ${AI_DASHSCOPE_API_KEY}
+      AI_API_KEY: ${AI_API_KEY}
+      AI_BASE_URL: ${AI_BASE_URL}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL}
+      AI_CHAT_COMPLETIONS_PATH: ${AI_CHAT_COMPLETIONS_PATH:-/chat/completions}
+      AI_EMBEDDING_PROVIDER: ${AI_EMBEDDING_PROVIDER:-none}
+      AI_VECTORSTORE_TYPE: ${AI_VECTORSTORE_TYPE:-none}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-3-small}
+      AI_EMBEDDINGS_PATH: ${AI_EMBEDDINGS_PATH:-/embeddings}
       APP_STORAGE_ROOT: /app/storage
     ports:
       - "8080:8080"

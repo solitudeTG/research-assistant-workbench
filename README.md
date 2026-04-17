@@ -2,7 +2,7 @@
 
 ## Recommended startup
 
-After Docker Desktop is available and `.env` contains a real `AI_DASHSCOPE_API_KEY`, the easiest startup path is:
+After Docker Desktop is available and `.env` contains a real `AI_API_KEY`, the easiest startup path is:
 
 ```powershell
 .\scripts\start-dev.cmd
@@ -70,13 +70,23 @@ docker compose down -v
 
 ## Environment setup
 
-Copy `.env.example` to `.env` and fill the key:
+Copy `.env.example` to `.env` and fill the provider settings:
 
 ```powershell
-AI_DASHSCOPE_API_KEY=your-real-key
+AI_API_KEY=your-real-key
+AI_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+AI_CHAT_MODEL=glm-4-7-251222
 ```
 
 The application container will connect to PostgreSQL through the internal hostname `db`.
+
+By default the `.env.example` template keeps vector retrieval disabled so Ark chat-only credentials can start the project safely. If you later add a compatible embedding model, switch:
+
+```powershell
+AI_EMBEDDING_PROVIDER=openai
+AI_VECTORSTORE_TYPE=pgvector
+AI_EMBEDDING_MODEL=your-embedding-model
+```
 
 Legacy compatibility entrypoints remain available:
 

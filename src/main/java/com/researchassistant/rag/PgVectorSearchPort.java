@@ -3,12 +3,15 @@ package com.researchassistant.rag;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnBean({VectorStore.class, EmbeddingModel.class})
 public class PgVectorSearchPort implements VectorSearchPort {
 
     private final VectorStore vectorStore;

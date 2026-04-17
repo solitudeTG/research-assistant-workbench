@@ -62,8 +62,8 @@ if (-not (Test-CommandExists "docker")) {
 
 Import-DotEnv (Join-Path $repoRoot ".env")
 
-if ([string]::IsNullOrWhiteSpace($env:AI_DASHSCOPE_API_KEY)) {
-    throw "AI_DASHSCOPE_API_KEY is missing. Set it in your environment or in .env."
+if ([string]::IsNullOrWhiteSpace($env:AI_API_KEY)) {
+    throw "AI_API_KEY is missing. Set it in your environment or in .env."
 }
 
 Write-Host "Building and starting research assistant containers..."
