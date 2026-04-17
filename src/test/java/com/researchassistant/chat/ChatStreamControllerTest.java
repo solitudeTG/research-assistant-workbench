@@ -59,6 +59,7 @@ class ChatStreamControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("event:heartbeat")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("event:message")));
     }
 }

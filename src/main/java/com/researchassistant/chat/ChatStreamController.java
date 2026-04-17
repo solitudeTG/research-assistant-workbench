@@ -34,10 +34,11 @@ public class ChatStreamController {
             @RequestParam String sessionKey,
             @RequestParam String question,
             @RequestParam(required = false) Long documentId) {
-        SseEmitter emitter = new SseEmitter(30_000L);
+        SseEmitter emitter = new SseEmitter(120_000L);
 
         streamingExecutor.execute(() -> {
             try {
+                emitter.send(SseEmitter.event().name("heartbeat").data("started"));
                 ChatResponse response = supervisorService.answer(new ChatRequest(
                         sessionKey,
                         question,

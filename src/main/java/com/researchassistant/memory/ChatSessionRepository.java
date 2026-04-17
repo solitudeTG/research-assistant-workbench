@@ -2,6 +2,7 @@ package com.researchassistant.memory;
 
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -49,7 +50,7 @@ public class ChatSessionRepository {
             return statement;
         }, keyHolder);
 
-        Number key = keyHolder.getKey();
+        Number key = extractGeneratedId(keyHolder);
         if (key == null) {
             throw new IllegalStateException("Failed to create chat session");
         }
@@ -70,5 +71,22 @@ public class ChatSessionRepository {
                 select count(*) from chat_message where session_id = ?
                 """, Integer.class, sessionId);
         return count == null ? 0 : count;
+    }
+
+    private Number extractGeneratedId(KeyHolder keyHolder) {
+        Map<String, Object> keys = keyHolder.getKeys();
+        if (keys != null) {
+            Object id = keys.get("id");
+            if (id instanceof Number number) {
+                return number;
+            }
+            if (keys.size() == 1) {
+                Object onlyValue = keys.values().iterator().next();
+                if (onlyValue instanceof Number number) {
+                    return number;
+                }
+            }
+        }
+        return keyHolder.getKey();
     }
 }

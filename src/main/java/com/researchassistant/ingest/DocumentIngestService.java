@@ -3,7 +3,9 @@ package com.researchassistant.ingest;
 import com.researchassistant.common.storage.FileStoragePort;
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.ingest.model.FailureStage;
+import com.researchassistant.ingest.model.ResearchDocument;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -54,6 +56,10 @@ public class DocumentIngestService {
                 "status", DocumentStatus.UPLOADED.name(),
                 "title", originalFileName
         );
+    }
+
+    public Optional<ResearchDocument> findDocument(long documentId) {
+        return documentRepository.findById(documentId);
     }
 
     private void markUploadSubmissionFailed(long documentId, String storagePath, RuntimeException exception) {

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Assi-Agent 科研工作台</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "inverse-surface": "#0c0f10",
+                    "surface-bright": "#f8f9fa",
+                    "surface-container-highest": "#dbe4e7",
+                    "background": "#f8f9fa",
+                    "on-secondary-container": "#395663",
+                    "error": "#9f403d",
+                    "inverse-on-surface": "#9b9d9e",
+                    "secondary-fixed-dim": "#bbd9e9",
+                    "primary": "#546067",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary": "#4f626b",
+                    "surface-container-high": "#e3e9ec",
+                    "on-secondary": "#f3faff",
+                    "on-tertiary-fixed": "#384b53",
+                    "error-dim": "#4e0309",
+                    "surface-dim": "#d1dce0",
+                    "surface-tint": "#546067",
+                    "secondary": "#466370",
+                    "tertiary-fixed": "#dff4ff",
+                    "on-surface-variant": "#586064",
+                    "on-primary-container": "#47545a",
+                    "on-error-container": "#752121",
+                    "primary-fixed-dim": "#c9d6de",
+                    "on-error": "#fff7f6",
+                    "surface-variant": "#dbe4e7",
+                    "on-secondary-fixed": "#264350",
+                    "primary-container": "#d7e4ec",
+                    "on-primary-fixed-variant": "#515d64",
+                    "secondary-fixed": "#c9e7f7",
+                    "on-primary": "#f0f9ff",
+                    "inverse-primary": "#e6f3fb",
+                    "primary-dim": "#48545b",
+                    "on-secondary-fixed-variant": "#435f6d",
+                    "outline-variant": "#abb3b7",
+                    "on-tertiary-container": "#4a5d66",
+                    "secondary-dim": "#3a5764",
+                    "outline": "#737c7f",
+                    "on-surface": "#2b3437",
+                    "on-primary-fixed": "#354147",
+                    "on-tertiary": "#f2faff",
+                    "surface-container-low": "#f1f4f6",
+                    "error-container": "#fe8983",
+                    "secondary-container": "#c9e7f7",
+                    "on-background": "#2b3437",
+                    "primary-fixed": "#d7e4ec",
+                    "tertiary-fixed-dim": "#d1e6f0",
+                    "tertiary-dim": "#43565f",
+                    "on-tertiary-fixed-variant": "#546770",
+                    "surface-container": "#eaeff1",
+                    "surface": "#f8f9fa",
+                    "tertiary-container": "#dff4ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Space Grotesk"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+            font-size: 1.25rem;
+        }
+        .stream-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background-color: #466370;
+            margin-left: 2px;
+            vertical-align: middle;
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            from, to { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        .trace-line {
+            width: 2px;
+            background: repeating-linear-gradient(to bottom, #abb3b7 0, #abb3b7 4px, transparent 4px, transparent 8px);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body h-screen flex flex-col overflow-hidden">
+<!-- TopNavBar Shell -->
+<header class="flex justify-between items-center w-full px-6 h-14 bg-[#f8f9fa] dark:bg-slate-950 border-b border-[#546067]/10 z-50">
+<div class="flex items-center gap-4">
+<span class="text-lg font-bold tracking-tighter text-[#455A64] dark:text-slate-200">科研工作台</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<input class="bg-surface-container-low border-none rounded-lg text-sm px-4 py-1.5 w-64 focus:ring-1 focus:ring-primary transition-all" placeholder="全局检索科研文档..." type="text"/>
+<span class="material-symbols-outlined absolute right-2 top-1.5 text-outline text-sm">search</span>
+</div>
+<div class="flex items-center gap-3 text-[#546067] dark:text-slate-300">
+<button class="hover:bg-[#546067]/5 p-1.5 rounded transition-colors active:opacity-80"><span class="material-symbols-outlined">settings</span></button>
+<button class="hover:bg-[#546067]/5 p-1.5 rounded transition-colors active:opacity-80"><span class="material-symbols-outlined">help</span></button>
+<button class="hover:bg-[#546067]/5 p-1.5 rounded transition-colors active:opacity-80"><span class="material-symbols-outlined">account_circle</span></button>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar Shell -->
+<aside class="flex flex-col h-full py-4 px-3 border-r border-[#546067]/10 bg-[#f1f2f4] dark:bg-slate-900/50 w-64 shrink-0">
+<div class="mb-6 px-2">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary text-xs font-bold">LAB</div>
+<div>
+<div class="text-sm font-black text-[#455A64] dark:text-slate-300">实验室控制台</div>
+<div class="text-[10px] font-label font-medium uppercase tracking-widest text-[#466370]/60">V2.4.0-STABLE</div>
+</div>
+</div>
+<button class="w-full py-2 bg-primary text-on-primary text-xs font-label uppercase tracking-widest font-bold rounded shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">add_circle</span>
+                    新建研讨会
+                </button>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="bg-white dark:bg-slate-800 text-[#466370] dark:text-blue-300 border-r-2 border-[#466370] flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-all">
+<span class="material-symbols-outlined">folder_open</span>
+<span class="font-label text-xs font-medium uppercase tracking-widest">研究空间</span>
+</div>
+<div class="text-[#546067]/70 dark:text-slate-500 hover:text-[#466370] hover:bg-white/50 flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-all">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label text-xs font-medium uppercase tracking-widest">检索历史</span>
+</div>
+<div class="text-[#546067]/70 dark:text-slate-500 hover:text-[#466370] hover:bg-white/50 flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-all">
+<span class="material-symbols-outlined">database</span>
+<span class="font-label text-xs font-medium uppercase tracking-widest">数据集</span>
+</div>
+<div class="text-[#546067]/70 dark:text-slate-500 hover:text-[#466370] hover:bg-white/50 flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-all">
+<span class="material-symbols-outlined">settings_input_component</span>
+<span class="font-label text-xs font-medium uppercase tracking-widest">模型配置</span>
+</div>
+<div class="text-[#546067]/70 dark:text-slate-500 hover:text-[#466370] hover:bg-white/50 flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-all">
+<span class="material-symbols-outlined">terminal</span>
+<span class="font-label text-xs font-medium uppercase tracking-widest">系统日志</span>
+</div>
+</nav>
+<div class="mt-auto border-t border-outline-variant/10 pt-4 space-y-1">
+<div class="text-[#546067]/70 dark:text-slate-500 hover:text-[#466370] hover:bg-white/50 flex items-center gap-3 px-3 py-2 cursor-pointer transition-all">
+<span class="material-symbols-outlined">delete</span>
+<span class="font-label text-[10px] font-medium uppercase tracking-widest">回收站</span>
+</div>
+<div class="text-[#546067]/70 dark:text-slate-500 hover:text-[#466370] hover:bg-white/50 flex items-center gap-3 px-3 py-2 cursor-pointer transition-all">
+<span class="material-symbols-outlined">description</span>
+<span class="font-label text-[10px] font-medium uppercase tracking-widest">文档说明</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-w-0 bg-surface">
+<!-- Chat Scroll Area -->
+<div class="flex-1 overflow-y-auto p-8 space-y-12">
+<!-- Turn 1 (Human) -->
+<div class="flex flex-col items-end max-w-4xl mx-auto w-full">
+<div class="bg-surface-container-high px-4 py-3 rounded-xl rounded-tr-none text-sm leading-relaxed max-w-[85%] text-on-surface">
+                        分析当前关于“室温超导”最新的实验验证进展，特别是关于 LK-99 及其变体的复现结论。
+                    </div>
+<div class="mt-2 font-label text-[10px] text-outline uppercase tracking-tighter">Timestamp: 2023-11-20 14:20:11</div>
+</div>
+<!-- Turn 1 (AI Response) -->
+<div class="flex flex-col max-w-4xl mx-auto w-full group">
+<div class="flex gap-4 mb-4">
+<div class="w-8 h-8 rounded bg-secondary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-secondary text-sm" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="flex-1 space-y-4">
+<div class="prose prose-sm text-on-surface leading-relaxed">
+<p>根据最近的同行评审及大规模复现实验，目前科学界对 LK-99 的主流观点是：它并非室温超导体，而是一种表现出抗磁性的绝缘体。其最初观察到的电阻跌落现象主要是由材料中的硫化亚铜（Cu₂S）杂质在 104°C 左右发生的相变引起的 <span class="bg-primary-container text-primary px-1 rounded cursor-pointer font-bold text-[10px] inline-block hover:bg-primary hover:text-on-primary transition-colors">[1]</span>。</p>
+<p>主要验证机构包括马克斯·普朗克固体研究所和北京大学量子材料科学中心，相关研究已发表于 <i>Nature</i> <span class="bg-primary-container text-primary px-1 rounded cursor-pointer font-bold text-[10px] inline-block hover:bg-primary hover:text-on-primary transition-colors">[2]</span>。</p>
+</div>
+<!-- Evidence Pack 1 -->
+<div class="bg-surface-container-low border-l-2 border-primary p-3 rounded">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-sm">inventory_2</span>
+<span class="font-label text-[11px] font-bold uppercase text-primary tracking-widest">Evidence Pack #0912-A</span>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-surface-container-lowest p-2 border border-outline-variant/10 rounded">
+<div class="text-[10px] font-label text-outline mb-1">SRC_ID: NAT_PHYS_2023</div>
+<div class="text-xs line-clamp-2">"The half-levitation of LK-99 is consistent with a combination of ferromagnetism and diamagnetism..."</div>
+<div class="text-right mt-1 text-[9px] font-label text-secondary">Cosine Sim: 0.892</div>
+</div>
+<div class="bg-surface-container-lowest p-2 border border-outline-variant/10 rounded">
+<div class="text-[10px] font-label text-outline mb-1">SRC_ID: MAX_PLANCK_RPT</div>
+<div class="text-xs line-clamp-2">"Pure single crystals of Pb10-xCux(PO4)6O were synthesized using floating zone method..."</div>
+<div class="text-right mt-1 text-[9px] font-label text-secondary">Cosine Sim: 0.865</div>
+</div>
+</div>
+</div>
+<!-- Actions -->
+<div class="flex items-center gap-4 text-outline border-t border-outline-variant/10 pt-2 opacity-60 hover:opacity-100 transition-opacity">
+<button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-sm">thumb_up</span><span class="text-[10px] font-label">USEFUL</span></button>
+<button class="hover:text-error transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-sm">thumb_down</span><span class="text-[10px] font-label">NOT USEFUL</span></button>
+<button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-sm">edit_note</span><span class="text-[10px] font-label">CORRECT</span></button>
+<button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-sm">star</span><span class="text-[10px] font-label">STAR</span></button>
+</div>
+</div>
+</div>
+</div>
+<!-- Turn 2 (Human) -->
+<div class="flex flex-col items-end max-w-4xl mx-auto w-full">
+<div class="bg-surface-container-high px-4 py-3 rounded-xl rounded-tr-none text-sm leading-relaxed max-w-[85%] text-on-surface">
+                        除了 LK-99 之外，目前还有哪些在研的高压超导材料值得关注？重点分析 H3S 和 LaH10 的最新复现争议。
+                    </div>
+<div class="mt-2 font-label text-[10px] text-outline uppercase tracking-tighter">Timestamp: 2023-11-20 14:24:45</div>
+</div>
+<!-- Turn 2 (AI Response - STREAMING) -->
+<div class="flex flex-col max-w-4xl mx-auto w-full">
+<div class="flex gap-4 mb-4">
+<div class="w-8 h-8 rounded bg-secondary flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(70,99,112,0.3)] animate-pulse">
+<span class="material-symbols-outlined text-on-secondary text-sm" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="flex-1 space-y-4">
+<!-- Retrieval Trace (Live) -->
+<div class="flex items-start gap-4 mb-2">
+<div class="flex flex-col items-center pt-1">
+<div class="w-1.5 h-1.5 rounded-full bg-primary mb-1"></div>
+<div class="trace-line h-12"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-primary mb-1"></div>
+<div class="trace-line h-12"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-primary-container"></div>
+</div>
+<div class="space-y-4 flex-1">
+<div class="flex items-center justify-between">
+<span class="font-label text-[10px] font-bold text-primary uppercase">Vector Search</span>
+<span class="font-label text-[10px] text-outline">214ms | COMPLETED</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label text-[10px] font-bold text-primary uppercase">Rerank Processing</span>
+<span class="font-label text-[10px] text-outline">158ms | COMPLETED</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label text-[10px] font-bold text-primary uppercase">LLM Synthesis</span>
+<span class="font-label text-[10px] text-secondary">STREAMING...</span>
+</div>
+</div>
+</div>
+<div class="prose prose-sm text-on-surface leading-relaxed">
+<p>在高压氢化物超导研究领域，H3S 和 LaH10 仍然是领域的核心焦点，但相关争议正随着数据的深度审计而加剧：</p>
+<ol class="mt-2 space-y-2">
+<li><strong>H3S (硫化氢):</strong> Ranga Dias 团队曾在 Nature 发表关于 203K 超导的研究，但后续遭遇了由于数据处理手段不透明导致的撤稿。目前学术界的主要争议点在于其原始交流磁化率数据的扣除背景方法是否具有物理真实性 <span class="bg-primary-container text-primary px-1 rounded cursor-pointer font-bold text-[10px] inline-block hover:bg-primary hover:text-on-primary transition-colors">[3]</span>。</li>
+<li><strong>LaH10 (十氢化镧):</strong> 该材料在约 170 GPa 下表现出的 250K 超导性在多个实验室得到了初步复现。目前的焦点已转向对其结构稳定性的微观动力学模拟，以及是否存在更低压下的超导相变路径...<span class="stream-cursor"></span></li>
+</ol>
+</div>
+<!-- Floating Metadata Indicator -->
+<div class="inline-flex items-center gap-3 bg-surface-container-lowest border border-outline-variant/20 px-3 py-1.5 rounded-full">
+<div class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+<span class="text-[10px] font-label text-outline">Tokens: 1,284/sec</span>
+</div>
+<div class="w-px h-3 bg-outline-variant/20"></div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-xs text-outline">timer</span>
+<span class="text-[10px] font-label text-outline">Lat: 1.2s</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Input Anchor -->
+<div class="p-6 bg-surface-bright">
+<div class="max-w-4xl mx-auto">
+<div class="relative flex items-end bg-surface-container-lowest border-b border-primary focus-within:bg-surface-container-low transition-all p-2 gap-2">
+<textarea class="flex-1 bg-transparent border-none focus:ring-0 text-sm resize-none py-2 px-3 min-h-[44px]" placeholder="输入您的研究指令或追踪请求..." rows="1"></textarea>
+<div class="flex items-center gap-1 pb-1">
+<button class="p-2 hover:bg-surface-container rounded-lg transition-colors text-outline">
+<span class="material-symbols-outlined">attach_file</span>
+</button>
+<button class="p-2 hover:bg-surface-container rounded-lg transition-colors text-outline">
+<span class="material-symbols-outlined">data_exploration</span>
+</button>
+<button class="bg-primary text-on-primary px-4 py-2 rounded-lg text-xs font-label font-bold flex items-center gap-2 hover:bg-primary-dim transition-colors">
+<span>EXECUTE</span>
+<span class="material-symbols-outlined text-sm">send</span>
+</button>
+</div>
+</div>
+<div class="flex justify-between mt-3">
+<div class="flex gap-4">
+<label class="flex items-center gap-2 cursor-pointer group">
+<input checked="" class="w-3 h-3 rounded border-outline-variant text-primary focus:ring-primary/20" type="checkbox"/>
+<span class="text-[10px] font-label text-outline group-hover:text-primary">DEEP RESEARCH MODE</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer group">
+<input class="w-3 h-3 rounded border-outline-variant text-primary focus:ring-primary/20" type="checkbox"/>
+<span class="text-[10px] font-label text-outline group-hover:text-primary">AUTO-VERIFY</span>
+</label>
+</div>
+<div class="text-[10px] font-label text-outline/50 uppercase">Ctrl + Enter to fast-send</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Side: Metadata Inspector -->
+<aside class="w-72 bg-surface-container-low border-l border-[#546067]/10 flex flex-col hidden xl:flex">
+<div class="p-4 border-b border-[#546067]/10 flex items-center justify-between bg-surface-container">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-secondary">monitoring</span>
+<span class="font-label text-xs font-bold uppercase tracking-widest text-on-surface">Metadata Inspector</span>
+</div>
+<button class="text-outline hover:text-on-surface"><span class="material-symbols-outlined text-sm">close</span></button>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-6">
+<!-- Session Stats -->
+<section>
+<h4 class="text-[10px] font-label font-bold text-outline uppercase mb-3 tracking-widest">Session Telemetry</h4>
+<div class="space-y-3">
+<div class="flex justify-between items-center bg-surface-container-lowest p-2 border border-outline-variant/10 rounded">
+<span class="text-[10px] font-label text-outline-variant">Total Tokens</span>
+<span class="text-xs font-label font-bold text-secondary">42,891</span>
+</div>
+<div class="flex justify-between items-center bg-surface-container-lowest p-2 border border-outline-variant/10 rounded">
+<span class="text-[10px] font-label text-outline-variant">System Latency</span>
+<span class="text-xs font-label font-bold text-secondary">482ms</span>
+</div>
+<div class="flex justify-between items-center bg-surface-container-lowest p-2 border border-outline-variant/10 rounded">
+<span class="text-[10px] font-label text-outline-variant">Context Window</span>
+<span class="text-xs font-label font-bold text-secondary">32%</span>
+</div>
+</div>
+</section>
+<!-- Model Configuration -->
+<section>
+<h4 class="text-[10px] font-label font-bold text-outline uppercase mb-3 tracking-widest">Active Model</h4>
+<div class="bg-surface-container-lowest border border-outline-variant/10 p-3 rounded">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-sm text-primary">hub</span>
+<span class="text-xs font-bold text-on-surface">Assi-Agent-v4-Pro</span>
+</div>
+<div class="text-[10px] text-outline leading-tight">Quantization: 8-bit / Temperature: 0.2 / Top-P: 0.95</div>
+</div>
+</section>
+<!-- Knowledge Base -->
+<section>
+<h4 class="text-[10px] font-label font-bold text-outline uppercase mb-3 tracking-widest">Knowledge Context</h4>
+<div class="space-y-2">
+<div class="flex items-center gap-2 px-2 py-1.5 bg-primary-container/30 border border-primary/20 rounded">
+<span class="material-symbols-outlined text-xs text-primary">verified_user</span>
+<span class="text-[10px] font-medium text-primary-dim">arXiv 物理前沿数据库</span>
+</div>
+<div class="flex items-center gap-2 px-2 py-1.5 bg-primary-container/30 border border-primary/20 rounded">
+<span class="material-symbols-outlined text-xs text-primary">verified_user</span>
+<span class="text-[10px] font-medium text-primary-dim">Nature 全文索引 v2.0</span>
+</div>
+<div class="flex items-center gap-2 px-2 py-1.5 bg-surface-container-lowest border border-outline-variant/20 rounded opacity-50">
+<span class="material-symbols-outlined text-xs text-outline">description</span>
+<span class="text-[10px] font-medium text-outline">自定义私有文档 (4)</span>
+</div>
+</div>
+</section>
+<!-- Citation Explorer (Collapsed) -->
+<section>
+<h4 class="text-[10px] font-label font-bold text-outline uppercase mb-3 tracking-widest">Citations Trace</h4>
+<div class="space-y-2">
+<div class="p-2 border-b border-outline-variant/10 cursor-pointer hover:bg-surface-container-highest transition-colors">
+<div class="text-[9px] font-label text-primary font-bold">[1] Cu2S Phase Transition Analysis</div>
+<div class="text-[10px] text-outline truncate">Experimental verification at Max Planck...</div>
+</div>
+<div class="p-2 border-b border-outline-variant/10 cursor-pointer hover:bg-surface-container-highest transition-colors">
+<div class="text-[9px] font-label text-primary font-bold">[2] Nature 620, 2023 Rpt</div>
+<div class="text-[10px] text-outline truncate">Diamond anvil cell measurements...</div>
+</div>
+</div>
+</section>
+</div>
+<div class="p-4 bg-surface-container-high/50 border-t border-[#546067]/10 mt-auto">
+<button class="w-full py-2 bg-transparent border border-secondary text-secondary text-[10px] font-label font-bold uppercase tracking-widest rounded hover:bg-secondary hover:text-on-secondary transition-all">
+                    导出研究报告 (PDF)
+                </button>
+</div>
+</aside>
+</div>
+</body></html>

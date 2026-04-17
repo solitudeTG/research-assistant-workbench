@@ -5,8 +5,10 @@ import com.researchassistant.chat.dto.ChatResponse;
 import com.researchassistant.chat.dto.CitationDto;
 import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.EvidenceBoundaryService;
+import com.researchassistant.ingest.model.ResearchDocument;
 import com.researchassistant.memory.WorkingMemory;
 import com.researchassistant.memory.WorkingMemoryService;
+import com.researchassistant.orchestrator.support.DocumentMetadataService;
 import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagResult;
 import java.util.List;
@@ -20,6 +22,7 @@ public class SupervisorService {
     private final PaperRagService paperRagService;
     private final EvidenceBoundaryService evidenceBoundaryService;
     private final WorkingMemoryService workingMemoryService;
+    private final DocumentMetadataService documentMetadataService;
     private final ChatClient chatClient;
 
     public SupervisorService(
@@ -27,16 +30,68 @@ public class SupervisorService {
             PaperRagService paperRagService,
             EvidenceBoundaryService evidenceBoundaryService,
             WorkingMemoryService workingMemoryService,
+            DocumentMetadataService documentMetadataService,
             ChatClient chatClient) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
         this.evidenceBoundaryService = evidenceBoundaryService;
         this.workingMemoryService = workingMemoryService;
+        this.documentMetadataService = documentMetadataService;
         this.chatClient = chatClient;
     }
 
     public ChatResponse answer(ChatRequest request) {
         WorkingMemory memory = workingMemoryService.load(request.sessionKey());
+        ResearchDocument primaryDocument = documentMetadataService.findPrimaryDocument(request.documentIds());
+
+        if (request.documentIds() != null && !request.documentIds().isEmpty() && primaryDocument == null) {
+            String answer = "当前文档不存在、尚未完成索引，或在重启后已失效，请重新上传论文后再提问。";
+            workingMemoryService.appendExchange(
+                    request.sessionKey(),
+                    request.question(),
+                    answer,
+                    AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+            );
+            return new ChatResponse(
+                    request.sessionKey(),
+                    AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                    answer,
+                    List.of()
+            );
+        }
+
+        if (documentMetadataService.isTitleQuestion(request.question())) {
+            String answer = documentMetadataService.answerTitleQuestion(primaryDocument);
+            workingMemoryService.appendExchange(
+                    request.sessionKey(),
+                    request.question(),
+                    answer,
+                    AnswerMode.LOCAL_EVIDENCE.name()
+            );
+            return new ChatResponse(
+                    request.sessionKey(),
+                    AnswerMode.LOCAL_EVIDENCE.name(),
+                    answer,
+                    List.of()
+            );
+        }
+
+        if (documentMetadataService.isOverviewQuestion(request.question()) && primaryDocument != null) {
+            String answer = documentMetadataService.answerOverviewQuestion(primaryDocument);
+            workingMemoryService.appendExchange(
+                    request.sessionKey(),
+                    request.question(),
+                    answer,
+                    AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+            );
+            return new ChatResponse(
+                    request.sessionKey(),
+                    AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                    answer,
+                    List.of()
+            );
+        }
+
         RetrievalMode retrievalMode = taskRouter.route(request.question(), request.documentIds());
 
         if (retrievalMode == RetrievalMode.NO_RETRIEVAL) {

@@ -129,6 +129,7 @@
     const citations = document.getElementById('citations');
     const documentIdInput = document.getElementById('documentId');
     const status = document.getElementById('status');
+    let documentStatusTimer = null;
 
     uploadButton.addEventListener('click', async () => {
         const fileInput = document.getElementById('file');
@@ -140,14 +141,26 @@
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         status.textContent = 'Uploading...';
+        clearDocumentStatusTimer();
 
-        const response = await fetch('/api/documents/upload', {
-            method: 'POST',
-            body: formData
-        });
-        const payload = await response.json();
-        documentIdInput.value = payload.documentId ?? '';
-        status.textContent = `Upload accepted. Document ${payload.documentId} is ${payload.status}.`;
+        try {
+            const response = await fetch('/api/documents/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const payload = await readJsonSafely(response);
+            if (!response.ok) {
+                status.textContent = payload?.error ?? `Upload failed with HTTP ${response.status}.`;
+                return;
+            }
+
+            documentIdInput.value = payload.documentId ?? '';
+            status.textContent = `Upload accepted. Document ${payload.documentId} is ${payload.status}.`;
+            startDocumentStatusPolling(payload.documentId);
+        } catch (error) {
+            status.textContent = `Upload failed: ${error.message}`;
+        }
     });
 
     askButton.addEventListener('click', () => {
@@ -187,6 +200,63 @@
             source.close();
         };
     });
+
+    function startDocumentStatusPolling(documentId) {
+        if (!documentId) {
+            return;
+        }
+
+        let attempts = 0;
+        documentStatusTimer = window.setInterval(async () => {
+            attempts += 1;
+            try {
+                const response = await fetch(`/api/documents/${documentId}`);
+                const payload = await readJsonSafely(response);
+                if (!response.ok) {
+                    clearDocumentStatusTimer();
+                    status.textContent = payload?.error ?? `Status check failed with HTTP ${response.status}.`;
+                    return;
+                }
+
+                status.textContent = `Document ${documentId} is ${payload.status}.`;
+                if (payload.status === 'INDEXED') {
+                    clearDocumentStatusTimer();
+                    status.textContent = `Document ${documentId} is INDEXED and ready for questions.`;
+                    return;
+                }
+
+                if (payload.status === 'FAILED') {
+                    clearDocumentStatusTimer();
+                    const reason = payload.parseError ? ` ${payload.parseError}` : '';
+                    status.textContent = `Document ${documentId} failed during ${payload.failureStage ?? 'processing'}.${reason}`;
+                    return;
+                }
+
+                if (attempts >= 60) {
+                    clearDocumentStatusTimer();
+                    status.textContent = `Document ${documentId} is still ${payload.status}. You can keep waiting or refresh later.`;
+                }
+            } catch (error) {
+                clearDocumentStatusTimer();
+                status.textContent = `Status check failed: ${error.message}`;
+            }
+        }, 1000);
+    }
+
+    function clearDocumentStatusTimer() {
+        if (documentStatusTimer !== null) {
+            window.clearInterval(documentStatusTimer);
+            documentStatusTimer = null;
+        }
+    }
+
+    async function readJsonSafely(response) {
+        const text = await response.text();
+        if (!text) {
+            return null;
+        }
+        return JSON.parse(text);
+    }
 </script>
 </body>
 </html>
