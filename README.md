@@ -1,5 +1,7 @@
 # Research Assistant Phase 1
 
+Latest update notes: see [CHANGELOG.md](./CHANGELOG.md).
+
 ## Recommended startup
 
 After Docker Desktop is available and `.env` contains a real `AI_API_KEY`, the easiest startup path is:
