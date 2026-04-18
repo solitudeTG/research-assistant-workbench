@@ -512,6 +512,29 @@ button {
     backdrop-filter: blur(14px);
 }
 
+.composer-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px dashed rgba(69, 98, 112, 0.18);
+}
+
+.composer-heading h3 {
+    margin: 4px 0 0;
+    font-size: 1.08rem;
+}
+
+.composer-hint {
+    max-width: 420px;
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    line-height: 1.6;
+    text-align: right;
+}
+
 .composer-shell textarea {
     width: 100%;
     min-height: 124px;
@@ -760,5 +783,14 @@ code {
 
     .topbar-meta {
         display: none;
+    }
+
+    .composer-heading {
+        flex-direction: column;
+    }
+
+    .composer-hint {
+        max-width: none;
+        text-align: left;
     }
 }

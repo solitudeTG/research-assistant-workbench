@@ -8,7 +8,7 @@ const STATUS_TONE = {
 };
 
 export function normalizeDocument(rawDocument = {}) {
-    const fallbackTitle = rawDocument.title || rawDocument.originalFileName || `Document ${rawDocument.documentId ?? "?"}`;
+    const fallbackTitle = rawDocument.title || rawDocument.originalFileName || `文档 ${rawDocument.documentId ?? "?"}`;
     const status = String(rawDocument.status || "UNKNOWN").toUpperCase();
     return {
         documentId: Number(rawDocument.documentId ?? 0),
@@ -23,25 +23,25 @@ export function normalizeDocument(rawDocument = {}) {
     };
 }
 
-export function buildAnalysisViewModel(analysis, documentTitle = "Current document") {
+export function buildAnalysisViewModel(analysis, documentTitle = "当前文档") {
     if (!analysis) {
         return {
-            summary: "Document analysis will appear here after indexing completes.",
-            abstractText: "No abstract has been extracted yet.",
+            summary: "索引完成后，这里会展示论文的结构化总结。",
+            abstractText: "暂未抽取到摘要内容。",
             methods: [],
             contributions: [],
             keywords: [documentTitle],
-            outline: ["Awaiting structured outline"]
+            outline: ["正在等待结构化大纲"]
         };
     }
 
     return {
-        summary: analysis.summary || "Structured summary is unavailable for this document.",
-        abstractText: analysis.abstractText || "No abstract has been extracted yet.",
+        summary: analysis.summary || "当前文档暂未生成结构化总结。",
+        abstractText: analysis.abstractText || "暂未抽取到摘要内容。",
         methods: Array.isArray(analysis.methods) ? analysis.methods : [],
         contributions: Array.isArray(analysis.contributions) ? analysis.contributions : [],
         keywords: Array.isArray(analysis.keywords) && analysis.keywords.length > 0 ? analysis.keywords : [documentTitle],
-        outline: Array.isArray(analysis.outline) && analysis.outline.length > 0 ? analysis.outline : ["Outline unavailable"]
+        outline: Array.isArray(analysis.outline) && analysis.outline.length > 0 ? analysis.outline : ["暂无法提供大纲"]
     };
 }
 
@@ -61,8 +61,8 @@ export function applyStreamEvent(state, eventName, data) {
 
     if (eventName === "retrieval-start") {
         next.trace.push({
-            label: data?.label || "Retrieval started",
-            detail: data?.detail || "Preparing evidence candidates"
+            label: data?.label || "开始检索",
+            detail: data?.detail || "正在准备候选证据片段"
         });
         next.telemetry.status = "retrieving";
         return next;
@@ -70,7 +70,7 @@ export function applyStreamEvent(state, eventName, data) {
 
     if (eventName === "retrieval-step") {
         next.trace.push({
-            label: data?.label || "Retrieval step",
+            label: data?.label || "检索步骤",
             detail: data?.detail || ""
         });
         return next;
@@ -93,7 +93,7 @@ export function applyStreamEvent(state, eventName, data) {
 
     if (eventName === "error") {
         next.telemetry.status = "error";
-        next.telemetry.error = data?.message || String(data || "Unknown stream error");
+        next.telemetry.error = data?.message || String(data || "未知流式错误");
         return next;
     }
 
@@ -104,7 +104,7 @@ export function createLocalSession(name) {
     const now = new Date().toISOString();
     return {
         sessionKey: `local-${Math.random().toString(36).slice(2, 10)}`,
-        title: name || "New research session",
+        title: name || "新研究会话",
         createdAt: now,
         updatedAt: now,
         messageCount: 0,
@@ -114,20 +114,20 @@ export function createLocalSession(name) {
 
 export function formatRelativeTime(value) {
     if (!value) {
-        return "just now";
+        return "刚刚";
     }
     const milliseconds = Date.now() - new Date(value).getTime();
     const minutes = Math.max(0, Math.round(milliseconds / 60000));
     if (minutes < 1) {
-        return "just now";
+        return "刚刚";
     }
     if (minutes < 60) {
-        return `${minutes} min ago`;
+        return `${minutes} 分钟前`;
     }
     const hours = Math.round(minutes / 60);
     if (hours < 24) {
-        return `${hours} hr ago`;
+        return `${hours} 小时前`;
     }
     const days = Math.round(hours / 24);
-    return `${days} day${days > 1 ? "s" : ""} ago`;
+    return `${days} 天前`;
 }

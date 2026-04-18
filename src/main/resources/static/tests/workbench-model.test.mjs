@@ -29,12 +29,12 @@ test("normalizeDocument fills presentation defaults for sparse payloads", () => 
 test("buildAnalysisViewModel returns graceful placeholders when analysis is absent", () => {
     const viewModel = buildAnalysisViewModel(null, "Research Assistant");
 
-    assert.equal(viewModel.summary, "Document analysis will appear here after indexing completes.");
-    assert.equal(viewModel.abstractText, "No abstract has been extracted yet.");
+    assert.equal(viewModel.summary, "索引完成后，这里会展示论文的结构化总结。");
+    assert.equal(viewModel.abstractText, "暂未抽取到摘要内容。");
     assert.deepEqual(viewModel.methods, []);
     assert.deepEqual(viewModel.contributions, []);
     assert.deepEqual(viewModel.keywords, ["Research Assistant"]);
-    assert.deepEqual(viewModel.outline, ["Awaiting structured outline"]);
+    assert.deepEqual(viewModel.outline, ["正在等待结构化大纲"]);
 });
 
 test("applyStreamEvent supports current SSE events and future richer trace events", () => {

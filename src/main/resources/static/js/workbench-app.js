@@ -17,7 +17,7 @@ const state = {
     selectedDocumentId: null,
     analysis: null,
     systemState: "checking",
-    statusMessage: "Booting workspace...",
+    statusMessage: "正在启动工作台...",
     focusedMessageId: null,
     activeStream: null
 };
@@ -63,7 +63,7 @@ void bootstrap();
 
 function wireEvents() {
     elements.newSessionButton.addEventListener("click", () => {
-        const session = createSession("New research session");
+        const session = createSession("新研究会话");
         setActiveSession(session.sessionKey);
         renderAll();
     });
@@ -136,7 +136,7 @@ async function pingSystem() {
         state.systemState = "ok";
     } catch (error) {
         state.systemState = "error";
-        state.statusMessage = `Backend ping failed: ${error.message}`;
+        state.statusMessage = `后端健康检查失败：${error.message}`;
     }
 }
 
@@ -150,19 +150,19 @@ async function refreshDocuments() {
         state.documents = Array.isArray(payload?.documents)
                 ? payload.documents.map(normalizeDocument)
                 : [];
-        elements.documentCount.textContent = `${state.documents.length} indexed workspace assets`;
+        elements.documentCount.textContent = `当前共有 ${state.documents.length} 份工作台文档`;
         syncSelectedDocument();
         if (state.selectedDocumentId) {
             await loadAnalysis(state.selectedDocumentId);
         }
         if (state.documents.length === 0) {
-            state.statusMessage = "Workspace is empty. Upload a paper to begin.";
+            state.statusMessage = "当前还没有文档，请先上传论文。";
         }
     } catch (error) {
         state.documents = [];
         state.analysis = null;
-        elements.documentCount.textContent = "Document library unavailable";
-        state.statusMessage = `Document workspace unavailable: ${error.message}`;
+        elements.documentCount.textContent = "文档库暂不可用";
+        state.statusMessage = `文档工作台暂不可用：${error.message}`;
     }
     renderAll();
 }
@@ -188,21 +188,21 @@ async function loadAnalysis(documentId) {
         state.analysis = payload;
     } catch (error) {
         state.analysis = null;
-        state.statusMessage = `Structured analysis unavailable for document ${documentId}: ${error.message}`;
+        state.statusMessage = `文档 ${documentId} 的结构化分析暂不可用：${error.message}`;
     }
     renderInspector();
 }
 
 async function uploadDocument() {
     if (!elements.fileInput.files.length) {
-        state.statusMessage = "Choose a paper before uploading.";
+        state.statusMessage = "请先选择要上传的论文。";
         renderStatus();
         return;
     }
 
     const formData = new FormData();
     formData.append("file", elements.fileInput.files[0]);
-    state.statusMessage = `Uploading ${elements.fileInput.files[0].name}...`;
+    state.statusMessage = `正在上传 ${elements.fileInput.files[0].name}...`;
     renderStatus();
 
     try {
@@ -215,13 +215,13 @@ async function uploadDocument() {
             throw new Error(payload?.error || `HTTP ${response.status}`);
         }
 
-        state.statusMessage = `Upload accepted. Document ${payload.documentId} entered ${payload.status}.`;
+        state.statusMessage = `上传已接收，文档 ${payload.documentId} 当前状态：${payload.status}。`;
         await refreshDocuments();
         state.selectedDocumentId = Number(payload.documentId);
         await pollDocumentUntilReady(Number(payload.documentId));
         elements.fileInput.value = "";
     } catch (error) {
-        state.statusMessage = `Upload failed: ${error.message}`;
+        state.statusMessage = `上传失败：${error.message}`;
         renderStatus();
     }
 }
@@ -239,28 +239,28 @@ async function pollDocumentUntilReady(documentId) {
             renderAll();
 
             if (payload.status === "INDEXED") {
-                state.statusMessage = `Document ${documentId} is indexed and ready.`;
+                state.statusMessage = `文档 ${documentId} 已索引完成，可以开始提问。`;
                 await loadAnalysis(documentId);
                 return;
             }
 
             if (payload.status === "FAILED") {
-                state.statusMessage = `Document ${documentId} failed during ${payload.failureStage || "processing"}.`;
+                state.statusMessage = `文档 ${documentId} 在 ${payload.failureStage || "处理阶段"} 失败。`;
                 return;
             }
         } catch (error) {
-            state.statusMessage = `Status polling failed for document ${documentId}: ${error.message}`;
+            state.statusMessage = `轮询文档 ${documentId} 状态失败：${error.message}`;
             return;
         }
     }
 
-    state.statusMessage = `Document ${documentId} is still processing. You can continue later.`;
+    state.statusMessage = `文档 ${documentId} 仍在处理中，你可以稍后继续。`;
 }
 
 async function askQuestion() {
     const question = elements.composer.value.trim();
     if (!question) {
-        state.statusMessage = "Write a research question first.";
+        state.statusMessage = "请先输入你的问题。";
         renderStatus();
         return;
     }
@@ -280,38 +280,38 @@ async function askQuestion() {
         id: nextId("assistant"),
         role: "assistant",
         content: "",
-        answerMode: "PENDING",
+        answerMode: "等待中",
         createdAt: now,
         citations: [],
         trace: [
             {
-                label: "Request accepted",
+                label: "请求已接收",
                 detail: state.selectedDocumentId
-                        ? `Grounding against document ${state.selectedDocumentId}.`
-                        : "No document pinned, running with available local context only."
+                        ? `当前将基于文档 ${state.selectedDocumentId} 进行证据约束回答。`
+                        : "当前没有固定文档，将只使用现有本地上下文。"
             },
             {
-                label: "Awaiting retrieval events",
-                detail: "Current backend emits coarse SSE tokens only. Fine-grained trace steps will appear automatically when available."
+                label: "等待检索事件",
+                detail: "当前后端主要返回粗粒度 SSE 事件；更细的检索轨迹会在后端增强后自动显示。"
             }
         ],
         telemetry: {
             status: "connecting",
-            answerMode: "PENDING",
-            latency: "Streaming...",
-            evidenceCount: "0 citations",
-            contextWindow: state.selectedDocumentId ? `doc:${state.selectedDocumentId}` : "local-only"
+            answerMode: "等待中",
+            latency: "正在建立流式连接...",
+            evidenceCount: "0 条引用",
+            contextWindow: state.selectedDocumentId ? `文档:${state.selectedDocumentId}` : "仅本地上下文"
         }
     };
 
-    if (session.title === "New research session") {
+    if (session.title === "新研究会话") {
         session.title = question.slice(0, 42);
     }
     session.messages.push(userMessage, assistantMessage);
     session.messageCount = session.messages.length;
     touchSession(session);
     state.focusedMessageId = assistantMessage.id;
-    state.statusMessage = "Streaming answer...";
+    state.statusMessage = "正在生成回答...";
     elements.composer.value = "";
     renderAll();
     scrollConversationToBottom();
@@ -337,8 +337,8 @@ async function askQuestion() {
     source.addEventListener("heartbeat", () => {
         streamState.trace = [
             {
-                label: "Session hydrated",
-                detail: "Backend accepted the SSE request and initialized the answer pipeline."
+                label: "会话已建立",
+                detail: "后端已接受 SSE 请求，并初始化了回答链路。"
             },
             ...streamState.trace
         ].slice(0, 6);
@@ -354,7 +354,7 @@ async function askQuestion() {
             content: streamState.answerParts.join(" "),
             telemetry: {
                 ...streamState.telemetry,
-                latency: "Receiving tokens..."
+                latency: "正在接收内容..."
             }
         });
     });
@@ -378,18 +378,18 @@ async function askQuestion() {
 
         updateAssistantMessage(assistantMessage.id, {
             content: payload.answer || streamState.answerParts.join(" "),
-            answerMode: payload.answerMode || "UNKNOWN",
+            answerMode: payload.answerMode || "未知模式",
             citations: Array.isArray(payload.citations) ? payload.citations : [],
             trace: streamState.trace,
             telemetry: normalizeTelemetry({
                 ...streamState.telemetry,
                 status: "done",
                 answerMode: payload.answerMode || streamState.telemetry.answerMode,
-                evidenceCount: `${Array.isArray(payload.citations) ? payload.citations.length : 0} citations`,
-                latency: "Completed"
+                evidenceCount: `${Array.isArray(payload.citations) ? payload.citations.length : 0} 条引用`,
+                latency: "已完成"
             })
         });
-        state.statusMessage = `Completed with ${payload.answerMode || "UNKNOWN"}.`;
+        state.statusMessage = `回答已完成，模式：${payload.answerMode || "未知模式"}。`;
         closeStream();
         renderAll();
         scrollConversationToBottom();
@@ -397,21 +397,21 @@ async function askQuestion() {
 
     source.onerror = () => {
         updateAssistantMessage(assistantMessage.id, {
-            content: assistantMessage.content || "Streaming failed before a complete answer was received.",
+            content: assistantMessage.content || "流式回答在完成前中断了，请稍后重试。",
             telemetry: normalizeTelemetry({
                 ...streamState.telemetry,
                 status: "error",
-                latency: "Interrupted"
+                latency: "已中断"
             }),
             trace: [
                 {
-                    label: "Stream interruption",
-                    detail: "The browser lost the SSE connection. You can retry the same question once the backend is healthy."
+                    label: "流式中断",
+                    detail: "浏览器与 SSE 连接断开。后端恢复稳定后，你可以重新提问。"
                 },
                 ...streamState.trace
             ].slice(0, 8)
         });
-        state.statusMessage = "Streaming failed.";
+        state.statusMessage = "流式回答失败。";
         closeStream();
         renderAll();
     };
@@ -429,10 +429,10 @@ function renderAll() {
 function renderStatus() {
     elements.systemStatus.dataset.state = state.systemState;
     elements.systemStatus.textContent = state.systemState === "ok"
-            ? "system-online"
+            ? "系统在线"
             : state.systemState === "error"
-                    ? "system-degraded"
-                    : "system-checking";
+                    ? "系统异常"
+                    : "系统检查中";
     elements.statusBanner.textContent = state.statusMessage;
 }
 
@@ -440,32 +440,32 @@ function renderHeader() {
     const session = getActiveSession();
     const selectedDocument = getSelectedDocument();
 
-    elements.activeSessionTitle.textContent = session?.title || "Research workspace";
+    elements.activeSessionTitle.textContent = session?.title || "研究工作区";
     elements.activeSessionMeta.textContent = session
-            ? `${session.messages.length} turns recorded locally · updated ${formatRelativeTime(session.updatedAt)}`
-            : "No active session";
+            ? `本地已记录 ${session.messages.length} 轮对话，最近更新于 ${formatRelativeTime(session.updatedAt)}`
+            : "当前没有激活会话";
 
     elements.documentChips.innerHTML = "";
     const chips = [];
     if (selectedDocument) {
         chips.push({
             label: selectedDocument.title,
-            meta: `${selectedDocument.status} · ${selectedDocument.totalChunks} chunks`
+            meta: `${selectedDocument.status} · ${selectedDocument.totalChunks} 个切块`
         });
     } else {
         chips.push({
-            label: "No pinned paper",
-            meta: "Upload or select a document from the left rail"
+            label: "尚未固定论文",
+            meta: "请先从左侧上传或选择一篇文档"
         });
     }
 
     chips.push({
-        label: elements.deepResearchToggle.checked ? "Deep research enabled" : "Deep research standby",
-        meta: "UI-ready · backend route expands when available"
+        label: elements.deepResearchToggle.checked ? "深度研究已开启" : "深度研究待命中",
+        meta: "界面已就绪，后端能力会持续扩展"
     });
     chips.push({
-        label: elements.autoVerifyToggle.checked ? "Auto verify queued" : "Auto verify off",
-        meta: "Placeholder until verification pipeline lands"
+        label: elements.autoVerifyToggle.checked ? "自动校验已排队" : "自动校验已关闭",
+        meta: "校验链路接入后会直接在这里生效"
     });
 
     for (const chip of chips) {
@@ -484,9 +484,9 @@ function renderSessions() {
         button.dataset.sessionKey = session.sessionKey;
         button.innerHTML = `
             <h3>${escapeHtml(session.title)}</h3>
-            <p class="muted">${escapeHtml(session.messages.at(-1)?.content?.slice(0, 88) || "Local-first session workspace for current document set.")}</p>
+            <p class="muted">${escapeHtml(session.messages.at(-1)?.content?.slice(0, 88) || "当前文档集合的本地优先研究会话。")}</p>
             <div class="meta-row">
-                <span class="meta-token">${session.messageCount} turns</span>
+                <span class="meta-token">${session.messageCount} 轮</span>
                 <span class="meta-token">${formatRelativeTime(session.updatedAt)}</span>
             </div>
         `;
@@ -500,7 +500,7 @@ function renderDocuments() {
     if (state.documents.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty-state";
-        empty.textContent = "No documents are available yet. Upload a paper and the workbench will start tracking indexing, chunk counts, and structured analysis.";
+        empty.textContent = "当前还没有文档。上传论文后，工作台会开始跟踪索引状态、切块数量和结构化分析。";
         elements.documentList.appendChild(empty);
         return;
     }
@@ -514,8 +514,8 @@ function renderDocuments() {
             <p class="muted">${escapeHtml(documentRecord.originalFileName)}</p>
             <div class="meta-row">
                 <span class="meta-token" data-tone="${documentRecord.tone}">${documentRecord.status}</span>
-                <span class="meta-token">${documentRecord.totalChunks} chunks</span>
-                <span class="meta-token">${documentRecord.totalTokens} tokens</span>
+                <span class="meta-token">${documentRecord.totalChunks} 个切块</span>
+                <span class="meta-token">${documentRecord.totalTokens} 个 token</span>
             </div>
         `;
         elements.documentList.appendChild(button);
@@ -530,7 +530,7 @@ function renderConversation() {
     if (messages.length === 0) {
         elements.conversation.innerHTML = `
             <div class="empty-state">
-                Ask a grounded question after selecting a paper. This workbench keeps local session history even before the backend exposes full session APIs.
+                先在左侧选择一篇论文，然后在下方“对话区”输入问题。这里会保留本地会话历史，方便你连续追问。
             </div>
         `;
         return;
@@ -542,12 +542,12 @@ function renderConversation() {
         const article = document.createElement("article");
         article.className = `message message--${message.role}`;
         article.innerHTML = `
-            <div class="message-avatar">${message.role === "assistant" ? "AI" : "YOU"}</div>
+            <div class="message-avatar">${message.role === "assistant" ? "AI" : "我"}</div>
             <div class="message-card${message.id === state.focusedMessageId ? " is-selected" : ""}" data-message-id="${message.id}">
-                <h3>${message.role === "assistant" ? "Grounded answer" : "Research prompt"}</h3>
-                <p>${escapeHtml(message.content || (message.role === "assistant" ? "Waiting for streamed tokens..." : ""))}</p>
+                <h3>${message.role === "assistant" ? "证据约束回答" : "用户问题"}</h3>
+                <p>${escapeHtml(message.content || (message.role === "assistant" ? "正在等待流式返回内容..." : ""))}</p>
                 <div class="message-foot">
-                    <span>${escapeHtml(message.answerMode || "LOCAL_SESSION")}</span>
+                    <span>${escapeHtml(message.answerMode || "本地会话")}</span>
                     <span>${formatRelativeTime(message.createdAt)}</span>
                 </div>
             </div>
@@ -559,48 +559,48 @@ function renderConversation() {
 
 function renderInspector() {
     const selectedDocument = getSelectedDocument();
-    const analysis = buildAnalysisViewModel(state.analysis, selectedDocument?.title || "Current document");
+    const analysis = buildAnalysisViewModel(state.analysis, selectedDocument?.title || "当前文档");
     const focusedAssistant = getFocusedAssistantMessage();
 
     elements.selectedDocumentLabel.textContent = selectedDocument
             ? `${selectedDocument.title} · ${selectedDocument.status}`
-            : "No document selected";
+            : "尚未选择文档";
 
     elements.analysisSummary.textContent = analysis.summary;
     elements.analysisAbstract.textContent = analysis.abstractText;
-    renderList(elements.analysisMethods, analysis.methods, "Methods will appear once structured extraction is available.");
-    renderList(elements.analysisContributions, analysis.contributions, "Contributions will appear once the backend analysis is ready.");
+    renderList(elements.analysisMethods, analysis.methods, "待结构化抽取完成后，这里会展示论文方法。");
+    renderList(elements.analysisContributions, analysis.contributions, "待后端分析完成后，这里会展示论文贡献。");
     renderInlineChips(elements.analysisKeywords, analysis.keywords);
-    renderList(elements.analysisOutline, analysis.outline, "Outline unavailable.");
+    renderList(elements.analysisOutline, analysis.outline, "暂时无法提供大纲。");
 
     if (!focusedAssistant) {
-        elements.citationList.innerHTML = `<div class="empty-state">Evidence cards will appear after the first assistant answer with citations.</div>`;
-        elements.traceList.innerHTML = `<div class="empty-state">Retrieval trace will appear here. The current backend emits coarse SSE events; richer trace events are handled automatically once added.</div>`;
-        elements.telemetryAnswerMode.textContent = "PENDING";
-        elements.telemetryLatency.textContent = "No request";
-        elements.telemetryEvidence.textContent = selectedDocument ? `${selectedDocument.totalChunks} chunks indexed` : "0 citations";
-        elements.telemetryContext.textContent = selectedDocument ? `doc:${selectedDocument.documentId}` : "workspace-idle";
+        elements.citationList.innerHTML = `<div class="empty-state">当回答返回引用后，这里会展示证据卡片。</div>`;
+        elements.traceList.innerHTML = `<div class="empty-state">这里会显示检索轨迹。当前后端主要返回粗粒度 SSE 事件，后续更丰富的轨迹会自动显示。</div>`;
+        elements.telemetryAnswerMode.textContent = "等待中";
+        elements.telemetryLatency.textContent = "暂无请求";
+        elements.telemetryEvidence.textContent = selectedDocument ? `已索引 ${selectedDocument.totalChunks} 个切块` : "0 条引用";
+        elements.telemetryContext.textContent = selectedDocument ? `文档:${selectedDocument.documentId}` : "工作台空闲";
     } else {
         renderCitations(focusedAssistant.citations || []);
         renderTrace(focusedAssistant.trace || []);
         const telemetry = focusedAssistant.telemetry || {};
-        elements.telemetryAnswerMode.textContent = telemetry.answerMode || focusedAssistant.answerMode || "UNKNOWN";
-        elements.telemetryLatency.textContent = telemetry.latency || "Streaming-compatible";
-        elements.telemetryEvidence.textContent = telemetry.evidenceCount || `${(focusedAssistant.citations || []).length} citations`;
-        elements.telemetryContext.textContent = telemetry.contextWindow || (selectedDocument ? `doc:${selectedDocument.documentId}` : "local-only");
+        elements.telemetryAnswerMode.textContent = telemetry.answerMode || focusedAssistant.answerMode || "未知模式";
+        elements.telemetryLatency.textContent = telemetry.latency || "支持流式返回";
+        elements.telemetryEvidence.textContent = telemetry.evidenceCount || `${(focusedAssistant.citations || []).length} 条引用`;
+        elements.telemetryContext.textContent = telemetry.contextWindow || (selectedDocument ? `文档:${selectedDocument.documentId}` : "仅本地上下文");
     }
 
     elements.fallbackCapabilities.innerHTML = `
-        <li>Session lists are persisted locally in the browser until backend session APIs arrive.</li>
-        <li>Current SSE endpoint streams <code>message</code> and <code>done</code>; future retrieval and telemetry events are already wired for auto-upgrade.</li>
-        <li>The workbench pins one active document because the current backend accepts a single <code>documentId</code> for SSE chat.</li>
+        <li>在完整后端会话接口进一步增强前，会话列表会先保存在浏览器本地。</li>
+        <li>当前 SSE 接口已经支持 <code>message</code> 和 <code>done</code> 事件，后续更细的检索与遥测事件已预留自动接入。</li>
+        <li>当前工作台一次固定一篇活动文档，因为现阶段 SSE 对话接口仍以单个 <code>documentId</code> 为主。</li>
     `;
 }
 
 function renderCitations(citations) {
     elements.citationList.innerHTML = "";
     if (!citations.length) {
-        elements.citationList.innerHTML = `<div class="empty-state">No citations were returned for the selected answer.</div>`;
+        elements.citationList.innerHTML = `<div class="empty-state">当前回答没有返回引用片段。</div>`;
         return;
     }
 
@@ -608,8 +608,8 @@ function renderCitations(citations) {
         const item = document.createElement("article");
         item.className = "citation-item";
         item.innerHTML = `
-            <h3>Doc ${citation.documentId} · chunk ${citation.chunkIndex}</h3>
-            <p>${escapeHtml(citation.excerpt || "No excerpt returned.")}</p>
+            <h3>文档 ${citation.documentId} · 切块 ${citation.chunkIndex}</h3>
+            <p>${escapeHtml(citation.excerpt || "当前没有返回摘录内容。")}</p>
             <div class="meta-row">
                 <span class="meta-token">chunkId ${citation.chunkId}</span>
             </div>
@@ -621,7 +621,7 @@ function renderCitations(citations) {
 function renderTrace(trace) {
     elements.traceList.innerHTML = "";
     if (!trace.length) {
-        elements.traceList.innerHTML = `<div class="empty-state">Retrieval trace is empty for this answer.</div>`;
+        elements.traceList.innerHTML = `<div class="empty-state">当前回答还没有检索轨迹。</div>`;
         return;
     }
 
@@ -629,8 +629,8 @@ function renderTrace(trace) {
         const item = document.createElement("article");
         item.className = "trace-item";
         item.innerHTML = `
-            <h3>${escapeHtml(step.label || "Trace step")}</h3>
-            <p>${escapeHtml(step.detail || "No additional detail.")}</p>
+            <h3>${escapeHtml(step.label || "轨迹步骤")}</h3>
+            <p>${escapeHtml(step.detail || "暂无更多细节。")}</p>
         `;
         elements.traceList.appendChild(item);
     }
@@ -664,10 +664,10 @@ function renderInlineChips(container, items) {
 function normalizeTelemetry(telemetry) {
     return {
         status: telemetry.status || "idle",
-        answerMode: telemetry.answerMode || "UNKNOWN",
-        latency: telemetry.latency || "Streaming-compatible",
-        evidenceCount: telemetry.evidenceCount || "0 citations",
-        contextWindow: telemetry.contextWindow || (state.selectedDocumentId ? `doc:${state.selectedDocumentId}` : "local-only")
+        answerMode: telemetry.answerMode || "未知模式",
+        latency: telemetry.latency || "支持流式返回",
+        evidenceCount: telemetry.evidenceCount || "0 条引用",
+        contextWindow: telemetry.contextWindow || (state.selectedDocumentId ? `文档:${state.selectedDocumentId}` : "仅本地上下文")
     };
 }
 
@@ -680,7 +680,7 @@ function hydrateSessions() {
     }
 
     if (state.sessions.length === 0) {
-        state.sessions.push(createSession("New research session"));
+        state.sessions.push(createSession("新研究会话"));
     }
 
     const preferredSessionKey = localStorage.getItem(STORAGE_KEYS.activeSession);

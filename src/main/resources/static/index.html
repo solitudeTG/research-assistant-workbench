@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Research Assistant Workbench</title>
+    <title>智能研究助手工作台</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
@@ -15,14 +15,14 @@
         <div class="brand">
             <div class="brand-mark">LAB</div>
             <div class="brand-copy">
-                <h1>Research Assistant Workbench</h1>
-                <p>Upload a paper, inspect structured analysis, and stream grounded answers with future-proof retrieval panels.</p>
+                <h1>智能研究助手工作台</h1>
+                <p>上传论文、查看结构化分析，并基于本地证据进行流式问答。</p>
             </div>
         </div>
         <div class="topbar-meta">
-            <span id="system-status" class="status-pill" data-state="checking">system-checking</span>
-            <span class="meta-pill">Local-first session rail</span>
-            <span class="meta-pill">SSE-compatible trace inspector</span>
+            <span id="system-status" class="status-pill" data-state="checking">系统检查中</span>
+            <span class="meta-pill">本地优先会话区</span>
+            <span class="meta-pill">SSE 检索轨迹面板</span>
         </div>
     </header>
 
@@ -32,15 +32,15 @@
                 <section class="card">
                     <div class="card-header">
                         <div>
-                            <p class="eyebrow">Session Control</p>
-                            <h2 class="section-title">Workspace Sessions</h2>
+                            <p class="eyebrow">会话管理</p>
+                            <h2 class="section-title">研究会话</h2>
                         </div>
-                        <button id="new-session" class="ghost-button" type="button">New</button>
+                        <button id="new-session" class="ghost-button" type="button">新建</button>
                     </div>
                     <div class="card-body">
                         <div id="session-list" class="session-list"></div>
                         <div class="footer-note">
-                            The current backend does not expose session CRUD yet, so this rail persists client-side to keep the workbench usable right now.
+                            当前后端的完整会话管理仍在持续增强，因此这里会先在浏览器本地保存会话，保证你现在就能连续追问。
                         </div>
                     </div>
                 </section>
@@ -48,21 +48,21 @@
                 <section class="card">
                     <div class="card-header">
                         <div>
-                            <p class="eyebrow">Document Library</p>
-                            <h2 class="section-title">Paper Intake</h2>
+                            <p class="eyebrow">文档库</p>
+                            <h2 class="section-title">论文接入</h2>
                         </div>
-                        <button id="refresh-documents" class="ghost-button" type="button">Refresh</button>
+                        <button id="refresh-documents" class="ghost-button" type="button">刷新</button>
                     </div>
                     <div class="card-body">
                         <div class="upload-box">
                             <label class="file-input" for="file-input">
-                                <strong>Upload a paper</strong>
-                                <span class="muted">This uses the current <code>/api/documents/upload</code> flow and then polls indexing status automatically.</span>
+                                <strong>上传论文</strong>
+                                <span class="muted">当前会走 <code>/api/documents/upload</code> 接口，并自动轮询索引状态。</span>
                                 <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
                             </label>
-                            <button id="upload-button" class="primary-button" type="button">Upload Into Workspace</button>
+                            <button id="upload-button" class="primary-button" type="button">上传到工作台</button>
                         </div>
-                        <p id="document-count" class="footer-note">Loading document workspace...</p>
+                        <p id="document-count" class="footer-note">正在加载文档工作台...</p>
                         <div id="document-list" class="document-list"></div>
                     </div>
                 </section>
@@ -72,9 +72,9 @@
         <main class="workspace-main">
             <section class="conversation-header">
                 <div>
-                    <p class="eyebrow">Active Research Thread</p>
-                    <h2 id="active-session-title" class="conversation-title">Research workspace</h2>
-                    <p id="active-session-meta" class="conversation-subtitle">Preparing the local-first session shell.</p>
+                    <p class="eyebrow">当前研究线程</p>
+                    <h2 id="active-session-title" class="conversation-title">研究工作区</h2>
+                    <p id="active-session-meta" class="conversation-subtitle">正在准备本地优先会话环境。</p>
                     <div id="document-chips" class="document-chips"></div>
                 </div>
             </section>
@@ -83,22 +83,29 @@
 
             <section class="composer">
                 <div class="composer-shell">
-                    <textarea id="composer" placeholder="Ask for the abstract, main contribution, method details, or compare grounded evidence across your indexed papers."></textarea>
+                    <div class="composer-heading">
+                        <div>
+                            <p class="eyebrow">对话区</p>
+                            <h3>在这里提问</h3>
+                        </div>
+                        <span class="composer-hint">可直接问：摘要、研究问题、方法、贡献、结论，或多篇论文的证据对比。</span>
+                    </div>
+                    <textarea id="composer" placeholder="例如：这篇论文研究了什么？摘要是什么？它的方法和主要贡献分别是什么？"></textarea>
                     <div class="composer-footer">
                         <div class="toggle-row">
                             <label class="toggle">
                                 <input id="deep-research" type="checkbox" checked>
-                                <span>Deep research</span>
+                                <span>深度研究</span>
                             </label>
                             <label class="toggle">
                                 <input id="auto-verify" type="checkbox">
-                                <span>Auto verify</span>
+                                <span>自动校验</span>
                             </label>
                         </div>
-                        <button id="send-button" class="primary-button" type="button">Stream Answer</button>
+                        <button id="send-button" class="primary-button" type="button">发送问题</button>
                     </div>
                 </div>
-                <div id="status-banner" class="footer-note">Workspace ready.</div>
+                <div id="status-banner" class="footer-note">工作台已就绪。</div>
             </section>
         </main>
 
@@ -107,27 +114,27 @@
                 <section class="card">
                     <div class="card-header">
                         <div>
-                            <p class="eyebrow">Inspector Focus</p>
-                            <h2 id="selected-document-label" class="section-title">No document selected</h2>
+                            <p class="eyebrow">当前焦点</p>
+                            <h2 id="selected-document-label" class="section-title">尚未选择文档</h2>
                         </div>
                     </div>
                     <div class="card-body">
                         <div class="stat-grid">
                             <div class="stat-card">
-                                <span>Answer mode</span>
-                                <strong id="telemetry-answer-mode">PENDING</strong>
+                                <span>回答模式</span>
+                                <strong id="telemetry-answer-mode">等待中</strong>
                             </div>
                             <div class="stat-card">
-                                <span>Latency</span>
-                                <strong id="telemetry-latency">No request</strong>
+                                <span>延迟</span>
+                                <strong id="telemetry-latency">暂无请求</strong>
                             </div>
                             <div class="stat-card">
-                                <span>Evidence</span>
-                                <strong id="telemetry-evidence">0 citations</strong>
+                                <span>证据</span>
+                                <strong id="telemetry-evidence">0 条引用</strong>
                             </div>
                             <div class="stat-card">
-                                <span>Context</span>
-                                <strong id="telemetry-context">workspace-idle</strong>
+                                <span>上下文</span>
+                                <strong id="telemetry-context">工作台空闲</strong>
                             </div>
                         </div>
                     </div>
@@ -136,34 +143,34 @@
                 <section class="card">
                     <div class="card-header">
                         <div>
-                            <p class="eyebrow">Structured Analysis</p>
-                            <h2 class="section-title">Abstract, Methods, Contributions</h2>
+                            <p class="eyebrow">结构化分析</p>
+                            <h2 class="section-title">摘要、方法与贡献</h2>
                         </div>
                     </div>
                     <div class="card-body">
                         <div class="analysis-grid">
                             <div class="analysis-block">
-                                <h4>Summary</h4>
+                                <h4>总结</h4>
                                 <p id="analysis-summary"></p>
                             </div>
                             <div class="analysis-block">
-                                <h4>Abstract</h4>
+                                <h4>摘要</h4>
                                 <p id="analysis-abstract"></p>
                             </div>
                             <div class="analysis-block">
-                                <h4>Methods</h4>
+                                <h4>方法</h4>
                                 <ul id="analysis-methods"></ul>
                             </div>
                             <div class="analysis-block">
-                                <h4>Contributions</h4>
+                                <h4>贡献</h4>
                                 <ul id="analysis-contributions"></ul>
                             </div>
                             <div class="analysis-block">
-                                <h4>Keywords</h4>
+                                <h4>关键词</h4>
                                 <div id="analysis-keywords" class="chip-list"></div>
                             </div>
                             <div class="analysis-block">
-                                <h4>Outline</h4>
+                                <h4>大纲</h4>
                                 <ul id="analysis-outline"></ul>
                             </div>
                         </div>
@@ -173,8 +180,8 @@
                 <section class="card">
                     <div class="card-header">
                         <div>
-                            <p class="eyebrow">Evidence Pack</p>
-                            <h2 class="section-title">Citations</h2>
+                            <p class="eyebrow">证据包</p>
+                            <h2 class="section-title">引用片段</h2>
                         </div>
                     </div>
                     <div id="citation-list" class="card-body citation-list"></div>
@@ -183,8 +190,8 @@
                 <section class="card">
                     <div class="card-header">
                         <div>
-                            <p class="eyebrow">Retrieval Process</p>
-                            <h2 class="section-title">Trace Timeline</h2>
+                            <p class="eyebrow">检索过程</p>
+                            <h2 class="section-title">轨迹时间线</h2>
                         </div>
                     </div>
                     <div id="trace-list" class="card-body trace-list"></div>
@@ -193,8 +200,8 @@
                 <section class="card">
                     <div class="card-header">
                         <div>
-                            <p class="eyebrow">Graceful Degradation</p>
-                            <h2 class="section-title">Current Compatibility Notes</h2>
+                            <p class="eyebrow">兼容说明</p>
+                            <h2 class="section-title">当前能力边界</h2>
                         </div>
                     </div>
                     <div class="card-body">
