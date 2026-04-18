@@ -34,6 +34,9 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
     @Autowired
     private DocumentProcessingJob documentProcessingJob;
 
+    @Autowired
+    private DocumentAnalysisRepository documentAnalysisRepository;
+
     @Test
     void processDocumentExtractsTextAndIndexesChunks() throws Exception {
         Path pdfPath = Files.createTempFile("document-processing-", ".pdf");
@@ -45,8 +48,11 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
 
         assertThat(documentRepository.findById(documentId)).isPresent();
         assertThat(documentRepository.findById(documentId).orElseThrow().status()).isEqualTo(DocumentStatus.INDEXED);
+        assertThat(documentRepository.findById(documentId).orElseThrow().totalChunks()).isPositive();
+        assertThat(documentRepository.findById(documentId).orElseThrow().totalTokens()).isPositive();
         assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
         assertThat(documentChunkRepository.findByDocumentId(documentId).get(0).id()).isPositive();
+        assertThat(documentAnalysisRepository.findByDocumentId(documentId)).isPresent();
         verify(vectorSearchPort).reindexDocument(eq(documentId), eq(documentChunkRepository.findByDocumentId(documentId).stream()
                 .map(row -> new RagChunk(row.id(), row.documentId(), row.chunkIndex(), row.content(), 0.0))
                 .toList()));
@@ -63,6 +69,7 @@ class DocumentProcessingJobTest extends PostgresIntegrationTest {
 
         assertThat(documentRepository.findById(documentId)).isPresent();
         assertThat(documentRepository.findById(documentId).orElseThrow().status()).isEqualTo(DocumentStatus.INDEXED);
+        assertThat(documentAnalysisRepository.findByDocumentId(documentId)).isPresent();
         assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
         verify(vectorSearchPort).reindexDocument(eq(documentId), eq(documentChunkRepository.findByDocumentId(documentId).stream()
                 .map(row -> new RagChunk(row.id(), row.documentId(), row.chunkIndex(), row.content(), 0.0))

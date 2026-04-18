@@ -29,6 +29,9 @@ class DocumentIngestServiceTest {
     @Mock
     private DocumentProcessingJob documentProcessingJob;
 
+    @Mock
+    private DocumentAnalysisService documentAnalysisService;
+
     @InjectMocks
     private DocumentIngestService documentIngestService;
 

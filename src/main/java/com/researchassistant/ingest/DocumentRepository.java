@@ -29,11 +29,27 @@ public class DocumentRepository {
             where id = ?
             """;
 
+    private static final String UPDATE_STATS_SQL = """
+            update research_document
+            set total_chunks = ?,
+                total_tokens = ?
+            where id = ?
+            """;
+
     private static final String FIND_BY_ID_SQL = """
             select id, title, original_file_name, storage_path, status, failure_stage, parse_error,
+                   total_chunks, total_tokens,
                    created_at, updated_at
             from research_document
             where id = ?
+            """;
+
+    private static final String FIND_ALL_SQL = """
+            select id, title, original_file_name, storage_path, status, failure_stage, parse_error,
+                   total_chunks, total_tokens,
+                   created_at, updated_at
+            from research_document
+            order by updated_at desc, id desc
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -83,10 +99,32 @@ public class DocumentRepository {
                 DocumentStatus.valueOf(resultSet.getString("status")),
                 mapFailureStage(resultSet.getString("failure_stage")),
                 resultSet.getString("parse_error"),
+                resultSet.getInt("total_chunks"),
+                resultSet.getInt("total_tokens"),
                 resultSet.getObject("created_at", OffsetDateTime.class),
                 resultSet.getObject("updated_at", OffsetDateTime.class)
         ), documentId);
         return documents.stream().findFirst();
+    }
+
+    public List<ResearchDocument> findAll() {
+        return jdbcTemplate.query(FIND_ALL_SQL, (resultSet, rowNum) -> new ResearchDocument(
+                resultSet.getLong("id"),
+                resultSet.getString("title"),
+                resultSet.getString("original_file_name"),
+                resultSet.getString("storage_path"),
+                DocumentStatus.valueOf(resultSet.getString("status")),
+                mapFailureStage(resultSet.getString("failure_stage")),
+                resultSet.getString("parse_error"),
+                resultSet.getInt("total_chunks"),
+                resultSet.getInt("total_tokens"),
+                resultSet.getObject("created_at", OffsetDateTime.class),
+                resultSet.getObject("updated_at", OffsetDateTime.class)
+        ));
+    }
+
+    public void updateStats(long documentId, int totalChunks, int totalTokens) {
+        jdbcTemplate.update(UPDATE_STATS_SQL, totalChunks, totalTokens, documentId);
     }
 
     private FailureStage mapFailureStage(String value) {

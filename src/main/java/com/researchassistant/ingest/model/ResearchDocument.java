@@ -10,6 +10,8 @@ public record ResearchDocument(
         DocumentStatus status,
         FailureStage failureStage,
         String parseError,
+        int totalChunks,
+        int totalTokens,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {

@@ -65,6 +65,8 @@ class SupervisorServiceLogicTest {
                 DocumentStatus.INDEXED,
                 null,
                 null,
+                4,
+                320,
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
@@ -110,6 +112,8 @@ class SupervisorServiceLogicTest {
                 DocumentStatus.INDEXED,
                 null,
                 null,
+                10,
+                1500,
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
@@ -144,6 +148,8 @@ class SupervisorServiceLogicTest {
                 DocumentStatus.INDEXED,
                 null,
                 null,
+                6,
+                900,
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );

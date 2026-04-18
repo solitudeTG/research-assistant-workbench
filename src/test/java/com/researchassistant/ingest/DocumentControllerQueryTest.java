@@ -1,8 +1,10 @@
 package com.researchassistant.ingest;
 
 import com.researchassistant.ingest.model.DocumentStatus;
+import com.researchassistant.ingest.model.DocumentAnalysis;
 import com.researchassistant.ingest.model.ResearchDocument;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,8 @@ class DocumentControllerQueryTest {
                 DocumentStatus.INDEXED,
                 null,
                 null,
+                12,
+                820,
                 OffsetDateTime.parse("2026-04-17T12:00:00+08:00"),
                 OffsetDateTime.parse("2026-04-17T12:00:05+08:00")
         )));
@@ -45,6 +49,8 @@ class DocumentControllerQueryTest {
                 .andExpect(jsonPath("$.documentId").value(9))
                 .andExpect(jsonPath("$.status").value("INDEXED"))
                 .andExpect(jsonPath("$.title").value("paper.pdf"))
+                .andExpect(jsonPath("$.totalChunks").value(12))
+                .andExpect(jsonPath("$.totalTokens").value(820))
                 .andExpect(jsonPath("$.parseError").doesNotExist());
     }
 
@@ -54,5 +60,49 @@ class DocumentControllerQueryTest {
 
         mockMvc.perform(get("/api/documents/99"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listDocumentsReturnsWorkspacePayload() throws Exception {
+        when(documentIngestService.listDocuments()).thenReturn(List.of(new ResearchDocument(
+                5L,
+                "assistant.pdf",
+                "assistant.pdf",
+                "/tmp/assistant.pdf",
+                DocumentStatus.INDEXED,
+                null,
+                null,
+                8,
+                610,
+                OffsetDateTime.parse("2026-04-17T12:00:00+08:00"),
+                OffsetDateTime.parse("2026-04-17T12:00:05+08:00")
+        )));
+
+        mockMvc.perform(get("/api/documents"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents[0].documentId").value(5))
+                .andExpect(jsonPath("$.documents[0].totalChunks").value(8))
+                .andExpect(jsonPath("$.documents[0].totalTokens").value(610));
+    }
+
+    @Test
+    void getDocumentAnalysisReturnsStructuredPayload() throws Exception {
+        when(documentIngestService.findDocumentAnalysis(9L)).thenReturn(Optional.of(new DocumentAnalysis(
+                9L,
+                "Abstract text",
+                "Summary text",
+                List.of("Method one"),
+                List.of("Contribution one"),
+                List.of("memory", "retrieval"),
+                List.of("Abstract", "Method"),
+                OffsetDateTime.parse("2026-04-17T12:00:00+08:00"),
+                OffsetDateTime.parse("2026-04-17T12:00:05+08:00")
+        )));
+
+        mockMvc.perform(get("/api/documents/9/analysis"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.abstractText").value("Abstract text"))
+                .andExpect(jsonPath("$.methods[0]").value("Method one"))
+                .andExpect(jsonPath("$.keywords[0]").value("memory"));
     }
 }

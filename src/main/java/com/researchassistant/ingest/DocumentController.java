@@ -2,6 +2,7 @@ package com.researchassistant.ingest;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +22,25 @@ public class DocumentController {
 
     public DocumentController(DocumentIngestService documentIngestService) {
         this.documentIngestService = documentIngestService;
+    }
+
+    @GetMapping
+    public ResponseEntity<Map<String, Object>> listDocuments() {
+        return ResponseEntity.ok(Map.of(
+                "documents",
+                documentIngestService.listDocuments().stream()
+                        .map(document -> Map.of(
+                                "documentId", document.id(),
+                                "title", document.title(),
+                                "originalFileName", document.originalFileName(),
+                                "status", document.status().name(),
+                                "totalChunks", document.totalChunks(),
+                                "totalTokens", document.totalTokens(),
+                                "createdAt", document.createdAt(),
+                                "updatedAt", document.updatedAt()
+                        ))
+                        .collect(Collectors.toList())
+        ));
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -43,12 +63,35 @@ public class DocumentController {
         body.put("documentId", document.get().id());
         body.put("title", document.get().title());
         body.put("status", document.get().status().name());
+        body.put("totalChunks", document.get().totalChunks());
+        body.put("totalTokens", document.get().totalTokens());
         if (document.get().failureStage() != null) {
             body.put("failureStage", document.get().failureStage().name());
         }
         if (document.get().parseError() != null && !document.get().parseError().isBlank()) {
             body.put("parseError", document.get().parseError());
         }
+        return ResponseEntity.ok(body);
+    }
+
+    @GetMapping("/{documentId}/analysis")
+    public ResponseEntity<Map<String, Object>> getDocumentAnalysis(@PathVariable long documentId) {
+        Optional<com.researchassistant.ingest.model.DocumentAnalysis> analysis =
+                documentIngestService.findDocumentAnalysis(documentId);
+        if (analysis.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("documentId", analysis.get().documentId());
+        body.put("abstractText", analysis.get().abstractText());
+        body.put("summary", analysis.get().summary());
+        body.put("methods", analysis.get().methods());
+        body.put("contributions", analysis.get().contributions());
+        body.put("keywords", analysis.get().keywords());
+        body.put("outline", analysis.get().outline());
+        body.put("generatedAt", analysis.get().generatedAt());
+        body.put("updatedAt", analysis.get().updatedAt());
         return ResponseEntity.ok(body);
     }
 }

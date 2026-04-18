@@ -21,6 +21,7 @@ public class DocumentProcessingJob {
     private final OverlapTextChunker overlapTextChunker;
     private final FileStoragePort fileStorage;
     private final VectorSearchPort vectorSearchPort;
+    private final DocumentAnalysisService documentAnalysisService;
 
     public DocumentProcessingJob(
             DocumentRepository documentRepository,
@@ -28,13 +29,15 @@ public class DocumentProcessingJob {
             PdfTextExtractor pdfTextExtractor,
             OverlapTextChunker overlapTextChunker,
             FileStoragePort fileStorage,
-            VectorSearchPort vectorSearchPort) {
+            VectorSearchPort vectorSearchPort,
+            DocumentAnalysisService documentAnalysisService) {
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.pdfTextExtractor = pdfTextExtractor;
         this.overlapTextChunker = overlapTextChunker;
         this.fileStorage = fileStorage;
         this.vectorSearchPort = vectorSearchPort;
+        this.documentAnalysisService = documentAnalysisService;
     }
 
     @Async("indexingExecutor")
@@ -53,7 +56,14 @@ public class DocumentProcessingJob {
             failureStage = FailureStage.INDEXING;
             documentRepository.updateStatus(documentId, DocumentStatus.INDEXING, null, null);
             documentChunkRepository.replaceChunks(documentId, chunks);
-            vectorSearchPort.reindexDocument(documentId, toRagChunks(documentId));
+            List<RagChunk> ragChunks = toRagChunks(documentId);
+            vectorSearchPort.reindexDocument(documentId, ragChunks);
+            documentRepository.updateStats(
+                    documentId,
+                    ragChunks.size(),
+                    documentChunkRepository.findByDocumentId(documentId).stream().mapToInt(row -> row.tokenCount()).sum()
+            );
+            documentAnalysisService.analyzeAndStore(documentId, document.title(), extractedText);
             documentRepository.updateStatus(documentId, DocumentStatus.INDEXED, null, null);
 
             return CompletableFuture.completedFuture(null);

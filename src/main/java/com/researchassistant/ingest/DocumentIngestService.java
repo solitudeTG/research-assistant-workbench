@@ -1,9 +1,11 @@
 package com.researchassistant.ingest;
 
 import com.researchassistant.common.storage.FileStoragePort;
+import com.researchassistant.ingest.model.DocumentAnalysis;
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.ingest.model.FailureStage;
 import com.researchassistant.ingest.model.ResearchDocument;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
@@ -15,14 +17,17 @@ public class DocumentIngestService {
     private final FileStoragePort fileStorage;
     private final DocumentRepository documentRepository;
     private final DocumentProcessingJob documentProcessingJob;
+    private final DocumentAnalysisService documentAnalysisService;
 
     public DocumentIngestService(
             FileStoragePort fileStorage,
             DocumentRepository documentRepository,
-            DocumentProcessingJob documentProcessingJob) {
+            DocumentProcessingJob documentProcessingJob,
+            DocumentAnalysisService documentAnalysisService) {
         this.fileStorage = fileStorage;
         this.documentRepository = documentRepository;
         this.documentProcessingJob = documentProcessingJob;
+        this.documentAnalysisService = documentAnalysisService;
     }
 
     public Map<String, Object> registerUpload(MultipartFile file) {
@@ -60,6 +65,14 @@ public class DocumentIngestService {
 
     public Optional<ResearchDocument> findDocument(long documentId) {
         return documentRepository.findById(documentId);
+    }
+
+    public List<ResearchDocument> listDocuments() {
+        return documentRepository.findAll();
+    }
+
+    public Optional<DocumentAnalysis> findDocumentAnalysis(long documentId) {
+        return documentAnalysisService.findByDocumentId(documentId);
     }
 
     private void markUploadSubmissionFailed(long documentId, String storagePath, RuntimeException exception) {

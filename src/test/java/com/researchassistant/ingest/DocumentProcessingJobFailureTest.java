@@ -38,6 +38,9 @@ class DocumentProcessingJobFailureTest {
     @Mock
     private VectorSearchPort vectorSearchPort;
 
+    @Mock
+    private DocumentAnalysisService documentAnalysisService;
+
     @InjectMocks
     private DocumentProcessingJob documentProcessingJob;
 
