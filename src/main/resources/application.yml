@@ -35,7 +35,7 @@ spring:
         options:
           model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
     vectorstore:
-      type: ${AI_VECTORSTORE_TYPE:none}
+      type: ${AI_VECTORSTORE_TYPE:pgvector}
       pgvector:
         initialize-schema: true
         dimensions: 1536

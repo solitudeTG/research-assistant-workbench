@@ -187,6 +187,28 @@ class SupervisorServiceLogicTest {
     }
 
     @Test
+    void answerUsesStructuredMethodAnswerBeforeFallbackingToRetrieval() {
+        ChatRequest request = new ChatRequest("session-13", "这篇论文用了什么方法？", List.of(6L));
+        WorkingMemory memory = memory(13L, "session-13");
+        ResearchDocument document = indexedDocument(6L, "satellite-selection.pdf");
+
+        when(workingMemoryService.load("session-13")).thenReturn(memory);
+        when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
+        when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(document);
+        when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isMethodQuestion(request.question())).thenReturn(true);
+        when(documentMetadataService.answerMethodQuestion(document))
+                .thenReturn(Optional.of("这篇论文的方法包括：1. 联合波束成形优化；2. 深度学习卫星选择器。"));
+
+        ChatResponse response = supervisorService.answer(request);
+
+        assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+        assertThat(response.answer()).contains("联合波束成形优化");
+        verifyNoInteractions(taskRouter, paperRagService, evidenceBoundaryService, chatClient);
+    }
+
+    @Test
     void answerUsesMemoryRecallOnlyRouteForHistoryQuestion() {
         ChatRequest request = new ChatRequest("session-10", "我们之前讨论过什么？", List.of());
         WorkingMemory memory = memory(10L, "session-10");

@@ -80,6 +80,72 @@ class DocumentMetadataServiceTest {
         assertThat(overview).isEmpty();
     }
 
+    @Test
+    void treatsMethodQuestionsAsMethodQuestions() {
+        assertThat(documentMetadataService.isMethodQuestion("这篇论文的方法是什么？"))
+                .isTrue();
+    }
+
+    @Test
+    void answerMethodQuestionFormatsStructuredMethods() {
+        ResearchDocument document = indexedDocument(4L, "satellite-selection.pdf");
+        DocumentAnalysis analysis = new DocumentAnalysis(
+                4L,
+                "Abstract text",
+                "Summary text",
+                List.of(
+                        "The paper proposes a joint beamforming optimization module.",
+                        "It combines satellite selection with a deep learning scorer."
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(documentAnalysisService.findByDocumentId(4L)).thenReturn(Optional.of(analysis));
+
+        Optional<String> answer = documentMetadataService.answerMethodQuestion(document);
+
+        assertThat(answer).isPresent();
+        assertThat(answer.orElseThrow()).contains("方法");
+        assertThat(answer.orElseThrow()).contains("joint beamforming");
+        assertThat(answer.orElseThrow()).contains("deep learning scorer");
+    }
+
+    @Test
+    void treatsContributionQuestionsAsContributionQuestions() {
+        assertThat(documentMetadataService.isContributionQuestion("这篇论文的主要贡献是什么？"))
+                .isTrue();
+    }
+
+    @Test
+    void answerContributionQuestionFormatsStructuredContributions() {
+        ResearchDocument document = indexedDocument(5L, "satellite-selection.pdf");
+        DocumentAnalysis analysis = new DocumentAnalysis(
+                5L,
+                "Abstract text",
+                "Summary text",
+                List.of(),
+                List.of(
+                        "It introduces a deep learning based satellite selector.",
+                        "It reports stronger positioning performance in LEO networks."
+                ),
+                List.of(),
+                List.of(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(documentAnalysisService.findByDocumentId(5L)).thenReturn(Optional.of(analysis));
+
+        Optional<String> answer = documentMetadataService.answerContributionQuestion(document);
+
+        assertThat(answer).isPresent();
+        assertThat(answer.orElseThrow()).contains("贡献");
+        assertThat(answer.orElseThrow()).contains("satellite selector");
+        assertThat(answer.orElseThrow()).contains("positioning performance");
+    }
+
     private ResearchDocument indexedDocument(long documentId, String title) {
         return new ResearchDocument(
                 documentId,

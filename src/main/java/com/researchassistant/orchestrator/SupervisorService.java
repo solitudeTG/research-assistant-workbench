@@ -96,6 +96,42 @@ public class SupervisorService {
             }
         }
 
+        if (documentMetadataService.isMethodQuestion(request.question()) && primaryDocument != null) {
+            Optional<String> methodAnswer = documentMetadataService.answerMethodQuestion(primaryDocument);
+            if (methodAnswer.isPresent()) {
+                workingMemoryService.appendExchange(
+                        request.sessionKey(),
+                        request.question(),
+                        methodAnswer.get(),
+                        AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+                );
+                return new ChatResponse(
+                        request.sessionKey(),
+                        AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                        methodAnswer.get(),
+                        List.of()
+                );
+            }
+        }
+
+        if (documentMetadataService.isContributionQuestion(request.question()) && primaryDocument != null) {
+            Optional<String> contributionAnswer = documentMetadataService.answerContributionQuestion(primaryDocument);
+            if (contributionAnswer.isPresent()) {
+                workingMemoryService.appendExchange(
+                        request.sessionKey(),
+                        request.question(),
+                        contributionAnswer.get(),
+                        AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+                );
+                return new ChatResponse(
+                        request.sessionKey(),
+                        AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                        contributionAnswer.get(),
+                        List.of()
+                );
+            }
+        }
+
         if (planExecuteFacade.shouldPlan(request.question())) {
             return respondWithPlanExecution(request, memory);
         }
