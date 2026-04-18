@@ -530,7 +530,7 @@ function renderConversation() {
     if (messages.length === 0) {
         elements.conversation.innerHTML = `
             <div class="empty-state">
-                先在左侧选择一篇论文，然后在下方“对话区”输入问题。这里会保留本地会话历史，方便你连续追问。
+                先在左侧选择一篇论文，然后直接在上方输入框提问。这里会保留本地会话历史，方便你连续追问。
             </div>
         `;
         return;
@@ -696,11 +696,33 @@ function hydrateSessions() {
         if (!Array.isArray(session.pinnedDocumentIds)) {
             session.pinnedDocumentIds = [];
         }
+        localizeLegacySession(session);
     }
+
+    persistSessions();
 }
 
 function persistSessions() {
     localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessions));
+}
+
+function localizeLegacySession(session) {
+    if (session.title === "New research session" || session.title === "Research workspace") {
+        session.title = "新研究会话";
+    }
+
+    if (!Array.isArray(session.messages)) {
+        return;
+    }
+
+    for (const message of session.messages) {
+        if (message.answerMode === "PENDING") {
+            message.answerMode = "等待中";
+        }
+        if (message.answerMode === "LOCAL_SESSION") {
+            message.answerMode = "本地会话";
+        }
+    }
 }
 
 function createSession(title) {
