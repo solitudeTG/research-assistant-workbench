@@ -15,6 +15,7 @@ import com.researchassistant.orchestrator.support.DocumentMetadataService;
 import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagResult;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
@@ -78,9 +79,21 @@ public class SupervisorService {
         }
 
         if (documentMetadataService.isOverviewQuestion(request.question()) && primaryDocument != null) {
-            String answer = documentMetadataService.answerOverviewQuestion(primaryDocument);
-            workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, AnswerMode.LOCAL_WEAK_EVIDENCE.name());
-            return new ChatResponse(request.sessionKey(), AnswerMode.LOCAL_WEAK_EVIDENCE.name(), answer, List.of());
+            Optional<String> overviewAnswer = documentMetadataService.answerOverviewQuestion(primaryDocument);
+            if (overviewAnswer.isPresent()) {
+                workingMemoryService.appendExchange(
+                        request.sessionKey(),
+                        request.question(),
+                        overviewAnswer.get(),
+                        AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+                );
+                return new ChatResponse(
+                        request.sessionKey(),
+                        AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                        overviewAnswer.get(),
+                        List.of()
+                );
+            }
         }
 
         if (planExecuteFacade.shouldPlan(request.question())) {

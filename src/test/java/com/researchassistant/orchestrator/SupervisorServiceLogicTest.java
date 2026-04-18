@@ -21,6 +21,7 @@ import com.researchassistant.rag.RagChunk;
 import com.researchassistant.rag.RagResult;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Answers;
@@ -130,6 +131,62 @@ class SupervisorServiceLogicTest {
     }
 
     @Test
+    void answerUsesStructuredOverviewBeforeFallbackingToRetrieval() {
+        ChatRequest request = new ChatRequest("session-8", "这篇论文研究了什么？", List.of(2L));
+        WorkingMemory memory = memory(8L, "session-8");
+        ResearchDocument document = indexedDocument(2L, "satellite-selection.pdf");
+
+        when(workingMemoryService.load("session-8")).thenReturn(memory);
+        when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
+        when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(document);
+        when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(true);
+        when(documentMetadataService.answerOverviewQuestion(document))
+                .thenReturn(Optional.of("这篇论文主要研究低轨卫星网络中的联合波束成形与卫星选择问题。"));
+
+        ChatResponse response = supervisorService.answer(request);
+
+        assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+        assertThat(response.answer()).contains("联合波束成形");
+        verifyNoInteractions(taskRouter, paperRagService, evidenceBoundaryService, chatClient);
+    }
+
+    @Test
+    void answerFallsThroughToPaperRagWhenOverviewMetadataIsUnavailable() {
+        ChatRequest request = new ChatRequest("session-11", "这篇论文研究了什么？", List.of(5L));
+        WorkingMemory memory = memory(11L, "session-11");
+        ResearchDocument document = indexedDocument(5L, "satellite-selection.pdf");
+        RagResult ragResult = new RagResult(
+                request.question(),
+                List.of(5L),
+                List.of(new RagChunk(31L, 5L, 0, "This paper studies joint beamforming and satellite selection in LEO satellite networks.", 0.93))
+        );
+
+        when(workingMemoryService.load("session-11")).thenReturn(memory);
+        when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
+        when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(document);
+        when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(true);
+        when(documentMetadataService.answerOverviewQuestion(document)).thenReturn(Optional.empty());
+        when(planExecuteFacade.shouldPlan(request.question())).thenReturn(false);
+        when(taskRouter.route(request.question(), request.documentIds())).thenReturn(RetrievalMode.PAPER_RAG_ONLY);
+        when(paperRagService.retrieve(11L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
+        when(evidenceBoundaryService.assess(ragResult)).thenReturn(EvidenceLevel.SUFFICIENT);
+        when(evidenceBoundaryService.toAnswerMode(EvidenceLevel.SUFFICIENT)).thenReturn(AnswerMode.LOCAL_EVIDENCE);
+        when(globalKnowledgeService.snapshot()).thenReturn(new GlobalKnowledgeSnapshot("", "", ""));
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("这篇论文研究低轨卫星网络中的联合波束成形与卫星选择。");
+
+        ChatResponse response = supervisorService.answer(request);
+
+        assertThat(response.answer()).contains("联合波束成形");
+        assertThat(response.answer()).doesNotContain("satellite-selection.pdf");
+        assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_EVIDENCE.name());
+        verify(taskRouter).route(request.question(), request.documentIds());
+        verify(paperRagService).retrieve(11L, request.question(), request.documentIds(), 5);
+    }
+
+    @Test
     void answerUsesMemoryRecallOnlyRouteForHistoryQuestion() {
         ChatRequest request = new ChatRequest("session-10", "我们之前讨论过什么？", List.of());
         WorkingMemory memory = memory(10L, "session-10");
@@ -206,7 +263,7 @@ class SupervisorServiceLogicTest {
 
     @Test
     void answerExplainsWhenDocumentIdIsMissingAfterRestart() {
-        ChatRequest request = new ChatRequest("session-9", "摘要的内容是什么", List.of(2L));
+        ChatRequest request = new ChatRequest("session-9", "摘要的内容是什么?", List.of(2L));
         WorkingMemory memory = memory(9L, "session-9");
 
         when(workingMemoryService.load("session-9")).thenReturn(memory);

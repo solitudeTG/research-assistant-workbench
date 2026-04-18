@@ -1,26 +1,33 @@
 package com.researchassistant.orchestrator.support;
 
+import com.researchassistant.ingest.DocumentAnalysisService;
 import com.researchassistant.ingest.DocumentRepository;
+import com.researchassistant.ingest.model.DocumentAnalysis;
 import com.researchassistant.ingest.model.ResearchDocument;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 @Service
 public class DocumentMetadataService {
 
     private final DocumentRepository documentRepository;
+    private final DocumentAnalysisService documentAnalysisService;
 
-    public DocumentMetadataService(DocumentRepository documentRepository) {
+    public DocumentMetadataService(
+            DocumentRepository documentRepository,
+            DocumentAnalysisService documentAnalysisService) {
         this.documentRepository = documentRepository;
+        this.documentAnalysisService = documentAnalysisService;
     }
 
     public boolean isTitleQuestion(String question) {
         String normalized = normalize(question);
         return normalized.contains("title")
-                || normalized.contains("\u9898\u76ee")
-                || normalized.contains("\u6807\u9898")
-                || normalized.contains("\u8bba\u6587\u540d");
+                || normalized.contains("题目")
+                || normalized.contains("标题")
+                || normalized.contains("论文名");
     }
 
     public boolean isOverviewQuestion(String question) {
@@ -30,14 +37,14 @@ public class DocumentMetadataService {
                 || normalized.contains("what problem does this paper study")
                 || normalized.contains("abstract")
                 || normalized.contains("summary")
-                || normalized.contains("\u7814\u7a76\u4e86\u4ec0\u4e48")
-                || normalized.contains("\u4e3b\u8981\u7814\u7a76")
-                || normalized.contains("\u8bb2\u4e86\u4ec0\u4e48")
-                || normalized.contains("\u5173\u4e8e\u4ec0\u4e48")
-                || normalized.contains("\u6458\u8981")
-                || normalized.contains("\u603b\u7ed3")
-                || normalized.contains("\u6982\u8ff0")
-                || normalized.contains("\u4e3b\u8981\u5185\u5bb9");
+                || normalized.contains("研究了什么")
+                || normalized.contains("主要研究")
+                || normalized.contains("讲了什么")
+                || normalized.contains("关于什么")
+                || normalized.contains("摘要")
+                || normalized.contains("总结")
+                || normalized.contains("概述")
+                || normalized.contains("主要内容");
     }
 
     public ResearchDocument findPrimaryDocument(List<Long> documentIds) {
@@ -49,23 +56,29 @@ public class DocumentMetadataService {
 
     public String answerTitleQuestion(ResearchDocument document) {
         if (document == null || document.title() == null || document.title().isBlank()) {
-            return "The paper title is not available in the indexed metadata yet.";
+            return "当前索引元数据里还没有可用的论文题目。";
         }
-        return "The paper title is: " + document.title();
+        return "论文题目是：" + document.title();
     }
 
-    public String answerOverviewQuestion(ResearchDocument document) {
-        if (document == null || document.title() == null || document.title().isBlank()) {
-            return "\u5f53\u524d\u8fd8\u65e0\u6cd5\u4ec5\u57fa\u4e8e\u6807\u9898\u6982\u8ff0\u8fd9\u7bc7\u8bba\u6587\u7684\u4e3b\u9898\u3002";
+    public Optional<String> answerOverviewQuestion(ResearchDocument document) {
+        if (document == null) {
+            return Optional.empty();
         }
-        return "\u4ece\u8bba\u6587\u6807\u9898\u770b\uff0c\u8fd9\u7bc7\u8bba\u6587\u4e3b\u8981\u7814\u7a76\uff1a" + stripExtension(document.title()) + "\u3002";
-    }
 
-    private String stripExtension(String title) {
-        if (title == null) {
-            return "";
+        Optional<DocumentAnalysis> analysis = documentAnalysisService.findByDocumentId(document.id());
+        if (analysis.isEmpty()) {
+            return Optional.empty();
         }
-        return title.replaceFirst("(?i)\\.pdf$", "");
+
+        DocumentAnalysis value = analysis.get();
+        if (value.summary() != null && !value.summary().isBlank()) {
+            return Optional.of(value.summary().trim());
+        }
+        if (value.abstractText() != null && !value.abstractText().isBlank()) {
+            return Optional.of(value.abstractText().trim());
+        }
+        return Optional.empty();
     }
 
     private String normalize(String question) {
