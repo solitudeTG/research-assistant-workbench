@@ -62,6 +62,9 @@ class SupervisorServiceLogicTest {
     @Mock
     private GlobalKnowledgeService globalKnowledgeService;
 
+    @Mock
+    private PlanExecuteFacade planExecuteFacade;
+
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private ChatClient chatClient;
 
@@ -72,19 +75,7 @@ class SupervisorServiceLogicTest {
     void answerReturnsCitationsForPaperRagRoute() {
         ChatRequest request = new ChatRequest("session-42", "What does attention do?", List.of(1L));
         WorkingMemory memory = memory(5L, "session-42");
-        ResearchDocument document = new ResearchDocument(
-                1L,
-                "attention-paper.pdf",
-                "attention-paper.pdf",
-                "storage/attention-paper.pdf",
-                DocumentStatus.INDEXED,
-                null,
-                null,
-                4,
-                320,
-                OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+        ResearchDocument document = indexedDocument(1L, "attention-paper.pdf");
         RagResult ragResult = new RagResult(
                 request.question(),
                 List.of(1L),
@@ -96,6 +87,7 @@ class SupervisorServiceLogicTest {
         when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(document);
         when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
         when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(false);
+        when(planExecuteFacade.shouldPlan(request.question())).thenReturn(false);
         when(taskRouter.route(request.question(), request.documentIds())).thenReturn(RetrievalMode.PAPER_RAG_ONLY);
         when(paperRagService.retrieve(5L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
         when(evidenceBoundaryService.assess(ragResult)).thenReturn(EvidenceLevel.SUFFICIENT);
@@ -120,19 +112,8 @@ class SupervisorServiceLogicTest {
     void answerReturnsDocumentTitleForTitleQuestion() {
         ChatRequest request = new ChatRequest("session-7", "论文题目是什么？", List.of(2L));
         WorkingMemory memory = memory(7L, "session-7");
-        ResearchDocument document = new ResearchDocument(
-                2L,
-                "Joint Beamforming Design and Satellite Selection for Integrated Communication and Navigation in LEO Satellite Networks.pdf",
-                "Joint Beamforming Design and Satellite Selection for Integrated Communication and Navigation in LEO Satellite Networks.pdf",
-                "storage/paper.pdf",
-                DocumentStatus.INDEXED,
-                null,
-                null,
-                10,
-                1500,
-                OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+        ResearchDocument document = indexedDocument(2L,
+                "Joint Beamforming Design and Satellite Selection for Integrated Communication and Navigation in LEO Satellite Networks.pdf");
 
         when(workingMemoryService.load("session-7")).thenReturn(memory);
         when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
@@ -171,6 +152,8 @@ class SupervisorServiceLogicTest {
         when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
         when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(null);
         when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(false);
+        when(planExecuteFacade.shouldPlan(request.question())).thenReturn(false);
         when(taskRouter.route(request.question(), request.documentIds())).thenReturn(RetrievalMode.MEMORY_RECALL_ONLY);
         when(memoryRecallPort.recall(10L, request.question(), 4))
                 .thenReturn(new MemoryRecallResult(request.question(), List.of(new MemoryRecallHit(entry, 0.9))));
@@ -191,6 +174,37 @@ class SupervisorServiceLogicTest {
     }
 
     @Test
+    void answerUsesPlanExecuteForComplexQuestion() {
+        ChatRequest request = new ChatRequest("session-12", "请给我一个研究计划和执行路线", List.of(3L));
+        WorkingMemory memory = memory(12L, "session-12");
+        RagResult ragResult = new RagResult(
+                request.question(),
+                List.of(3L),
+                List.of(new RagChunk(21L, 3L, 0, "This paper studies retrieval-guided planning.", 0.88))
+        );
+        PlanExecutionResult executionResult = new PlanExecutionResult(
+                List.of("Clarify objective", "Extract evidence", "Draft roadmap"),
+                "下面是研究计划和执行路线。"
+        );
+
+        when(workingMemoryService.load("session-12")).thenReturn(memory);
+        when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
+        when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(indexedDocument(3L, "planning.pdf"));
+        when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(false);
+        when(planExecuteFacade.shouldPlan(request.question())).thenReturn(true);
+        when(memoryRecallPort.recall(12L, request.question(), 4)).thenReturn(new MemoryRecallResult(request.question(), List.of()));
+        when(paperRagService.retrieve(12L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
+        when(planExecuteFacade.execute(request.question(), memory, new MemoryRecallResult(request.question(), List.of()), ragResult))
+                .thenReturn(executionResult);
+
+        ChatResponse response = supervisorService.answer(request);
+
+        assertThat(response.answer()).contains("研究计划");
+        assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_EVIDENCE.name());
+    }
+
+    @Test
     void answerExplainsWhenDocumentIdIsMissingAfterRestart() {
         ChatRequest request = new ChatRequest("session-9", "摘要的内容是什么", List.of(2L));
         WorkingMemory memory = memory(9L, "session-9");
@@ -203,10 +217,26 @@ class SupervisorServiceLogicTest {
 
         assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_WEAK_EVIDENCE.name());
         assertThat(response.answer()).contains("重新上传");
-        verifyNoInteractions(taskRouter, paperRagService, evidenceBoundaryService, chatClient, memoryRecallPort);
+        verifyNoInteractions(taskRouter, paperRagService, evidenceBoundaryService, chatClient, memoryRecallPort, planExecuteFacade);
     }
 
     private WorkingMemory memory(long sessionId, String sessionKey) {
         return new WorkingMemory(sessionId, sessionKey, null, null, List.of(), List.of(), 0L, null, 0);
+    }
+
+    private ResearchDocument indexedDocument(long documentId, String title) {
+        return new ResearchDocument(
+                documentId,
+                title,
+                title,
+                "storage/" + title,
+                DocumentStatus.INDEXED,
+                null,
+                null,
+                10,
+                1500,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
     }
 }

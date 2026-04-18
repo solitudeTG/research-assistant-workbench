@@ -39,6 +39,11 @@ public class ChatStreamController {
         streamingExecutor.execute(() -> {
             try {
                 emitter.send(SseEmitter.event().name("heartbeat").data("started"));
+                emitter.send(SseEmitter.event().name("retrieval-start").data(java.util.Map.of(
+                        "sessionKey", sessionKey,
+                        "documentId", documentId == null ? "" : documentId.toString(),
+                        "question", question
+                )));
                 ChatResponse response = supervisorService.answer(new ChatRequest(
                         sessionKey,
                         question,
@@ -47,15 +52,34 @@ public class ChatStreamController {
                 for (String token : Arrays.asList(response.answer().split(" "))) {
                     emitter.send(SseEmitter.event().name("message").data(token));
                 }
+                emitter.send(SseEmitter.event().name("telemetry").data(java.util.Map.of(
+                        "status", "done",
+                        "answerMode", response.answerMode(),
+                        "evidenceCount", response.citations().size() + " citations",
+                        "contextWindow", documentId == null ? "local-only" : "doc:" + documentId,
+                        "latency", "Completed"
+                )));
                 emitter.send(SseEmitter.event().name("done").data(response));
                 emitter.complete();
             } catch (IOException exception) {
+                sendErrorEvent(emitter, exception);
                 emitter.completeWithError(exception);
             } catch (Exception exception) {
+                sendErrorEvent(emitter, exception);
                 emitter.completeWithError(exception);
             }
         });
 
         return emitter;
+    }
+
+    private void sendErrorEvent(SseEmitter emitter, Exception exception) {
+        try {
+            emitter.send(SseEmitter.event().name("error").data(java.util.Map.of(
+                    "message", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage()
+            )));
+        } catch (IOException ignored) {
+            // Ignore secondary SSE failures while surfacing the original exception.
+        }
     }
 }

@@ -17,7 +17,8 @@ public class KeywordSearchRepository {
     public List<RagChunk> search(String query, List<Long> allowedDocumentIds, int limit) {
         String sql = """
                 select id, document_id, chunk_index, content,
-                       ts_rank(to_tsvector('simple', content), websearch_to_tsquery('simple', :query)) as score
+                       ts_rank(to_tsvector('simple', content), websearch_to_tsquery('simple', :query))
+                           + coalesce(feedback_score, 0) * 0.15 as score
                 from document_chunk
                 where (:documentIdsEmpty = true or document_id in (:documentIds))
                   and to_tsvector('simple', content) @@ websearch_to_tsquery('simple', :query)

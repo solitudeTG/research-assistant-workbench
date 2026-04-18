@@ -60,6 +60,8 @@ class ChatStreamControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("event:heartbeat")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("event:message")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("event:retrieval-start")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("event:message")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("event:telemetry")));
     }
 }

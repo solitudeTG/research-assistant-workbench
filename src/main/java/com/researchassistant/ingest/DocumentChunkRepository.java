@@ -73,6 +73,14 @@ public class DocumentChunkRepository {
         ), documentId);
     }
 
+    public void applyFeedback(long chunkId, int delta) {
+        jdbcTemplate.update("""
+                update document_chunk
+                set feedback_score = feedback_score + ?
+                where id = ?
+                """, delta, chunkId);
+    }
+
     private int estimateTokenCount(String content) {
         return Math.max(1, (content.length() + 3) / 4);
     }
