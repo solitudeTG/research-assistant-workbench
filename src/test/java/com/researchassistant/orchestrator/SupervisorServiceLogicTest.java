@@ -88,6 +88,8 @@ class SupervisorServiceLogicTest {
         when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(document);
         when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
         when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isMethodQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isContributionQuestion(request.question())).thenReturn(false);
         when(planExecuteFacade.shouldPlan(request.question())).thenReturn(false);
         when(taskRouter.route(request.question(), request.documentIds())).thenReturn(RetrievalMode.PAPER_RAG_ONLY);
         when(paperRagService.retrieve(5L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
@@ -113,7 +115,8 @@ class SupervisorServiceLogicTest {
     void answerReturnsDocumentTitleForTitleQuestion() {
         ChatRequest request = new ChatRequest("session-7", "论文题目是什么？", List.of(2L));
         WorkingMemory memory = memory(7L, "session-7");
-        ResearchDocument document = indexedDocument(2L,
+        ResearchDocument document = indexedDocument(
+                2L,
                 "Joint Beamforming Design and Satellite Selection for Integrated Communication and Navigation in LEO Satellite Networks.pdf");
 
         when(workingMemoryService.load("session-7")).thenReturn(memory);
@@ -131,10 +134,15 @@ class SupervisorServiceLogicTest {
     }
 
     @Test
-    void answerUsesStructuredOverviewBeforeFallbackingToRetrieval() {
+    void answerUpgradesOverviewQuestionToGroundedAnswerWhenEvidenceIsStrong() {
         ChatRequest request = new ChatRequest("session-8", "这篇论文研究了什么？", List.of(2L));
         WorkingMemory memory = memory(8L, "session-8");
         ResearchDocument document = indexedDocument(2L, "satellite-selection.pdf");
+        RagResult ragResult = new RagResult(
+                request.question(),
+                List.of(2L),
+                List.of(new RagChunk(18L, 2L, 0, "Abstract: This paper studies joint beamforming and satellite selection in LEO satellite networks.", 0.92))
+        );
 
         when(workingMemoryService.load("session-8")).thenReturn(memory);
         when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
@@ -143,12 +151,51 @@ class SupervisorServiceLogicTest {
         when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(true);
         when(documentMetadataService.answerOverviewQuestion(document))
                 .thenReturn(Optional.of("这篇论文主要研究低轨卫星网络中的联合波束成形与卫星选择问题。"));
+        when(paperRagService.retrieve(8L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
+        when(evidenceBoundaryService.assess(ragResult)).thenReturn(EvidenceLevel.SUFFICIENT);
+        when(evidenceBoundaryService.toAnswerMode(EvidenceLevel.SUFFICIENT)).thenReturn(AnswerMode.LOCAL_EVIDENCE);
+        when(globalKnowledgeService.snapshot()).thenReturn(new GlobalKnowledgeSnapshot("", "", ""));
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("这篇论文研究低轨卫星网络中的联合波束成形与卫星选择问题。");
+
+        ChatResponse response = supervisorService.answer(request);
+
+        assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_EVIDENCE.name());
+        assertThat(response.answer()).contains("联合波束成形");
+        assertThat(response.citations()).hasSize(1);
+        verify(paperRagService).retrieve(8L, request.question(), request.documentIds(), 5);
+        verify(evidenceBoundaryService).assess(ragResult);
+        verifyNoInteractions(taskRouter);
+    }
+
+    @Test
+    void answerFallsBackToStructuredOverviewWhenOverviewEvidenceIsWeak() {
+        ChatRequest request = new ChatRequest("session-9", "摘要是什么？", List.of(2L));
+        WorkingMemory memory = memory(9L, "session-9");
+        ResearchDocument document = indexedDocument(2L, "satellite-selection.pdf");
+        RagResult ragResult = new RagResult(
+                request.question(),
+                List.of(2L),
+                List.of(new RagChunk(19L, 2L, 0, "A weakly matched chunk.", 0.22))
+        );
+
+        when(workingMemoryService.load("session-9")).thenReturn(memory);
+        when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
+        when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(document);
+        when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(true);
+        when(documentMetadataService.answerOverviewQuestion(document))
+                .thenReturn(Optional.of("这篇论文的摘要主要介绍了联合波束成形与卫星选择。"));
+        when(paperRagService.retrieve(9L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
+        when(evidenceBoundaryService.assess(ragResult)).thenReturn(EvidenceLevel.NONE);
+        when(evidenceBoundaryService.toAnswerMode(EvidenceLevel.NONE)).thenReturn(AnswerMode.REFUSAL);
 
         ChatResponse response = supervisorService.answer(request);
 
         assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_WEAK_EVIDENCE.name());
-        assertThat(response.answer()).contains("联合波束成形");
-        verifyNoInteractions(taskRouter, paperRagService, evidenceBoundaryService, chatClient);
+        assertThat(response.answer()).contains("摘要主要介绍");
+        assertThat(response.citations()).isEmpty();
+        verifyNoInteractions(taskRouter, chatClient);
     }
 
     @Test
@@ -168,8 +215,6 @@ class SupervisorServiceLogicTest {
         when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
         when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(true);
         when(documentMetadataService.answerOverviewQuestion(document)).thenReturn(Optional.empty());
-        when(planExecuteFacade.shouldPlan(request.question())).thenReturn(false);
-        when(taskRouter.route(request.question(), request.documentIds())).thenReturn(RetrievalMode.PAPER_RAG_ONLY);
         when(paperRagService.retrieve(11L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
         when(evidenceBoundaryService.assess(ragResult)).thenReturn(EvidenceLevel.SUFFICIENT);
         when(evidenceBoundaryService.toAnswerMode(EvidenceLevel.SUFFICIENT)).thenReturn(AnswerMode.LOCAL_EVIDENCE);
@@ -182,8 +227,8 @@ class SupervisorServiceLogicTest {
         assertThat(response.answer()).contains("联合波束成形");
         assertThat(response.answer()).doesNotContain("satellite-selection.pdf");
         assertThat(response.answerMode()).isEqualTo(AnswerMode.LOCAL_EVIDENCE.name());
-        verify(taskRouter).route(request.question(), request.documentIds());
         verify(paperRagService).retrieve(11L, request.question(), request.documentIds(), 5);
+        verifyNoInteractions(taskRouter);
     }
 
     @Test
@@ -232,6 +277,8 @@ class SupervisorServiceLogicTest {
         when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(null);
         when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
         when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isMethodQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isContributionQuestion(request.question())).thenReturn(false);
         when(planExecuteFacade.shouldPlan(request.question())).thenReturn(false);
         when(taskRouter.route(request.question(), request.documentIds())).thenReturn(RetrievalMode.MEMORY_RECALL_ONLY);
         when(memoryRecallPort.recall(10L, request.question(), 4))
@@ -271,6 +318,8 @@ class SupervisorServiceLogicTest {
         when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(indexedDocument(3L, "planning.pdf"));
         when(documentMetadataService.isTitleQuestion(request.question())).thenReturn(false);
         when(documentMetadataService.isOverviewQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isMethodQuestion(request.question())).thenReturn(false);
+        when(documentMetadataService.isContributionQuestion(request.question())).thenReturn(false);
         when(planExecuteFacade.shouldPlan(request.question())).thenReturn(true);
         when(memoryRecallPort.recall(12L, request.question(), 4)).thenReturn(new MemoryRecallResult(request.question(), List.of()));
         when(paperRagService.retrieve(12L, request.question(), request.documentIds(), 5)).thenReturn(ragResult);
@@ -285,10 +334,10 @@ class SupervisorServiceLogicTest {
 
     @Test
     void answerExplainsWhenDocumentIdIsMissingAfterRestart() {
-        ChatRequest request = new ChatRequest("session-9", "摘要的内容是什么?", List.of(2L));
-        WorkingMemory memory = memory(9L, "session-9");
+        ChatRequest request = new ChatRequest("session-14", "摘要的内容是什么?", List.of(2L));
+        WorkingMemory memory = memory(14L, "session-14");
 
-        when(workingMemoryService.load("session-9")).thenReturn(memory);
+        when(workingMemoryService.load("session-14")).thenReturn(memory);
         when(explicitMemoryService.isExplicitMemoryRequest(request.question())).thenReturn(false);
         when(documentMetadataService.findPrimaryDocument(request.documentIds())).thenReturn(null);
 

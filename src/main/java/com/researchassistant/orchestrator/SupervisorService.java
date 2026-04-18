@@ -80,19 +80,9 @@ public class SupervisorService {
 
         if (documentMetadataService.isOverviewQuestion(request.question()) && primaryDocument != null) {
             Optional<String> overviewAnswer = documentMetadataService.answerOverviewQuestion(primaryDocument);
-            if (overviewAnswer.isPresent()) {
-                workingMemoryService.appendExchange(
-                        request.sessionKey(),
-                        request.question(),
-                        overviewAnswer.get(),
-                        AnswerMode.LOCAL_WEAK_EVIDENCE.name()
-                );
-                return new ChatResponse(
-                        request.sessionKey(),
-                        AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
-                        overviewAnswer.get(),
-                        List.of()
-                );
+            ChatResponse overviewResponse = respondToOverviewQuestion(request, memory, overviewAnswer);
+            if (overviewResponse != null) {
+                return overviewResponse;
             }
         }
 
@@ -219,6 +209,39 @@ public class SupervisorService {
 
         workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, answerMode.name());
         return new ChatResponse(request.sessionKey(), answerMode.name(), answer, citationsFrom(ragResult));
+    }
+
+    private ChatResponse respondToOverviewQuestion(ChatRequest request,
+                                                   WorkingMemory memory,
+                                                   Optional<String> overviewDraft) {
+        RagResult ragResult = paperRagService.retrieve(memory.sessionId(), request.question(), request.documentIds(), 5);
+        AnswerMode answerMode = evidenceBoundaryService.toAnswerMode(evidenceBoundaryService.assess(ragResult));
+
+        if (answerMode != AnswerMode.REFUSAL) {
+            String evidenceContext = ragResult.chunks().stream()
+                    .map(chunk -> "[doc=" + chunk.documentId() + ",chunk=" + chunk.chunkIndex() + "] " + chunk.content())
+                    .reduce((left, right) -> left + "\n" + right)
+                    .orElse("");
+            String answer = chatClient.prompt()
+                    .system("Answer the paper overview conservatively. If a structured overview draft is provided, use it only when the paper evidence supports it. Cite only grounded claims from the paper evidence.")
+                    .user("Question: " + request.question()
+                            + "\n\nWorking memory:\n" + safe(memory.rollingSummary())
+                            + "\n\nGlobal knowledge:\n" + globalKnowledgeBlock()
+                            + "\n\nStructured overview draft:\n" + overviewDraft.orElse("(empty)")
+                            + "\n\nPaper evidence:\n" + evidenceContext)
+                    .call()
+                    .content();
+            workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, answerMode.name());
+            return new ChatResponse(request.sessionKey(), answerMode.name(), answer, citationsFrom(ragResult));
+        }
+
+        if (overviewDraft.isPresent()) {
+            String answer = overviewDraft.get();
+            workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+            return new ChatResponse(request.sessionKey(), AnswerMode.LOCAL_WEAK_EVIDENCE.name(), answer, List.of());
+        }
+
+        return null;
     }
 
     private List<CitationDto> citationsFrom(RagResult ragResult) {
