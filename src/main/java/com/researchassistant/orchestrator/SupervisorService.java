@@ -29,6 +29,7 @@ public class SupervisorService {
     private final MemoryRecallPort memoryRecallPort;
     private final ExplicitMemoryService explicitMemoryService;
     private final GlobalKnowledgeService globalKnowledgeService;
+    private final PlanExecuteFacade planExecuteFacade;
     private final ChatClient chatClient;
 
     public SupervisorService(
@@ -40,6 +41,7 @@ public class SupervisorService {
             MemoryRecallPort memoryRecallPort,
             ExplicitMemoryService explicitMemoryService,
             GlobalKnowledgeService globalKnowledgeService,
+            PlanExecuteFacade planExecuteFacade,
             ChatClient chatClient) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
@@ -49,6 +51,7 @@ public class SupervisorService {
         this.memoryRecallPort = memoryRecallPort;
         this.explicitMemoryService = explicitMemoryService;
         this.globalKnowledgeService = globalKnowledgeService;
+        this.planExecuteFacade = planExecuteFacade;
         this.chatClient = chatClient;
     }
 
@@ -64,50 +67,24 @@ public class SupervisorService {
 
         if (request.documentIds() != null && !request.documentIds().isEmpty() && primaryDocument == null) {
             String answer = "当前文档不存在、尚未完成索引，或在重启后已失效，请重新上传论文后再提问。";
-            workingMemoryService.appendExchange(
-                    request.sessionKey(),
-                    request.question(),
-                    answer,
-                    AnswerMode.LOCAL_WEAK_EVIDENCE.name()
-            );
-            return new ChatResponse(
-                    request.sessionKey(),
-                    AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
-                    answer,
-                    List.of()
-            );
+            workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+            return new ChatResponse(request.sessionKey(), AnswerMode.LOCAL_WEAK_EVIDENCE.name(), answer, List.of());
         }
 
         if (documentMetadataService.isTitleQuestion(request.question())) {
             String answer = documentMetadataService.answerTitleQuestion(primaryDocument);
-            workingMemoryService.appendExchange(
-                    request.sessionKey(),
-                    request.question(),
-                    answer,
-                    AnswerMode.LOCAL_EVIDENCE.name()
-            );
-            return new ChatResponse(
-                    request.sessionKey(),
-                    AnswerMode.LOCAL_EVIDENCE.name(),
-                    answer,
-                    List.of()
-            );
+            workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, AnswerMode.LOCAL_EVIDENCE.name());
+            return new ChatResponse(request.sessionKey(), AnswerMode.LOCAL_EVIDENCE.name(), answer, List.of());
         }
 
         if (documentMetadataService.isOverviewQuestion(request.question()) && primaryDocument != null) {
             String answer = documentMetadataService.answerOverviewQuestion(primaryDocument);
-            workingMemoryService.appendExchange(
-                    request.sessionKey(),
-                    request.question(),
-                    answer,
-                    AnswerMode.LOCAL_WEAK_EVIDENCE.name()
-            );
-            return new ChatResponse(
-                    request.sessionKey(),
-                    AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
-                    answer,
-                    List.of()
-            );
+            workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+            return new ChatResponse(request.sessionKey(), AnswerMode.LOCAL_WEAK_EVIDENCE.name(), answer, List.of());
+        }
+
+        if (planExecuteFacade.shouldPlan(request.question())) {
+            return respondWithPlanExecution(request, memory);
         }
 
         RetrievalMode retrievalMode = taskRouter.route(request.question(), request.documentIds());
@@ -124,18 +101,19 @@ public class SupervisorService {
 
     private ChatResponse respondWithoutRetrieval(ChatRequest request) {
         String answer = "我需要已索引的论文、历史研究记忆，或更明确的研究问题，才能给出可靠回答。";
-        workingMemoryService.appendExchange(
-                request.sessionKey(),
-                request.question(),
-                answer,
-                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
-        );
-        return new ChatResponse(
-                request.sessionKey(),
-                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
-                answer,
-                List.of()
-        );
+        workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+        return new ChatResponse(request.sessionKey(), AnswerMode.LOCAL_WEAK_EVIDENCE.name(), answer, List.of());
+    }
+
+    private ChatResponse respondWithPlanExecution(ChatRequest request, WorkingMemory memory) {
+        MemoryRecallResult memoryRecallResult = memoryRecallPort.recall(memory.sessionId(), request.question(), 4);
+        RagResult ragResult = request.documentIds() == null || request.documentIds().isEmpty()
+                ? new RagResult(request.question(), List.of(), List.of())
+                : paperRagService.retrieve(memory.sessionId(), request.question(), request.documentIds(), 5);
+        PlanExecutionResult planExecutionResult = planExecuteFacade.execute(request.question(), memory, memoryRecallResult, ragResult);
+        AnswerMode answerMode = ragResult.chunks().isEmpty() ? AnswerMode.LOCAL_WEAK_EVIDENCE : AnswerMode.LOCAL_EVIDENCE;
+        workingMemoryService.appendExchange(request.sessionKey(), request.question(), planExecutionResult.answer(), answerMode.name());
+        return new ChatResponse(request.sessionKey(), answerMode.name(), planExecutionResult.answer(), citationsFrom(ragResult));
     }
 
     private ChatResponse respondFromMemory(ChatRequest request, WorkingMemory memory) {
@@ -153,7 +131,6 @@ public class SupervisorService {
                     .call()
                     .content();
         }
-
         workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, AnswerMode.LOCAL_WEAK_EVIDENCE.name());
         return new ChatResponse(request.sessionKey(), AnswerMode.LOCAL_WEAK_EVIDENCE.name(), answer, List.of());
     }
@@ -192,7 +169,11 @@ public class SupervisorService {
         }
 
         workingMemoryService.appendExchange(request.sessionKey(), request.question(), answer, answerMode.name());
-        List<CitationDto> citations = ragResult.chunks().stream()
+        return new ChatResponse(request.sessionKey(), answerMode.name(), answer, citationsFrom(ragResult));
+    }
+
+    private List<CitationDto> citationsFrom(RagResult ragResult) {
+        return ragResult.chunks().stream()
                 .map(chunk -> new CitationDto(
                         chunk.chunkId(),
                         chunk.documentId(),
@@ -200,7 +181,6 @@ public class SupervisorService {
                         chunk.content().substring(0, Math.min(160, chunk.content().length()))
                 ))
                 .toList();
-        return new ChatResponse(request.sessionKey(), answerMode.name(), answer, citations);
     }
 
     private String globalKnowledgeBlock() {
