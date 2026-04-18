@@ -1,262 +1,211 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Research Assistant Phase 1</title>
-    <style>
-        :root {
-            --bg: #f5efe3;
-            --paper: #fffaf1;
-            --ink: #1e1f1c;
-            --accent: #0f766e;
-            --line: #d8ceb9;
-        }
-
-        body {
-            margin: 0;
-            background:
-                radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 35%),
-                linear-gradient(180deg, #f8f3ea 0%, var(--bg) 100%);
-            color: var(--ink);
-            font-family: Georgia, "Times New Roman", serif;
-        }
-
-        main {
-            max-width: 920px;
-            margin: 48px auto;
-            padding: 0 20px 40px;
-        }
-
-        h1 {
-            margin-bottom: 8px;
-            font-size: 2.4rem;
-        }
-
-        p {
-            color: #4a4d46;
-        }
-
-        .panel {
-            background: rgba(255, 250, 241, 0.85);
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 20px;
-            margin-top: 18px;
-            box-shadow: 0 18px 60px rgba(46, 51, 46, 0.08);
-            backdrop-filter: blur(8px);
-        }
-
-        label {
-            display: block;
-            margin-top: 14px;
-            font-weight: bold;
-        }
-
-        textarea,
-        input,
-        button {
-            width: 100%;
-            box-sizing: border-box;
-            margin-top: 8px;
-            padding: 12px 14px;
-            border-radius: 12px;
-            border: 1px solid var(--line);
-            font: inherit;
-            background: #fffdf8;
-        }
-
-        button {
-            background: var(--accent);
-            color: white;
-            cursor: pointer;
-            border: none;
-            font-weight: bold;
-        }
-
-        button:hover {
-            filter: brightness(1.05);
-        }
-
-        #answer {
-            min-height: 140px;
-            white-space: pre-wrap;
-            line-height: 1.7;
-        }
-
-        #status {
-            margin-top: 12px;
-            color: var(--accent);
-            font-weight: bold;
-        }
-
-        #citations {
-            padding-left: 18px;
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Assistant Workbench</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./css/workbench.css">
 </head>
 <body>
-<main>
-    <h1>Research Assistant Phase 1</h1>
-    <p>Upload a paper, wait for indexing, and ask grounded questions with streaming citations.</p>
+<div class="shell">
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark">LAB</div>
+            <div class="brand-copy">
+                <h1>Research Assistant Workbench</h1>
+                <p>Upload a paper, inspect structured analysis, and stream grounded answers with future-proof retrieval panels.</p>
+            </div>
+        </div>
+        <div class="topbar-meta">
+            <span id="system-status" class="status-pill" data-state="checking">system-checking</span>
+            <span class="meta-pill">Local-first session rail</span>
+            <span class="meta-pill">SSE-compatible trace inspector</span>
+        </div>
+    </header>
 
-    <section class="panel">
-        <label for="file">Upload a paper</label>
-        <input id="file" type="file">
-        <button id="upload">Upload</button>
+    <div class="workspace">
+        <aside class="rail">
+            <div class="panel-stack">
+                <section class="card">
+                    <div class="card-header">
+                        <div>
+                            <p class="eyebrow">Session Control</p>
+                            <h2 class="section-title">Workspace Sessions</h2>
+                        </div>
+                        <button id="new-session" class="ghost-button" type="button">New</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="session-list" class="session-list"></div>
+                        <div class="footer-note">
+                            The current backend does not expose session CRUD yet, so this rail persists client-side to keep the workbench usable right now.
+                        </div>
+                    </div>
+                </section>
 
-        <label for="documentId">Document ID</label>
-        <input id="documentId" type="text" placeholder="Auto-filled after upload">
+                <section class="card">
+                    <div class="card-header">
+                        <div>
+                            <p class="eyebrow">Document Library</p>
+                            <h2 class="section-title">Paper Intake</h2>
+                        </div>
+                        <button id="refresh-documents" class="ghost-button" type="button">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="upload-box">
+                            <label class="file-input" for="file-input">
+                                <strong>Upload a paper</strong>
+                                <span class="muted">This uses the current <code>/api/documents/upload</code> flow and then polls indexing status automatically.</span>
+                                <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
+                            </label>
+                            <button id="upload-button" class="primary-button" type="button">Upload Into Workspace</button>
+                        </div>
+                        <p id="document-count" class="footer-note">Loading document workspace...</p>
+                        <div id="document-list" class="document-list"></div>
+                    </div>
+                </section>
+            </div>
+        </aside>
 
-        <label for="question">Question</label>
-        <textarea id="question" rows="5" placeholder="What does multi-head attention improve?"></textarea>
-        <button id="ask">Ask via SSE</button>
+        <main class="workspace-main">
+            <section class="conversation-header">
+                <div>
+                    <p class="eyebrow">Active Research Thread</p>
+                    <h2 id="active-session-title" class="conversation-title">Research workspace</h2>
+                    <p id="active-session-meta" class="conversation-subtitle">Preparing the local-first session shell.</p>
+                    <div id="document-chips" class="document-chips"></div>
+                </div>
+            </section>
 
-        <div id="status"></div>
-    </section>
+            <section id="conversation" class="conversation"></section>
 
-    <section class="panel">
-        <h2>Answer</h2>
-        <div id="answer"></div>
-        <h3>Citations</h3>
-        <ul id="citations"></ul>
-    </section>
-</main>
+            <section class="composer">
+                <div class="composer-shell">
+                    <textarea id="composer" placeholder="Ask for the abstract, main contribution, method details, or compare grounded evidence across your indexed papers."></textarea>
+                    <div class="composer-footer">
+                        <div class="toggle-row">
+                            <label class="toggle">
+                                <input id="deep-research" type="checkbox" checked>
+                                <span>Deep research</span>
+                            </label>
+                            <label class="toggle">
+                                <input id="auto-verify" type="checkbox">
+                                <span>Auto verify</span>
+                            </label>
+                        </div>
+                        <button id="send-button" class="primary-button" type="button">Stream Answer</button>
+                    </div>
+                </div>
+                <div id="status-banner" class="footer-note">Workspace ready.</div>
+            </section>
+        </main>
 
-<script>
-    const uploadButton = document.getElementById('upload');
-    const askButton = document.getElementById('ask');
-    const answer = document.getElementById('answer');
-    const citations = document.getElementById('citations');
-    const documentIdInput = document.getElementById('documentId');
-    const status = document.getElementById('status');
-    let documentStatusTimer = null;
+        <aside class="inspector">
+            <div class="panel-stack">
+                <section class="card">
+                    <div class="card-header">
+                        <div>
+                            <p class="eyebrow">Inspector Focus</p>
+                            <h2 id="selected-document-label" class="section-title">No document selected</h2>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="stat-grid">
+                            <div class="stat-card">
+                                <span>Answer mode</span>
+                                <strong id="telemetry-answer-mode">PENDING</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span>Latency</span>
+                                <strong id="telemetry-latency">No request</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span>Evidence</span>
+                                <strong id="telemetry-evidence">0 citations</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span>Context</span>
+                                <strong id="telemetry-context">workspace-idle</strong>
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
-    uploadButton.addEventListener('click', async () => {
-        const fileInput = document.getElementById('file');
-        if (!fileInput.files.length) {
-            status.textContent = 'Choose a paper first.';
-            return;
-        }
+                <section class="card">
+                    <div class="card-header">
+                        <div>
+                            <p class="eyebrow">Structured Analysis</p>
+                            <h2 class="section-title">Abstract, Methods, Contributions</h2>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="analysis-grid">
+                            <div class="analysis-block">
+                                <h4>Summary</h4>
+                                <p id="analysis-summary"></p>
+                            </div>
+                            <div class="analysis-block">
+                                <h4>Abstract</h4>
+                                <p id="analysis-abstract"></p>
+                            </div>
+                            <div class="analysis-block">
+                                <h4>Methods</h4>
+                                <ul id="analysis-methods"></ul>
+                            </div>
+                            <div class="analysis-block">
+                                <h4>Contributions</h4>
+                                <ul id="analysis-contributions"></ul>
+                            </div>
+                            <div class="analysis-block">
+                                <h4>Keywords</h4>
+                                <div id="analysis-keywords" class="chip-list"></div>
+                            </div>
+                            <div class="analysis-block">
+                                <h4>Outline</h4>
+                                <ul id="analysis-outline"></ul>
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        status.textContent = 'Uploading...';
-        clearDocumentStatusTimer();
+                <section class="card">
+                    <div class="card-header">
+                        <div>
+                            <p class="eyebrow">Evidence Pack</p>
+                            <h2 class="section-title">Citations</h2>
+                        </div>
+                    </div>
+                    <div id="citation-list" class="card-body citation-list"></div>
+                </section>
 
-        try {
-            const response = await fetch('/api/documents/upload', {
-                method: 'POST',
-                body: formData
-            });
+                <section class="card">
+                    <div class="card-header">
+                        <div>
+                            <p class="eyebrow">Retrieval Process</p>
+                            <h2 class="section-title">Trace Timeline</h2>
+                        </div>
+                    </div>
+                    <div id="trace-list" class="card-body trace-list"></div>
+                </section>
 
-            const payload = await readJsonSafely(response);
-            if (!response.ok) {
-                status.textContent = payload?.error ?? `Upload failed with HTTP ${response.status}.`;
-                return;
-            }
+                <section class="card">
+                    <div class="card-header">
+                        <div>
+                            <p class="eyebrow">Graceful Degradation</p>
+                            <h2 class="section-title">Current Compatibility Notes</h2>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <ul id="fallback-capabilities" class="analysis-list"></ul>
+                    </div>
+                </section>
+            </div>
+        </aside>
+    </div>
+</div>
 
-            documentIdInput.value = payload.documentId ?? '';
-            status.textContent = `Upload accepted. Document ${payload.documentId} is ${payload.status}.`;
-            startDocumentStatusPolling(payload.documentId);
-        } catch (error) {
-            status.textContent = `Upload failed: ${error.message}`;
-        }
-    });
-
-    askButton.addEventListener('click', () => {
-        answer.textContent = '';
-        citations.innerHTML = '';
-        status.textContent = 'Streaming answer...';
-
-        const question = document.getElementById('question').value;
-        const documentId = documentIdInput.value;
-        const params = new URLSearchParams({
-            sessionKey: 'browser-session',
-            question
-        });
-        if (documentId) {
-            params.set('documentId', documentId);
-        }
-        const url = `/api/chat/stream?${params.toString()}`;
-        const source = new EventSource(url);
-
-        source.addEventListener('message', (event) => {
-            answer.textContent += `${event.data} `;
-        });
-
-        source.addEventListener('done', (event) => {
-            const payload = JSON.parse(event.data);
-            status.textContent = `Completed with ${payload.answerMode}.`;
-            payload.citations.forEach((citation) => {
-                const item = document.createElement('li');
-                item.textContent = `doc ${citation.documentId}, chunk ${citation.chunkIndex}: ${citation.excerpt}`;
-                citations.appendChild(item);
-            });
-            source.close();
-        });
-
-        source.onerror = () => {
-            status.textContent = 'Streaming failed.';
-            source.close();
-        };
-    });
-
-    function startDocumentStatusPolling(documentId) {
-        if (!documentId) {
-            return;
-        }
-
-        let attempts = 0;
-        documentStatusTimer = window.setInterval(async () => {
-            attempts += 1;
-            try {
-                const response = await fetch(`/api/documents/${documentId}`);
-                const payload = await readJsonSafely(response);
-                if (!response.ok) {
-                    clearDocumentStatusTimer();
-                    status.textContent = payload?.error ?? `Status check failed with HTTP ${response.status}.`;
-                    return;
-                }
-
-                status.textContent = `Document ${documentId} is ${payload.status}.`;
-                if (payload.status === 'INDEXED') {
-                    clearDocumentStatusTimer();
-                    status.textContent = `Document ${documentId} is INDEXED and ready for questions.`;
-                    return;
-                }
-
-                if (payload.status === 'FAILED') {
-                    clearDocumentStatusTimer();
-                    const reason = payload.parseError ? ` ${payload.parseError}` : '';
-                    status.textContent = `Document ${documentId} failed during ${payload.failureStage ?? 'processing'}.${reason}`;
-                    return;
-                }
-
-                if (attempts >= 60) {
-                    clearDocumentStatusTimer();
-                    status.textContent = `Document ${documentId} is still ${payload.status}. You can keep waiting or refresh later.`;
-                }
-            } catch (error) {
-                clearDocumentStatusTimer();
-                status.textContent = `Status check failed: ${error.message}`;
-            }
-        }, 1000);
-    }
-
-    function clearDocumentStatusTimer() {
-        if (documentStatusTimer !== null) {
-            window.clearInterval(documentStatusTimer);
-            documentStatusTimer = null;
-        }
-    }
-
-    async function readJsonSafely(response) {
-        const text = await response.text();
-        if (!text) {
-            return null;
-        }
-        return JSON.parse(text);
-    }
-</script>
+<script type="module" src="./js/workbench-app.js"></script>
 </body>
 </html>
