@@ -39,9 +39,7 @@
                     </div>
                     <div class="card-body">
                         <div id="session-list" class="session-list"></div>
-                        <div class="footer-note">
-                            会话会先保存在当前浏览器中，方便你连续追问，不会因为刷新页面就丢失上下文。
-                        </div>
+                        <div class="footer-note">会话会保存在当前浏览器里，方便你连续追问。</div>
                     </div>
                 </section>
 
@@ -57,12 +55,12 @@
                         <div class="upload-box">
                             <label class="file-input" for="file-input">
                                 <strong>上传论文</strong>
-                                <span class="muted">上传后系统会自动解析、切块并轮询索引状态。</span>
+                                <span class="muted">支持 PDF、TXT、Markdown 和 Word，上传后会自动解析、切块和索引。</span>
                                 <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
                             </label>
                             <button id="upload-button" class="primary-button" type="button">上传到工作台</button>
                         </div>
-                        <p id="document-count" class="footer-note">正在加载文档工作台...</p>
+                        <p id="document-count" class="footer-note">正在加载文档列表...</p>
                         <div id="document-list" class="document-list"></div>
                     </div>
                 </section>
@@ -74,7 +72,7 @@
                 <div>
                     <p class="eyebrow">当前研究线程</p>
                     <h2 id="active-session-title" class="conversation-title">研究工作区</h2>
-                    <p id="active-session-meta" class="conversation-subtitle">先在左侧选中文档，然后在下方输入框直接提问。</p>
+                    <p id="active-session-meta" class="conversation-subtitle">先在左侧选择一篇论文，再在下方输入框里直接提问。</p>
                     <div id="document-chips" class="document-chips"></div>
                 </div>
             </section>
@@ -86,20 +84,11 @@
                             <p class="eyebrow">对话区</p>
                             <h3>直接提问</h3>
                         </div>
-                        <span class="composer-hint">推荐先问：摘要、研究问题、方法、贡献、结论。</span>
+                        <span class="composer-hint">推荐先问：摘要、研究内容、方法、贡献、结论。</span>
                     </div>
                     <textarea id="composer" placeholder="例如：这篇论文研究了什么？摘要是什么？它的方法和主要贡献分别是什么？"></textarea>
                     <div class="composer-footer">
-                        <div class="toggle-row">
-                            <label class="toggle">
-                                <input id="deep-research" type="checkbox" checked>
-                                <span>深度研究</span>
-                            </label>
-                            <label class="toggle">
-                                <input id="auto-verify" type="checkbox">
-                                <span>自动校验</span>
-                            </label>
-                        </div>
+                        <span class="footer-note">支持 <code>Ctrl</code> + <code>Enter</code> 快速发送</span>
                         <button id="send-button" class="primary-button" type="button">发送问题</button>
                     </div>
                 </div>
@@ -134,7 +123,7 @@
                             </div>
                             <div class="stat-card">
                                 <span>上下文</span>
-                                <strong id="telemetry-context">工作台空闲</strong>
+                                <strong id="telemetry-context">工作区空闲</strong>
                             </div>
                         </div>
                         <p id="analysis-summary" class="inspector-summary muted"></p>
@@ -145,9 +134,9 @@
                     <summary class="disclosure-summary">
                         <div>
                             <p class="eyebrow">结构化分析</p>
-                            <h2 class="section-title">按需展开查看</h2>
+                            <h2 class="section-title">论文分析</h2>
                         </div>
-                        <span class="disclosure-hint">默认收起</span>
+                        <span class="disclosure-hint">点击展开</span>
                     </summary>
                     <div class="card-body">
                         <div class="analysis-grid">
@@ -192,19 +181,6 @@
                             <h3 class="mini-title">轨迹时间线</h3>
                             <div id="trace-list" class="trace-list"></div>
                         </section>
-                    </div>
-                </details>
-
-                <details class="card disclosure-card">
-                    <summary class="disclosure-summary">
-                        <div>
-                            <p class="eyebrow">兼容说明</p>
-                            <h2 class="section-title">当前能力边界</h2>
-                        </div>
-                        <span class="disclosure-hint">点击展开</span>
-                    </summary>
-                    <div class="card-body">
-                        <ul id="fallback-capabilities" class="analysis-list"></ul>
                     </div>
                 </details>
             </div>

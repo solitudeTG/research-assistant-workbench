@@ -27,7 +27,7 @@ export function buildAnalysisViewModel(analysis, documentTitle = "当前文档")
     if (!analysis) {
         return {
             summary: "索引完成后，这里会展示论文的结构化总结。",
-            abstractText: "暂未抽取到摘要内容。",
+            abstractText: "暂未提取到摘要内容。",
             methods: [],
             contributions: [],
             keywords: [documentTitle],
@@ -37,11 +37,11 @@ export function buildAnalysisViewModel(analysis, documentTitle = "当前文档")
 
     return {
         summary: analysis.summary || "当前文档暂未生成结构化总结。",
-        abstractText: analysis.abstractText || "暂未抽取到摘要内容。",
+        abstractText: analysis.abstractText || "暂未提取到摘要内容。",
         methods: Array.isArray(analysis.methods) ? analysis.methods : [],
         contributions: Array.isArray(analysis.contributions) ? analysis.contributions : [],
         keywords: Array.isArray(analysis.keywords) && analysis.keywords.length > 0 ? analysis.keywords : [documentTitle],
-        outline: Array.isArray(analysis.outline) && analysis.outline.length > 0 ? analysis.outline : ["暂无法提供大纲"]
+        outline: Array.isArray(analysis.outline) && analysis.outline.length > 0 ? analysis.outline : ["暂无可用大纲"]
     };
 }
 
@@ -62,7 +62,7 @@ export function applyStreamEvent(state, eventName, data) {
     if (eventName === "retrieval-start") {
         next.trace.push({
             label: data?.label || "开始检索",
-            detail: data?.detail || "正在准备候选证据片段"
+            detail: data?.detail || "正在准备候选证据片段。"
         });
         next.telemetry.status = "retrieving";
         return next;

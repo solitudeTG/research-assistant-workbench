@@ -17,7 +17,7 @@ const state = {
     selectedDocumentId: null,
     analysis: null,
     systemState: "checking",
-    statusMessage: "正在启动工作台...",
+    statusMessage: "正在连接工作台...",
     focusedMessageId: null,
     activeStream: null
 };
@@ -38,8 +38,6 @@ const elements = {
     conversation: document.getElementById("conversation"),
     composer: document.getElementById("composer"),
     sendButton: document.getElementById("send-button"),
-    deepResearchToggle: document.getElementById("deep-research"),
-    autoVerifyToggle: document.getElementById("auto-verify"),
     selectedDocumentLabel: document.getElementById("selected-document-label"),
     analysisSummary: document.getElementById("analysis-summary"),
     analysisAbstract: document.getElementById("analysis-abstract"),
@@ -52,8 +50,7 @@ const elements = {
     telemetryAnswerMode: document.getElementById("telemetry-answer-mode"),
     telemetryLatency: document.getElementById("telemetry-latency"),
     telemetryEvidence: document.getElementById("telemetry-evidence"),
-    telemetryContext: document.getElementById("telemetry-context"),
-    fallbackCapabilities: document.getElementById("fallback-capabilities")
+    telemetryContext: document.getElementById("telemetry-context")
 };
 
 hydrateSessions();
@@ -104,7 +101,7 @@ function wireEvents() {
         const documentId = Number(trigger.dataset.documentId);
         state.selectedDocumentId = documentId;
         const session = getActiveSession();
-        if (session && !session.pinnedDocumentIds.includes(documentId)) {
+        if (session) {
             session.pinnedDocumentIds = [documentId];
             touchSession(session);
         }
@@ -147,23 +144,27 @@ async function refreshDocuments() {
         if (!response.ok) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
         }
+
         state.documents = Array.isArray(payload?.documents)
                 ? payload.documents.map(normalizeDocument)
                 : [];
-        elements.documentCount.textContent = `当前共有 ${state.documents.length} 份工作台文档`;
+        elements.documentCount.textContent = `当前共有 ${state.documents.length} 份工作台文档。`;
         syncSelectedDocument();
+
         if (state.selectedDocumentId) {
             await loadAnalysis(state.selectedDocumentId);
         }
+
         if (state.documents.length === 0) {
-            state.statusMessage = "当前还没有文档，请先上传论文。";
+            state.statusMessage = "当前还没有论文，先上传一篇开始研究。";
         }
     } catch (error) {
         state.documents = [];
         state.analysis = null;
-        elements.documentCount.textContent = "文档库暂不可用";
+        elements.documentCount.textContent = "文档列表暂不可用。";
         state.statusMessage = `文档工作台暂不可用：${error.message}`;
     }
+
     renderAll();
 }
 
@@ -181,6 +182,7 @@ async function loadAnalysis(documentId) {
             renderInspector();
             return;
         }
+
         const payload = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
@@ -190,6 +192,7 @@ async function loadAnalysis(documentId) {
         state.analysis = null;
         state.statusMessage = `文档 ${documentId} 的结构化分析暂不可用：${error.message}`;
     }
+
     renderInspector();
 }
 
@@ -200,9 +203,10 @@ async function uploadDocument() {
         return;
     }
 
+    const file = elements.fileInput.files[0];
     const formData = new FormData();
-    formData.append("file", elements.fileInput.files[0]);
-    state.statusMessage = `正在上传 ${elements.fileInput.files[0].name}...`;
+    formData.append("file", file);
+    state.statusMessage = `正在上传 ${file.name}...`;
     renderStatus();
 
     try {
@@ -218,6 +222,7 @@ async function uploadDocument() {
         state.statusMessage = `上传已接收，文档 ${payload.documentId} 当前状态：${payload.status}。`;
         await refreshDocuments();
         state.selectedDocumentId = Number(payload.documentId);
+        pinDocumentToActiveSession(state.selectedDocumentId);
         await pollDocumentUntilReady(Number(payload.documentId));
         elements.fileInput.value = "";
     } catch (error) {
@@ -235,6 +240,7 @@ async function pollDocumentUntilReady(documentId) {
             if (!response.ok) {
                 throw new Error(payload?.error || `HTTP ${response.status}`);
             }
+
             upsertDocument(payload);
             renderAll();
 
@@ -275,7 +281,6 @@ async function askQuestion() {
         content: question,
         createdAt: now
     };
-
     const assistantMessage = {
         id: nextId("assistant"),
         role: "assistant",
@@ -283,25 +288,8 @@ async function askQuestion() {
         answerMode: "等待中",
         createdAt: now,
         citations: [],
-        trace: [
-            {
-                label: "请求已接收",
-                detail: state.selectedDocumentId
-                        ? `当前将基于文档 ${state.selectedDocumentId} 进行证据约束回答。`
-                        : "当前没有固定文档，将只使用现有本地上下文。"
-            },
-            {
-                label: "等待检索事件",
-                detail: "当前后端主要返回粗粒度 SSE 事件；更细的检索轨迹会在后端增强后自动显示。"
-            }
-        ],
-        telemetry: {
-            status: "connecting",
-            answerMode: "等待中",
-            latency: "正在建立流式连接...",
-            evidenceCount: "0 条引用",
-            contextWindow: state.selectedDocumentId ? `文档:${state.selectedDocumentId}` : "仅本地上下文"
-        }
+        trace: initialTrace(),
+        telemetry: initialTelemetry()
     };
 
     if (session.title === "新研究会话") {
@@ -337,11 +325,11 @@ async function askQuestion() {
     source.addEventListener("heartbeat", () => {
         streamState.trace = [
             {
-                label: "会话已建立",
-                detail: "后端已接受 SSE 请求，并初始化了回答链路。"
+                label: "流式连接已建立",
+                detail: "后端已接收问题，正在准备检索和生成。"
             },
             ...streamState.trace
-        ].slice(0, 6);
+        ].slice(0, 8);
         updateAssistantMessage(assistantMessage.id, {
             trace: streamState.trace
         });
@@ -352,10 +340,10 @@ async function askQuestion() {
         Object.assign(streamState, nextState);
         updateAssistantMessage(assistantMessage.id, {
             content: streamState.answerParts.join(" "),
-            telemetry: {
+            telemetry: normalizeTelemetry({
                 ...streamState.telemetry,
                 latency: "正在接收内容..."
-            }
+            })
         });
     });
 
@@ -398,20 +386,20 @@ async function askQuestion() {
     source.onerror = () => {
         updateAssistantMessage(assistantMessage.id, {
             content: assistantMessage.content || "流式回答在完成前中断了，请稍后重试。",
+            trace: [
+                {
+                    label: "流式连接中断",
+                    detail: "浏览器与后端的 SSE 连接被中断，请重新发送问题。"
+                },
+                ...streamState.trace
+            ].slice(0, 8),
             telemetry: normalizeTelemetry({
                 ...streamState.telemetry,
                 status: "error",
                 latency: "已中断"
-            }),
-            trace: [
-                {
-                    label: "流式中断",
-                    detail: "浏览器与 SSE 连接断开。后端恢复稳定后，你可以重新提问。"
-                },
-                ...streamState.trace
-            ].slice(0, 8)
+            })
         });
-        state.statusMessage = "流式回答失败。";
+        state.statusMessage = "流式回答失败，请重试。";
         closeStream();
         renderAll();
     };
@@ -443,36 +431,14 @@ function renderHeader() {
     elements.activeSessionTitle.textContent = session?.title || "研究工作区";
     elements.activeSessionMeta.textContent = session
             ? `本地已记录 ${session.messages.length} 轮对话，最近更新于 ${formatRelativeTime(session.updatedAt)}`
-            : "当前没有激活会话";
+            : "当前没有激活会话。";
 
     elements.documentChips.innerHTML = "";
-    const chips = [];
     if (selectedDocument) {
-        chips.push({
-            label: selectedDocument.title,
-            meta: `${selectedDocument.status} · ${selectedDocument.totalChunks} 个切块`
-        });
+        appendChip(selectedDocument.title, `${selectedDocument.status} · ${selectedDocument.totalChunks} 个切块`);
+        appendChip("当前上下文", `文档 ${selectedDocument.documentId} · ${selectedDocument.totalTokens} token`);
     } else {
-        chips.push({
-            label: "尚未固定论文",
-            meta: "请先从左侧上传或选择一篇文档"
-        });
-    }
-
-    chips.push({
-        label: elements.deepResearchToggle.checked ? "深度研究已开启" : "深度研究待命中",
-        meta: "界面已就绪，后端能力会持续扩展"
-    });
-    chips.push({
-        label: elements.autoVerifyToggle.checked ? "自动校验已排队" : "自动校验已关闭",
-        meta: "校验链路接入后会直接在这里生效"
-    });
-
-    for (const chip of chips) {
-        const element = document.createElement("div");
-        element.className = "chip";
-        element.innerHTML = `<strong>${escapeHtml(chip.label)}</strong><span>${escapeHtml(chip.meta)}</span>`;
-        elements.documentChips.appendChild(element);
+        appendChip("尚未锁定文档", "先从左侧上传或选择一篇论文");
     }
 }
 
@@ -484,7 +450,7 @@ function renderSessions() {
         button.dataset.sessionKey = session.sessionKey;
         button.innerHTML = `
             <h3>${escapeHtml(session.title)}</h3>
-            <p class="muted">${escapeHtml(session.messages.at(-1)?.content?.slice(0, 88) || "当前文档集合的本地优先研究会话。")}</p>
+            <p class="muted">${escapeHtml(session.messages.at(-1)?.content?.slice(0, 88) || "当前还没有消息，开始提问吧。")}</p>
             <div class="meta-row">
                 <span class="meta-token">${session.messageCount} 轮</span>
                 <span class="meta-token">${formatRelativeTime(session.updatedAt)}</span>
@@ -500,7 +466,7 @@ function renderDocuments() {
     if (state.documents.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty-state";
-        empty.textContent = "当前还没有文档。上传论文后，工作台会开始跟踪索引状态、切块数量和结构化分析。";
+        empty.textContent = "当前还没有文档。上传论文后，工作台会自动跟踪索引状态、切块数量和结构化分析。";
         elements.documentList.appendChild(empty);
         return;
     }
@@ -515,7 +481,7 @@ function renderDocuments() {
             <div class="meta-row">
                 <span class="meta-token" data-tone="${documentRecord.tone}">${documentRecord.status}</span>
                 <span class="meta-token">${documentRecord.totalChunks} 个切块</span>
-                <span class="meta-token">${documentRecord.totalTokens} 个 token</span>
+                <span class="meta-token">${documentRecord.totalTokens} token</span>
             </div>
         `;
         elements.documentList.appendChild(button);
@@ -530,7 +496,7 @@ function renderConversation() {
     if (messages.length === 0) {
         elements.conversation.innerHTML = `
             <div class="empty-state">
-                先在左侧选择一篇论文，然后直接在上方输入框提问。这里会保留本地会话历史，方便你连续追问。
+                先在左侧选择一篇论文，然后直接在上方输入框里提问。这里会保留本地会话历史，方便你连续追问。
             </div>
         `;
         return;
@@ -568,33 +534,28 @@ function renderInspector() {
 
     elements.analysisSummary.textContent = analysis.summary;
     elements.analysisAbstract.textContent = analysis.abstractText;
-    renderList(elements.analysisMethods, analysis.methods, "待结构化抽取完成后，这里会展示论文方法。");
-    renderList(elements.analysisContributions, analysis.contributions, "待后端分析完成后，这里会展示论文贡献。");
+    renderList(elements.analysisMethods, analysis.methods, "暂无方法信息。");
+    renderList(elements.analysisContributions, analysis.contributions, "暂无贡献信息。");
     renderInlineChips(elements.analysisKeywords, analysis.keywords);
-    renderList(elements.analysisOutline, analysis.outline, "暂时无法提供大纲。");
+    renderList(elements.analysisOutline, analysis.outline, "暂无可用大纲。");
 
     if (!focusedAssistant) {
-        elements.citationList.innerHTML = `<div class="empty-state">当回答返回引用后，这里会展示证据卡片。</div>`;
-        elements.traceList.innerHTML = `<div class="empty-state">这里会显示检索轨迹。当前后端主要返回粗粒度 SSE 事件，后续更丰富的轨迹会自动显示。</div>`;
+        elements.citationList.innerHTML = `<div class="empty-state">当前回答还没有引用片段。</div>`;
+        elements.traceList.innerHTML = `<div class="empty-state">发送问题后，这里会展示本次检索与生成过程。</div>`;
         elements.telemetryAnswerMode.textContent = "等待中";
         elements.telemetryLatency.textContent = "暂无请求";
         elements.telemetryEvidence.textContent = selectedDocument ? `已索引 ${selectedDocument.totalChunks} 个切块` : "0 条引用";
-        elements.telemetryContext.textContent = selectedDocument ? `文档:${selectedDocument.documentId}` : "工作台空闲";
-    } else {
-        renderCitations(focusedAssistant.citations || []);
-        renderTrace(focusedAssistant.trace || []);
-        const telemetry = focusedAssistant.telemetry || {};
-        elements.telemetryAnswerMode.textContent = telemetry.answerMode || focusedAssistant.answerMode || "未知模式";
-        elements.telemetryLatency.textContent = telemetry.latency || "支持流式返回";
-        elements.telemetryEvidence.textContent = telemetry.evidenceCount || `${(focusedAssistant.citations || []).length} 条引用`;
-        elements.telemetryContext.textContent = telemetry.contextWindow || (selectedDocument ? `文档:${selectedDocument.documentId}` : "仅本地上下文");
+        elements.telemetryContext.textContent = selectedDocument ? `文档:${selectedDocument.documentId}` : "工作区空闲";
+        return;
     }
 
-    elements.fallbackCapabilities.innerHTML = `
-        <li>在完整后端会话接口进一步增强前，会话列表会先保存在浏览器本地。</li>
-        <li>当前 SSE 接口已经支持 <code>message</code> 和 <code>done</code> 事件，后续更细的检索与遥测事件已预留自动接入。</li>
-        <li>当前工作台一次固定一篇活动文档，因为现阶段 SSE 对话接口仍以单个 <code>documentId</code> 为主。</li>
-    `;
+    renderCitations(focusedAssistant.citations || []);
+    renderTrace(focusedAssistant.trace || []);
+    const telemetry = focusedAssistant.telemetry || {};
+    elements.telemetryAnswerMode.textContent = telemetry.answerMode || focusedAssistant.answerMode || "未知模式";
+    elements.telemetryLatency.textContent = telemetry.latency || "支持流式返回";
+    elements.telemetryEvidence.textContent = telemetry.evidenceCount || `${(focusedAssistant.citations || []).length} 条引用`;
+    elements.telemetryContext.textContent = telemetry.contextWindow || (selectedDocument ? `文档:${selectedDocument.documentId}` : "仅本地上下文");
 }
 
 function renderCitations(citations) {
@@ -621,7 +582,7 @@ function renderCitations(citations) {
 function renderTrace(trace) {
     elements.traceList.innerHTML = "";
     if (!trace.length) {
-        elements.traceList.innerHTML = `<div class="empty-state">当前回答还没有检索轨迹。</div>`;
+        elements.traceList.innerHTML = `<div class="empty-state">当前回答还没有轨迹信息。</div>`;
         return;
     }
 
@@ -807,6 +768,15 @@ function upsertDocument(rawDocument) {
     }
 }
 
+function pinDocumentToActiveSession(documentId) {
+    const session = getActiveSession();
+    if (!session) {
+        return;
+    }
+    session.pinnedDocumentIds = [documentId];
+    touchSession(session);
+}
+
 function closeStream() {
     if (state.activeStream) {
         state.activeStream.close();
@@ -816,6 +786,36 @@ function closeStream() {
 
 function scrollConversationToBottom() {
     elements.conversation.scrollTop = elements.conversation.scrollHeight;
+}
+
+function appendChip(label, meta) {
+    const element = document.createElement("div");
+    element.className = "chip";
+    element.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(meta)}</span>`;
+    elements.documentChips.appendChild(element);
+}
+
+function initialTrace() {
+    if (state.selectedDocumentId) {
+        return [{
+            label: "问题已提交",
+            detail: `当前将基于文档 ${state.selectedDocumentId} 进行证据约束回答。`
+        }];
+    }
+    return [{
+        label: "问题已提交",
+        detail: "当前没有锁定文档，将优先使用本地会话与已有上下文。"
+    }];
+}
+
+function initialTelemetry() {
+    return {
+        status: "connecting",
+        answerMode: "等待中",
+        latency: "正在建立流式连接...",
+        evidenceCount: "0 条引用",
+        contextWindow: state.selectedDocumentId ? `文档:${state.selectedDocumentId}` : "仅本地上下文"
+    };
 }
 
 function nextId(prefix) {

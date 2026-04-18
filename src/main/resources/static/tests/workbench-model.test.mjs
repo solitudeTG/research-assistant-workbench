@@ -30,14 +30,14 @@ test("buildAnalysisViewModel returns graceful placeholders when analysis is abse
     const viewModel = buildAnalysisViewModel(null, "Research Assistant");
 
     assert.equal(viewModel.summary, "索引完成后，这里会展示论文的结构化总结。");
-    assert.equal(viewModel.abstractText, "暂未抽取到摘要内容。");
+    assert.equal(viewModel.abstractText, "暂未提取到摘要内容。");
     assert.deepEqual(viewModel.methods, []);
     assert.deepEqual(viewModel.contributions, []);
     assert.deepEqual(viewModel.keywords, ["Research Assistant"]);
     assert.deepEqual(viewModel.outline, ["正在等待结构化大纲"]);
 });
 
-test("applyStreamEvent supports current SSE events and future richer trace events", () => {
+test("applyStreamEvent supports current SSE events and richer trace updates", () => {
     let state = {
         answerParts: [],
         citations: [],
@@ -48,7 +48,7 @@ test("applyStreamEvent supports current SSE events and future richer trace event
     state = applyStreamEvent(state, "message", "Grounded");
     state = applyStreamEvent(state, "retrieval-step", {
         label: "Keyword retrieval",
-        detail: "Using fallback lexical search"
+        detail: "Using lexical and vector search"
     });
     state = applyStreamEvent(state, "done", {
         answerMode: "LOCAL_EVIDENCE",
