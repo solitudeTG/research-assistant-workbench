@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,18 +21,34 @@ class WorkingMemoryServiceLogicTest {
     @Mock
     private ChatMessageRepository chatMessageRepository;
 
+    @Mock
+    private MemoryDepositService memoryDepositService;
+
     @InjectMocks
     private WorkingMemoryService workingMemoryService;
 
     @Test
-    void appendExchangeBuildsSummaryAndUpdatesMessageCount() {
-        WorkingMemory memory = new WorkingMemory(7L, "session-1", null, null, 0);
-        when(chatSessionRepository.findOrCreate("session-1")).thenReturn(memory);
-        when(chatMessageRepository.latestContents(7L, 4)).thenReturn(List.of(
-                "It splits projections across heads.",
-                "What is multi-head attention?",
-                "Attention uses weighted context.",
-                "Summarize attention"
+    void appendExchangeBuildsSummaryAndStructuredMemory() {
+        WorkingMemory memory = new WorkingMemory(7L, "session-1", null, null, List.of(), List.of(), 0L, null, 0);
+        when(chatSessionRepository.findOrCreate("session-1"))
+                .thenReturn(memory)
+                .thenReturn(memory)
+                .thenReturn(new WorkingMemory(
+                        7L,
+                        "session-1",
+                        "What is multi-head attention?",
+                        "Summarize attention | Attention uses weighted context. | What is multi-head attention? | It splits projections across heads.",
+                        List.of("Attention uses weighted context.", "It splits projections across heads."),
+                        List.of("Q: Summarize attention | A: Attention uses weighted context.", "Q: What is multi-head attention? | A: It splits projections across heads."),
+                        0L,
+                        null,
+                        4
+                ));
+        when(chatMessageRepository.latestMessages(7L, 6)).thenReturn(List.of(
+                new ChatMessageRecord(4L, 7L, "ASSISTANT", "It splits projections across heads.", "LOCAL_EVIDENCE", null),
+                new ChatMessageRecord(3L, 7L, "USER", "What is multi-head attention?", null, null),
+                new ChatMessageRecord(2L, 7L, "ASSISTANT", "Attention uses weighted context.", "LOCAL_EVIDENCE", null),
+                new ChatMessageRecord(1L, 7L, "USER", "Summarize attention", null, null)
         ));
         when(chatMessageRepository.count(7L)).thenReturn(4);
 
@@ -43,17 +60,20 @@ class WorkingMemoryServiceLogicTest {
         );
 
         assertThat(updated.currentTask()).isEqualTo("What is multi-head attention?");
-        assertThat(updated.rollingSummary()).isEqualTo(
-                "Summarize attention | Attention uses weighted context. | What is multi-head attention? | It splits projections across heads."
-        );
+        assertThat(updated.rollingSummary()).contains("multi-head attention");
+        assertThat(updated.salientFacts()).contains("Attention uses weighted context.", "It splits projections across heads.");
+        assertThat(updated.compressedRounds()).contains("Q: Summarize attention | A: Attention uses weighted context.");
         assertThat(updated.messageCount()).isEqualTo(4);
 
         verify(chatMessageRepository).append(7L, "USER", "What is multi-head attention?", null);
         verify(chatMessageRepository).append(7L, "ASSISTANT", "It splits projections across heads.", "LOCAL_EVIDENCE");
-        verify(chatSessionRepository).updateSummary(
+        verify(chatSessionRepository).saveWorkingMemory(
                 7L,
                 "What is multi-head attention?",
-                "Summarize attention | Attention uses weighted context. | What is multi-head attention? | It splits projections across heads."
+                "Summarize attention | Attention uses weighted context. | What is multi-head attention? | It splits projections across heads.",
+                updated.salientFacts(),
+                updated.compressedRounds()
         );
+        verify(memoryDepositService, never()).flushIncremental(updated, "COMPACTION");
     }
 }

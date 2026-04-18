@@ -1,5 +1,6 @@
 package com.researchassistant.memory;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -40,12 +41,14 @@ class ChatSessionRepositoryTest {
                 ArgumentMatchers.any(KeyHolder.class)
         );
 
-        ChatSessionRepository repository = new ChatSessionRepository(jdbcTemplate);
+        ChatSessionRepository repository = new ChatSessionRepository(jdbcTemplate, new ObjectMapper());
 
         WorkingMemory memory = repository.findOrCreate("new-session");
 
         assertThat(memory.sessionId()).isEqualTo(11L);
         assertThat(memory.sessionKey()).isEqualTo("new-session");
+        assertThat(memory.salientFacts()).isEmpty();
+        assertThat(memory.compressedRounds()).isEmpty();
         assertThat(memory.messageCount()).isZero();
     }
 }
