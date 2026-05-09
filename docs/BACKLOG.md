@@ -9,16 +9,16 @@
 - 状态：Epic 已建立，已拆分 F003-F011 子 Feature
 - Feature 页：[F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - 当前意图：先对齐简历表述、UI 方向和功能架构，再进入下一轮实现。
-- 下一步：新会话从 [F003 项目级数据模型与基础 API](features/F003-project-workbench-model-api.md) 开始开发。
+- 下一步：父会话继续调度 F004-F011 后续子 Feature；不要在 F003 worker 中顺手实现 Redis Stream、SSE、Agent 编排、资料状态机、检索、知识板、反馈或 UI。
+
+## 最近完成
 
 ### F003 项目级数据模型与基础 API
 
-- 状态：计划中，下一轮开发入口
+- 状态：已完成
 - Feature 页：[F003-project-workbench-model-api.md](features/F003-project-workbench-model-api.md)
-- 当前意图：建立项目级领域底座，避免继续围绕旧 `sessionKey + documentId` 扩张。
-- 下一步：按 [F002 实施计划](plans/F002-next-generation-research-workbench-plan.md) Task 1 进行 TDD 实现。
-
-## 最近完成
+- Evidence：[EV-002-f003-project-workbench-model-api.md](evidence/EV-002-f003-project-workbench-model-api.md)
+- 结果：已建立项目级 schema 骨架、`ProjectRepository`、`ProjectController`、仓储测试和控制器测试；`mvn -Dtest=ProjectRepositoryTest,ProjectControllerTest test` 已通过。
 
 ### F001 Harness 工程闭环
 
