@@ -1,44 +1,52 @@
 ---
 id: F004
-status: planned
+status: completed
 owner: codex
-updated: 2026-05-09
+updated: 2026-05-10
 parent_feature: F002
 ---
-# 工作台事件骨干与 SSE 投影
+# Workbench Event Backbone and SSE Projection
 
-## 目标
+## Goal
 
-建立后端过程事件骨干，让 Agent、检索、证据、资料状态、候选、知识板和反馈过程都能以统一事件 envelope 记录，并通过 SSE 投影给前端。
+Establish the backend process-event backbone for the F002 project workbench so Agent, retrieval, evidence, source status, candidate, knowledge-board, memory, answer, and feedback processes can share one documented event envelope and be projected to the frontend through SSE.
 
-## 范围
+## Scope
 
-- 范围内：事件 envelope、事件类型枚举、事件发布端口、测试用内存实现。
-- 范围内：Redis Stream 适配器或在编码前新增 ADR 明确替代方案。
-- 范围内：`/api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events` SSE 投影。
-- 范围外：具体 Agent 业务编排、资料解析、前端三栏 UI。
+- In scope: event envelope, event type enum, publisher/repository port, in-memory test/default backend, Redis Stream adapter, and `/api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events` SSE projection.
+- In scope: Redis Stream keys for project, run, and source event scopes.
+- Out of scope: concrete Agent orchestration, source ingestion status-machine behavior, retrieval/evidence business logic, candidate confirmation, feedback scoring, and three-column UI implementation.
 
-## 验收标准
+## Acceptance Criteria
 
-- 同一 `runId` 内事件 `sequence` 单调递增。
-- SSE 事件 `id` 等于 `eventId`，事件名等于 `eventType`。
-- `Last-Event-ID` 能跳过已消费事件。
-- 前端不直接读取 Redis。
-- `mvn -Dtest=StreamEventEnvelopeTest,SseProjectionControllerTest test` 通过。
+- Events in the same `runId` receive monotonically increasing `sequence` values.
+- SSE event `id` equals `eventId`.
+- SSE event name equals the event type wire name.
+- `Last-Event-ID` skips already consumed events.
+- The frontend consumes only the SSE projection and does not read Redis directly.
+- `mvn -Dtest=StreamEventEnvelopeTest,SseProjectionControllerTest test` passes.
 
-## 合同
+## Contract
 
-- API：`GET /api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events`。
-- 事件：F002 规格中的 `run.*`、`agent.*`、`retrieval.*`、`evidence.*`、`answer.*`、`candidate.*`、`knowledge.*`、`source.*`、`memory.*`、`feedback.*`。
-- 数据：`stream_event_record` 或 Redis Stream 记录。
-- UI：SSE 投影供前端过程时间线消费。
+- API: `GET /api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events`.
+- Events: F002 `run.*`, `agent.*`, `retrieval.*`, `evidence.*`, `answer.*`, `candidate.*`, `knowledge.*`, `source.*`, `memory.*`, and `feedback.*` wire names.
+- Data: `WorkbenchEvent` envelope, `WorkbenchEventPublisher`/`WorkbenchEventRepository` port, in-memory backend, and Redis Stream records under `project:{projectId}:events`, `run:{runId}:events`, and `source:{sourceId}:events`.
+- UI: SSE projection for later frontend process-timeline consumption.
 
-## 链接
+## Links
 
-- 父 Feature：[F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
-- 规格：[F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
-- 计划：[F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- Parent Feature: [F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
+- Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
+- Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- Evidence: [EV-003-f004-workbench-event-stream-sse.md](../evidence/EV-003-f004-workbench-event-stream-sse.md)
 
-## 下一步
+## Completion Notes
 
-按 F002 实施计划 Task 2 进行 TDD 实现。
+- Implemented the event envelope, event wire-name contract, event publisher/repository port, in-memory default backend, Redis Stream backend, and project run SSE projection endpoint.
+- Redis backend is property-gated with `app.events.backend=redis`; memory backend is the default and is explicitly selected by `app.events.backend=memory`.
+- Verified SSE `id`, SSE event name, wire-name `eventType` data, Redis payload JSON hydration, Redis-backed sequence, scoped stream writes, and `Last-Event-ID` replay filtering.
+- Known limitation: current SSE projection replays currently available run events and completes; continuous live tailing remains a follow-up concern for later run/UI slices, not a blocker for the verified F004 acceptance.
+
+## Next Step
+
+Proceed to F005 project-scoped source status machine. Do not extend F004 into source processing, Agent orchestration, evidence logic, knowledge board, feedback, or UI.
