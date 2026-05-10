@@ -9,10 +9,18 @@ This file records active engineering state that future sessions must be able to 
 - Status: Epic in progress, split into F003-F011 child Features.
 - Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - Current intent: execute the child Features sequentially with one recoverable commit per Feature.
-- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary.
-- Next step: start F008 candidate confirmation and knowledge board. Do not implement feedback scoring, broad source search UI, or F010 live timeline inside F008.
+- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary; F008 candidate confirmation and knowledge board.
+- Next step: start F009 feedback score loop. Do not implement broad source search UI, F010 live timeline, or web retrieval inside F009.
 
 ## Recently Completed
+
+### F008 Candidate Confirmation and Knowledge Board
+
+- Status: completed
+- Feature page: [F008-candidate-confirmation-knowledge-board.md](features/F008-candidate-confirmation-knowledge-board.md)
+- Evidence: [EV-007-f008-candidate-confirmation-knowledge-board.md](evidence/EV-007-f008-candidate-confirmation-knowledge-board.md)
+- Result: project candidates can be listed by answer or project, accepted, edited-and-accepted, marked unverified, or ignored; knowledge board entries can be listed by fixed section, manually created, patched/moved, and archived without hard delete; candidate creation publishes `candidate.created` without creating `KnowledgeEntry`; entry creation publishes `knowledge.entry.created`.
+- Known limitation: this slice provides the confirmation and board API boundary only; candidate generation quality, feedback scoring, broad source search, web retrieval, and F010 UI remain outside F008.
 
 ### F007 Retrieval Evidence Boundary
 

@@ -1,44 +1,71 @@
 ---
 id: F008
-status: planned
+doc_kind: feature
+status: completed
 owner: codex
-updated: 2026-05-09
+created: 2026-05-09
+updated: 2026-05-10
 parent_feature: F002
 ---
-# 候选确认与知识板
+# Candidate Confirmation and Knowledge Board
 
-## 目标
+## Goal
 
-建立“AI 生成候选，用户确认后写入知识板”的长期知识治理闭环，防止自动生成内容污染已确认项目知识。
+Build the durable knowledge write boundary: AI or ingestion paths may create `KnowledgeCandidate` drafts, but only user confirmation, edit-and-accept, or manual board creation may write `KnowledgeEntry` records.
 
-## 范围
+## Current Status
 
-- 范围内：知识候选列表、接受、编辑后接受、标为待验证、忽略。
-- 范围内：知识板分区、手动创建、更新、移动、归档。
-- 范围内：`candidate.created` 与 `knowledge.entry.created` 事件。
-- 范围外：候选生成模型质量优化、三栏 UI 细节、反馈评分。
+completed.
 
-## 验收标准
+## Scope
 
-- 创建候选不会自动创建 `KnowledgeEntry`。
-- 只有接受、编辑后接受或手动创建会写入知识板。
-- 知识条目归档不做硬删除。
-- 知识板按 `current_candidates`、`core_concept`、`method_route`、`confirmed_finding`、`open_question` 分区。
-- `mvn -Dtest=KnowledgeCandidateControllerTest,KnowledgeBoardControllerTest test` 通过。
+- In scope: candidate list by answer and by project.
+- In scope: candidate accept, edit-and-accept, mark-unverified, and ignore actions.
+- In scope: knowledge board section listing, manual entry creation, patch/update/move, and archive via `DELETE`.
+- In scope: `candidate.created` and `knowledge.entry.created` event publishing.
+- In scope: minimal V7 schema migration to complete the V5 candidate and knowledge-board contract.
+- Out of scope: feedback scoring, F010 UI, candidate generation model quality, broad source search, and web retrieval.
 
-## 合同
+## Acceptance Criteria
 
-- API：候选与知识板接口。
-- 事件：`candidate.created`、`knowledge.entry.created`。
-- 数据：`knowledge_candidate`、`knowledge_entry`。
-- UI：右侧候选确认和知识板视图可消费。
+- Creating a candidate does not create a `KnowledgeEntry`.
+- Only candidate accept, candidate edit-and-accept, or manual board creation writes a `KnowledgeEntry`.
+- Candidate terminal actions are pending-only: accepted, edited-accepted, marked-unverified, and ignored candidates cannot be relabeled or accepted again.
+- Candidate statuses are exactly `pending`, `accepted`, `edited_accepted`, `marked_unverified`, and `ignored`.
+- Knowledge board sections are exactly `current_candidates`, `core_concept`, `method_route`, `confirmed_finding`, and `open_question`.
+- Deleting a knowledge board entry archives it without hard delete.
+- `candidate.created` is published when a candidate is created.
+- `knowledge.entry.created` is published when a knowledge entry is created.
+- Acceptance command passes:
+  `& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=KnowledgeCandidateControllerTest,KnowledgeBoardControllerTest' test`
 
-## 链接
+## Contracts
 
-- 父 Feature：[F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
-- 规格：[F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
-- 计划：[F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- API:
+  - `GET /api/projects/{projectId}/answers/{answerId}/candidates`
+  - `GET /api/projects/{projectId}/candidates`
+  - `POST /api/projects/{projectId}/candidates/{candidateId}/accept`
+  - `POST /api/projects/{projectId}/candidates/{candidateId}/edit-and-accept`
+  - `POST /api/projects/{projectId}/candidates/{candidateId}/mark-unverified`
+  - `POST /api/projects/{projectId}/candidates/{candidateId}/ignore`
+  - `GET /api/projects/{projectId}/knowledge-board`
+  - `POST /api/projects/{projectId}/knowledge-board/entries`
+  - `PATCH /api/projects/{projectId}/knowledge-board/entries/{entryId}`
+  - `DELETE /api/projects/{projectId}/knowledge-board/entries/{entryId}`
+- Events: `candidate.created`, `knowledge.entry.created`.
+- Data: `knowledge_candidate`, `knowledge_entry`.
+- Boundary: candidate creation is draft-only; confirmed knowledge writes require explicit user action or manual entry creation.
 
-## 下一步
+## Evidence
 
-按 F002 实施计划 Task 6 进行 TDD 实现。
+- Evidence record: [EV-007-f008-candidate-confirmation-knowledge-board.md](../evidence/EV-007-f008-candidate-confirmation-knowledge-board.md)
+
+## Links
+
+- Parent Feature: [F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
+- Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
+- Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+
+## Next Step
+
+Start F009 feedback score loop with TDD. Do not fold F010 UI, broad source search, or web retrieval into F009.

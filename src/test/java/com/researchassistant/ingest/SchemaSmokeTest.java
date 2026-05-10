@@ -129,4 +129,65 @@ class SchemaSmokeTest extends PostgresIntegrationTest {
             jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
         }
     }
+
+    @Test
+    void f008MigrationNormalizesLegacyCandidateAndBoardEnumValues() {
+        String schema = "migration_smoke_" + java.util.UUID.randomUUID().toString().replace("-", "");
+        jdbcTemplate.execute("create schema " + schema);
+        try {
+            Flyway.configure()
+                    .dataSource(dataSource)
+                    .schemas(schema)
+                    .defaultSchema(schema)
+                    .locations("classpath:db/migration")
+                    .target("6")
+                    .load()
+                    .migrate();
+
+            String projectId = java.util.UUID.randomUUID().toString();
+            String candidateId = java.util.UUID.randomUUID().toString();
+            String entryId = java.util.UUID.randomUUID().toString();
+            jdbcTemplate.update("set search_path to " + schema);
+            jdbcTemplate.update("""
+                    insert into research_project(id, topic, summary)
+                    values (?, 'Historical F008 project', '')
+                    """, projectId);
+            jdbcTemplate.update("""
+                    insert into knowledge_candidate(id, project_id, status, content)
+                    values (?, ?, 'draft', 'Legacy candidate content')
+                    """, candidateId, projectId);
+            jdbcTemplate.update("""
+                    insert into knowledge_entry(id, project_id, section, title, content)
+                    values (?, ?, 'legacy_notes', 'Legacy entry', 'Legacy content')
+                    """, entryId, projectId);
+            jdbcTemplate.update("reset search_path");
+
+            Flyway.configure()
+                    .dataSource(dataSource)
+                    .schemas(schema)
+                    .defaultSchema(schema)
+                    .locations("classpath:db/migration")
+                    .load()
+                    .migrate();
+
+            Map<String, Object> candidate = jdbcTemplate.queryForMap("""
+                    select status, title, statement, suggested_section
+                    from %s.knowledge_candidate
+                    where id = ?
+                    """.formatted(schema), candidateId);
+            assertThat(candidate)
+                    .containsEntry("status", "pending")
+                    .containsEntry("title", "Legacy candidate content")
+                    .containsEntry("statement", "Legacy candidate content")
+                    .containsEntry("suggested_section", "confirmed_finding");
+
+            assertThat(jdbcTemplate.queryForObject("""
+                    select section
+                    from %s.knowledge_entry
+                    where id = ?
+                    """.formatted(schema), String.class, entryId)).isEqualTo("current_candidates");
+        } finally {
+            jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
+        }
+    }
 }

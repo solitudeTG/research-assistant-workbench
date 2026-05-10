@@ -63,6 +63,25 @@ class ProjectRepositoryTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void legacyV5ShapeKnowledgeCandidateInsertStillReceivesF008Defaults() {
+        ProjectRecord project = projectRepository.createProject("Legacy F008 compatibility", "V5-shaped inserts");
+        ResearchSessionRecord session = projectRepository.createSession(project.id(), "Legacy session");
+        String answerId = insertAnswer(project.id(), session.id());
+
+        String candidateId = insertKnowledgeCandidate(project.id(), session.id(), answerId, null);
+
+        assertThat(jdbcTemplate.queryForMap("""
+                select title, statement, suggested_section, status
+                from knowledge_candidate
+                where id = ?
+                """, candidateId))
+                .containsEntry("title", "candidate")
+                .containsEntry("statement", "candidate")
+                .containsEntry("suggested_section", "confirmed_finding")
+                .containsEntry("status", "pending");
+    }
+
+    @Test
     void rejectsCrossProjectRelationshipsAtDatabaseBoundary() {
         ProjectRecord projectA = projectRepository.createProject("Project A", "First research area");
         ProjectRecord projectB = projectRepository.createProject("Project B", "Second research area");
