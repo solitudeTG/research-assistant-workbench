@@ -60,6 +60,16 @@ public class ProjectRepository {
                 """, (resultSet, rowNum) -> mapSession(resultSet), projectId);
     }
 
+    public Optional<ResearchSessionRecord> findSession(String projectId, String sessionId) {
+        List<ResearchSessionRecord> sessions = jdbcTemplate.query("""
+                select id, project_id, title, status, last_message_at
+                from research_session
+                where project_id = ?
+                  and id = ?
+                """, (resultSet, rowNum) -> mapSession(resultSet), projectId, sessionId);
+        return sessions.stream().findFirst();
+    }
+
     private ProjectRecord mapProject(java.sql.ResultSet resultSet) throws java.sql.SQLException {
         String projectId = resultSet.getString("id");
         return new ProjectRecord(

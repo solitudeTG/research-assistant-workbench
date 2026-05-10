@@ -9,10 +9,18 @@ This file records active engineering state that future sessions must be able to 
 - Status: Epic in progress, split into F003-F011 child Features.
 - Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - Current intent: execute the child Features sequentially with one recoverable commit per Feature.
-- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine.
-- Next step: start F006 agent run event flow. Do not implement retrieval evidence boundaries, candidates, feedback, or UI inside F006.
+- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow.
+- Next step: start F007 retrieval and evidence boundary. Do not implement candidates, feedback, or UI inside F007.
 
 ## Recently Completed
+
+### F006 Agent Run Event Flow
+
+- Status: completed
+- Feature page: [F006-agent-run-event-flow.md](features/F006-agent-run-event-flow.md)
+- Evidence: [EV-005-f006-agent-run-event-flow.md](evidence/EV-005-f006-agent-run-event-flow.md)
+- Result: project-scoped message runs now return `messageId`, `answerId`, `streamRunId`, and `sseUrl`; publish the required ordered run events; persist an `assistant_answer`; and replay through the existing F004 SSE projection.
+- Known limitation: evidence is only summarized in the `evidence.evaluated` event from current response metadata; full retrieval/evidence boundary persistence remains F007.
 
 ### F005 Project-Scoped Source Status Machine
 

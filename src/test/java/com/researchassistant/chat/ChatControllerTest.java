@@ -1,6 +1,7 @@
 package com.researchassistant.chat;
 
 import com.researchassistant.support.PostgresIntegrationTest;
+import com.researchassistant.rag.RagChunk;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
@@ -43,6 +44,14 @@ class ChatControllerTest extends PostgresIntegrationTest {
                 """);
         when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
                 .thenReturn("Attention computes weighted token interactions for sequence modeling.");
+        when(vectorSearchPort.search(anyString(), org.mockito.ArgumentMatchers.eq(java.util.List.of(1L)), org.mockito.ArgumentMatchers.eq(5)))
+                .thenReturn(java.util.List.of(new RagChunk(
+                        1L,
+                        1L,
+                        0,
+                        "Attention computes weighted token interactions for sequence modeling.",
+                        2.0
+                )));
     }
 
     @Test

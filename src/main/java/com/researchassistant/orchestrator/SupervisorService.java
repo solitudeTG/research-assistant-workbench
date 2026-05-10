@@ -3,8 +3,13 @@ package com.researchassistant.orchestrator;
 import com.researchassistant.chat.dto.ChatRequest;
 import com.researchassistant.chat.dto.ChatResponse;
 import com.researchassistant.chat.dto.CitationDto;
+import com.researchassistant.chat.dto.ProjectMessageRequest;
+import com.researchassistant.chat.dto.ProjectMessageResponse;
 import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.EvidenceBoundaryService;
+import com.researchassistant.events.WorkbenchEvent;
+import com.researchassistant.events.WorkbenchEventPublisher;
+import com.researchassistant.events.WorkbenchEventType;
 import com.researchassistant.ingest.model.ResearchDocument;
 import com.researchassistant.memory.ExplicitMemoryService;
 import com.researchassistant.memory.GlobalKnowledgeService;
@@ -12,10 +17,14 @@ import com.researchassistant.memory.MemoryRecallResult;
 import com.researchassistant.memory.WorkingMemory;
 import com.researchassistant.memory.WorkingMemoryService;
 import com.researchassistant.orchestrator.support.DocumentMetadataService;
+import com.researchassistant.project.AssistantAnswerRepository;
 import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagResult;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +41,8 @@ public class SupervisorService {
     private final GlobalKnowledgeService globalKnowledgeService;
     private final PlanExecuteFacade planExecuteFacade;
     private final ChatClient chatClient;
+    private final WorkbenchEventPublisher eventPublisher;
+    private final AssistantAnswerRepository assistantAnswerRepository;
 
     public SupervisorService(
             TaskRouter taskRouter,
@@ -43,7 +54,9 @@ public class SupervisorService {
             ExplicitMemoryService explicitMemoryService,
             GlobalKnowledgeService globalKnowledgeService,
             PlanExecuteFacade planExecuteFacade,
-            ChatClient chatClient) {
+            ChatClient chatClient,
+            WorkbenchEventPublisher eventPublisher,
+            AssistantAnswerRepository assistantAnswerRepository) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
         this.evidenceBoundaryService = evidenceBoundaryService;
@@ -54,6 +67,164 @@ public class SupervisorService {
         this.globalKnowledgeService = globalKnowledgeService;
         this.planExecuteFacade = planExecuteFacade;
         this.chatClient = chatClient;
+        this.eventPublisher = eventPublisher;
+        this.assistantAnswerRepository = assistantAnswerRepository;
+    }
+
+    public ProjectMessageResponse answerProject(String projectId, String sessionId, ProjectMessageRequest request) {
+        if (request.sourceFilters() != null && !request.sourceFilters().isEmpty()) {
+            throw new IllegalArgumentException("sourceFilters are not supported until F007");
+        }
+        String messageId = "msg_" + UUID.randomUUID();
+        String answerId = "ans_" + UUID.randomUUID();
+        String runId = "run_" + UUID.randomUUID();
+        String answerMode = request.answerMode() == null || request.answerMode().isBlank()
+                ? "local_first"
+                : request.answerMode();
+        List<Long> documentIds = List.of();
+
+        publishRunEvent(
+                WorkbenchEventType.RUN_STARTED,
+                projectId,
+                sessionId,
+                runId,
+                "supervisor",
+                null,
+                payload(
+                        "messageId", messageId,
+                        "question", request.question(),
+                        "answerMode", answerMode,
+                        "allowWebSupplement", Boolean.TRUE.equals(request.allowWebSupplement()),
+                        "extractKnowledgeCandidates", Boolean.TRUE.equals(request.extractKnowledgeCandidates())
+                )
+        );
+        publishRunEvent(
+                WorkbenchEventType.AGENT_PLAN_CREATED,
+                projectId,
+                sessionId,
+                runId,
+                "supervisor",
+                null,
+                payload(
+                        "summary", "Route the project-scoped question through the existing supervisor answer path.",
+                        "steps", List.of("route", "retrieve", "evaluate-evidence", "draft-answer")
+                )
+        );
+        publishRunEvent(
+                WorkbenchEventType.AGENT_STEP_STARTED,
+                projectId,
+                sessionId,
+                runId,
+                "supervisor",
+                null,
+                payload("step", "answer-project-message")
+        );
+        publishRunEvent(
+                WorkbenchEventType.RETRIEVAL_STARTED,
+                projectId,
+                sessionId,
+                runId,
+                "retrieval-agent",
+                null,
+                payload(
+                        "sourceFilterCount", request.sourceFilters() == null ? 0 : request.sourceFilters().size(),
+                        "legacyDocumentIds", documentIds
+                )
+        );
+
+        try {
+            ChatResponse response = answer(new ChatRequest(sessionId, request.question(), documentIds));
+            assistantAnswerRepository.insert(
+                    answerId,
+                    projectId,
+                    sessionId,
+                    request.question(),
+                    response.answer(),
+                    response.answerMode(),
+                    evidenceStateFor(response.answerMode())
+            );
+
+            publishRunEvent(
+                    WorkbenchEventType.RETRIEVAL_COMPLETED,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "retrieval-agent",
+                    answerId,
+                    payload(
+                            "citationCount", response.citations().size(),
+                            "summary", response.citations().isEmpty()
+                                    ? "No local citations were attached to this response."
+                                    : "Local citations were attached to this response."
+                    )
+            );
+            publishRunEvent(
+                    WorkbenchEventType.EVIDENCE_EVALUATED,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "evidence-boundary",
+                    answerId,
+                    payload(
+                            "evidenceState", evidenceStateFor(response.answerMode()),
+                            "outputMode", response.answerMode(),
+                            "citationCount", response.citations().size()
+                    )
+            );
+            publishRunEvent(
+                    WorkbenchEventType.ANSWER_DELTA,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "writing-agent",
+                    answerId,
+                    payload("text", bounded(response.answer()))
+            );
+            publishRunEvent(
+                    WorkbenchEventType.ANSWER_COMPLETED,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "supervisor",
+                    answerId,
+                    payload(
+                            "answerId", answerId,
+                            "answerMode", response.answerMode(),
+                            "citationCount", response.citations().size()
+                    )
+            );
+            publishRunEvent(
+                    WorkbenchEventType.RUN_COMPLETED,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "supervisor",
+                    answerId,
+                    payload("status", "completed")
+            );
+
+            return new ProjectMessageResponse(
+                    messageId,
+                    answerId,
+                    runId,
+                    "/api/projects/" + projectId + "/sessions/" + sessionId + "/runs/" + runId + "/events"
+            );
+        } catch (RuntimeException exception) {
+            publishRunEvent(
+                    WorkbenchEventType.RUN_FAILED,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "supervisor",
+                    null,
+                    payload(
+                            "message", exception.getMessage() == null
+                                    ? exception.getClass().getSimpleName()
+                                    : exception.getMessage()
+                    )
+            );
+            throw exception;
+        }
     }
 
     public ChatResponse answer(ChatRequest request) {
@@ -264,5 +435,54 @@ public class SupervisorService {
 
     private String safe(String value) {
         return value == null || value.isBlank() ? "(empty)" : value;
+    }
+
+    private String evidenceStateFor(String answerMode) {
+        if (AnswerMode.LOCAL_EVIDENCE.name().equals(answerMode)) {
+            return "SUFFICIENT";
+        }
+        if (AnswerMode.REFUSAL.name().equals(answerMode)) {
+            return "NONE";
+        }
+        return "WEAK";
+    }
+
+    private String bounded(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.length() <= 1200 ? value : value.substring(0, 1200);
+    }
+
+    private WorkbenchEvent publishRunEvent(
+            WorkbenchEventType eventType,
+            String projectId,
+            String sessionId,
+            String runId,
+            String actor,
+            String answerId,
+            Map<String, Object> payload) {
+        return eventPublisher.publish(new WorkbenchEvent(
+                null,
+                eventType,
+                projectId,
+                sessionId,
+                runId,
+                actor,
+                0,
+                null,
+                answerId,
+                null,
+                null,
+                payload
+        ));
+    }
+
+    private Map<String, Object> payload(Object... keyValues) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        for (int index = 0; index < keyValues.length; index += 2) {
+            payload.put((String) keyValues[index], keyValues[index + 1]);
+        }
+        return payload;
     }
 }
