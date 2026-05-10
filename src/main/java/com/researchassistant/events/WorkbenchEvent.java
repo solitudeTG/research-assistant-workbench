@@ -1,6 +1,7 @@
 package com.researchassistant.events;
 
 import java.time.OffsetDateTime;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -20,7 +21,7 @@ public record WorkbenchEvent(
 ) {
 
     public WorkbenchEvent {
-        payload = payload == null ? Map.of() : Map.copyOf(payload);
+        payload = payload == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(payload));
     }
 
     public static WorkbenchEvent pending(
@@ -39,6 +40,28 @@ public record WorkbenchEvent(
                 actor,
                 0,
                 null,
+                null,
+                null,
+                null,
+                payload == null ? Map.of() : new LinkedHashMap<>(payload)
+        );
+    }
+
+    public static WorkbenchEvent pendingForSource(
+            WorkbenchEventType eventType,
+            String projectId,
+            String sourceId,
+            String actor,
+            Map<String, Object> payload) {
+        return new WorkbenchEvent(
+                null,
+                eventType,
+                projectId,
+                null,
+                null,
+                actor,
+                0,
+                sourceId,
                 null,
                 null,
                 null,

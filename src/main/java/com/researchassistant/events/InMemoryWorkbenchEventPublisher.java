@@ -20,21 +20,22 @@ public class InMemoryWorkbenchEventPublisher implements WorkbenchEventPublisher 
 
     @Override
     public synchronized WorkbenchEvent publish(WorkbenchEvent event) {
+        String streamKey = streamKey(event);
         long sequence = runSequences
-                .computeIfAbsent(event.runId(), ignored -> new AtomicLong())
+                .computeIfAbsent(streamKey, ignored -> new AtomicLong())
                 .incrementAndGet();
         WorkbenchEvent published = event.withPublishedEnvelope(
                 UUID.randomUUID().toString(),
                 sequence,
                 OffsetDateTime.now()
         );
-        eventsByRun.computeIfAbsent(event.runId(), ignored -> new ArrayList<>()).add(published);
+        eventsByRun.computeIfAbsent(streamKey, ignored -> new ArrayList<>()).add(published);
         return published;
     }
 
     @Override
     public synchronized List<WorkbenchEvent> readRunEventsAfter(String runId, String lastEventId) {
-        List<WorkbenchEvent> runEvents = eventsByRun.getOrDefault(runId, List.of()).stream()
+        List<WorkbenchEvent> runEvents = eventsByRun.getOrDefault(runStreamKey(runId), List.of()).stream()
                 .sorted(Comparator.comparingLong(WorkbenchEvent::sequence))
                 .toList();
         if (lastEventId == null || lastEventId.isBlank()) {
@@ -52,5 +53,19 @@ public class InMemoryWorkbenchEventPublisher implements WorkbenchEventPublisher 
             return runEvents;
         }
         return runEvents.subList(lastSeenIndex + 1, runEvents.size());
+    }
+
+    private String streamKey(WorkbenchEvent event) {
+        if (event.runId() != null) {
+            return runStreamKey(event.runId());
+        }
+        if (event.sourceId() != null) {
+            return "source:" + event.sourceId();
+        }
+        return "project:" + event.projectId();
+    }
+
+    private String runStreamKey(String runId) {
+        return "run:" + runId;
     }
 }

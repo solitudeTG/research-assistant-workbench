@@ -9,10 +9,18 @@ This file records active engineering state that future sessions must be able to 
 - Status: Epic in progress, split into F003-F011 child Features.
 - Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - Current intent: execute the child Features sequentially with one recoverable commit per Feature.
-- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection.
-- Next step: start F005 project-scoped source status machine. Do not implement Agent orchestration, retrieval evidence boundaries, candidates, feedback, or UI inside F005.
+- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine.
+- Next step: start F006 agent run event flow. Do not implement retrieval evidence boundaries, candidates, feedback, or UI inside F006.
 
 ## Recently Completed
+
+### F005 Project-Scoped Source Status Machine
+
+- Status: completed
+- Feature page: [F005-project-source-status-machine.md](features/F005-project-source-status-machine.md)
+- Evidence: [EV-004-f005-project-source-status-machine.md](evidence/EV-004-f005-project-source-status-machine.md)
+- Result: project-scoped source import/list/get/retry endpoints, PDF/note and web status chains, concrete failure stage persistence, retry status events, and source-scoped `source.status.changed` publishing are implemented and verified.
+- Known limitation: this slice records deterministic source pipeline stages only; Agent orchestration, retrieval evidence boundaries, candidates, feedback, and UI remain later F002 child Features.
 
 ### F004 Workbench Event Backbone and SSE Projection
 

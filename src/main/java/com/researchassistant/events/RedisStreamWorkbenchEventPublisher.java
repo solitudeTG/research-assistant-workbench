@@ -39,7 +39,7 @@ public class RedisStreamWorkbenchEventPublisher implements WorkbenchEventPublish
     @Override
     public WorkbenchEvent publish(WorkbenchEvent event) {
         long sequence = Objects.requireNonNull(
-                redisTemplate.opsForValue().increment(sequenceKey(event.runId())),
+                redisTemplate.opsForValue().increment(sequenceKey(event)),
                 "Redis did not return a sequence value"
         );
         WorkbenchEvent published = event.withPublishedEnvelope(
@@ -49,7 +49,9 @@ public class RedisStreamWorkbenchEventPublisher implements WorkbenchEventPublish
         );
         Map<String, String> fields = fieldsFor(published);
         redisTemplate.opsForStream().add(projectStreamKey(published.projectId()), fields);
-        redisTemplate.opsForStream().add(runStreamKey(published.runId()), fields);
+        if (published.runId() != null) {
+            redisTemplate.opsForStream().add(runStreamKey(published.runId()), fields);
+        }
         if (published.sourceId() != null) {
             redisTemplate.opsForStream().add(sourceStreamKey(published.sourceId()), fields);
         }
@@ -161,7 +163,13 @@ public class RedisStreamWorkbenchEventPublisher implements WorkbenchEventPublish
         return "source:" + sourceId + ":events";
     }
 
-    private String sequenceKey(String runId) {
-        return "run:" + runId + ":sequence";
+    private String sequenceKey(WorkbenchEvent event) {
+        if (event.runId() != null) {
+            return "run:" + event.runId() + ":sequence";
+        }
+        if (event.sourceId() != null) {
+            return "source:" + event.sourceId() + ":sequence";
+        }
+        return "project:" + event.projectId() + ":sequence";
     }
 }

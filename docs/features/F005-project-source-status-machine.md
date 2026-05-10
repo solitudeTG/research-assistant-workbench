@@ -1,45 +1,55 @@
 ---
 id: F005
-status: planned
+doc_kind: feature
+status: completed
 owner: codex
-updated: 2026-05-09
+created: 2026-05-10
+updated: 2026-05-10
 parent_feature: F002
 ---
-# 项目级资料接入状态机
+# Project-Scoped Source Status Machine
 
-## 目标
+## Goal
 
-把论文、网页和个人笔记接入从临时附件升级为项目资料库动作，并用阶段化状态机暴露解析、索引、抽取、沉淀和失败重试过程。
+Upgrade source ingestion from temporary document upload behavior into a project-scoped source library action. The source library exposes stage-by-stage progress for parsing, fetching, indexing, extracting, depositing, failure stage recording, and retry.
 
-## 范围
+## Current Status
 
-- 范围内：project-scoped source import API。
-- 范围内：PDF/note 与 web 两条状态链。
-- 范围内：失败阶段 `failureStage` 和可重试入口。
-- 范围内：`source.status.changed` 事件发布。
-- 范围外：知识候选确认、Agent 回答、三栏 UI 完整实现。
+Completed for the F005 boundary. Review fixes cover explicit JSON source type validation, direct list response shape, concrete stage failure recording, JSON note import with a default title, and failed note retry through the note/text pipeline.
 
-## 验收标准
+## Scope
 
-- PDF/note 支持 `uploaded -> parsing -> indexing -> extracting -> indexed -> depositing -> deposited`。
-- Web 支持 `submitted -> fetching -> extracting -> indexed -> depositing -> deposited`。
-- 任意处理阶段失败后记录具体 `failureStage`。
-- 失败资料可以重试，并再次发布状态事件。
-- `mvn -Dtest=ProjectSourceStatusMachineTest,DocumentControllerTest,DocumentControllerStatusTest,DocumentProcessingJobTest,DocumentProcessingJobFailureTest test` 通过。
+- In scope: project-scoped source import, list, get, and retry API.
+- In scope: PDF/note and web status chains.
+- In scope: concrete `failureStage` recording and failed-source retry.
+- In scope: `source.status.changed` events through the F004 workbench event publisher.
+- Out of scope: Agent orchestration, retrieval evidence boundaries, candidate confirmation, feedback, and UI.
 
-## 合同
+## Acceptance Criteria
 
-- API：`POST/GET /api/projects/{projectId}/sources`，`GET/POST /api/projects/{projectId}/sources/{sourceId}` 相关状态与重试接口。
-- 事件：`source.status.changed`。
-- 数据：`source_document`、chunk、索引状态、失败阶段。
-- UI：左侧资料库可消费状态和失败阶段。
+- PDF/note supports `uploaded -> parsing -> indexing -> extracting -> indexed -> depositing -> deposited`.
+- Web supports `submitted -> fetching -> extracting -> indexed -> depositing -> deposited`.
+- Processing failures record the concrete failed stage.
+- Failed sources can be retried and publish another status event.
+- Required Maven acceptance command passes.
 
-## 链接
+## Contract
 
-- 父 Feature：[F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
-- 规格：[F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
-- 计划：[F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- API: `POST /api/projects/{projectId}/sources`, `GET /api/projects/{projectId}/sources`, `GET /api/projects/{projectId}/sources/{sourceId}`, and `POST /api/projects/{projectId}/sources/{sourceId}/retry`.
+- Events: `source.status.changed`.
+- Data: `source_document`.
 
-## 下一步
+## Evidence
 
-按 F002 实施计划 Task 3 进行 TDD 实现。
+- [EV-004-f005-project-source-status-machine.md](../evidence/EV-004-f005-project-source-status-machine.md)
+
+## Links
+
+- Parent Feature: [F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
+- Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
+- Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- Evidence: [EV-004-f005-project-source-status-machine.md](../evidence/EV-004-f005-project-source-status-machine.md)
+
+## Next Step
+
+Continue with F006 agent run event flow. Do not expand F005 into orchestration, evidence boundaries, candidates, feedback, or UI.
