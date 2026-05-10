@@ -4,8 +4,10 @@ import com.researchassistant.support.PostgresIntegrationTest;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import javax.sql.DataSource;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -73,5 +75,58 @@ class SchemaSmokeTest extends PostgresIntegrationTest {
                 "trg_research_document_set_updated_at",
                 "trg_chat_session_set_updated_at"
         );
+    }
+
+    @Test
+    void f007MigrationBackfillsHistoricalEvidenceRowsWithNullQuote() {
+        String schema = "migration_smoke_" + java.util.UUID.randomUUID().toString().replace("-", "");
+        jdbcTemplate.execute("create schema " + schema);
+        try {
+            Flyway.configure()
+                    .dataSource(dataSource)
+                    .schemas(schema)
+                    .defaultSchema(schema)
+                    .locations("classpath:db/migration")
+                    .target("5")
+                    .load()
+                    .migrate();
+
+            String projectId = java.util.UUID.randomUUID().toString();
+            String answerId = java.util.UUID.randomUUID().toString();
+            String evidenceId = java.util.UUID.randomUUID().toString();
+            jdbcTemplate.update("set search_path to " + schema);
+            jdbcTemplate.update("""
+                    insert into research_project(id, topic, summary)
+                    values (?, 'Historical project', '')
+                    """, projectId);
+            jdbcTemplate.update("""
+                    insert into assistant_answer(id, project_id, question, answer)
+                    values (?, ?, 'q', 'a')
+                    """, answerId, projectId);
+            jdbcTemplate.update("""
+                    insert into evidence_source(id, project_id, answer_id, quote, confidence)
+                    values (?, ?, ?, null, null)
+                    """, evidenceId, projectId, answerId);
+            jdbcTemplate.update("reset search_path");
+
+            Flyway.configure()
+                    .dataSource(dataSource)
+                    .schemas(schema)
+                    .defaultSchema(schema)
+                    .locations("classpath:db/migration")
+                    .load()
+                    .migrate();
+
+            Map<String, Object> row = jdbcTemplate.queryForMap("""
+                    select snippet, strength
+                    from %s.evidence_source
+                    where id = ?
+                    """.formatted(schema), evidenceId);
+            assertThat(row)
+                    .containsEntry("snippet", "")
+                    .containsEntry("strength", "weak");
+        } finally {
+            jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
+        }
     }
 }

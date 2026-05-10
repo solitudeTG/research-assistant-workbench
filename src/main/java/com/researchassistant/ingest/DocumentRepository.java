@@ -68,6 +68,13 @@ public class DocumentRepository {
               and id = ?
             """;
 
+    private static final String LINK_SOURCE_INDEXED_DOCUMENT_SQL = """
+            update source_document
+            set indexed_document_id = ?
+            where project_id = ?
+              and id = ?
+            """;
+
     private static final String FIND_SOURCE_SQL = """
             select id, project_id, type, title, uri, status, failure_stage, error_message,
                    deposited_knowledge_count, created_at, updated_at
@@ -173,6 +180,10 @@ public class DocumentRepository {
             String failureStage,
             String errorMessage) {
         jdbcTemplate.update(UPDATE_SOURCE_STATUS_SQL, status, failureStage, errorMessage, projectId, sourceId);
+    }
+
+    public void linkSourceIndexedDocument(String projectId, String sourceId, long indexedDocumentId) {
+        jdbcTemplate.update(LINK_SOURCE_INDEXED_DOCUMENT_SQL, indexedDocumentId, projectId, sourceId);
     }
 
     public Optional<SourceDocument> findSource(String projectId, String sourceId) {

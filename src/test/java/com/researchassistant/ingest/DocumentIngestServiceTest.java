@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -88,6 +89,91 @@ class DocumentIngestServiceTest {
     @Test
     void projectFileSourceFailureDuringDepositingRecordsDepositingStage() throws Exception {
         assertProjectFileFailureStage("depositing", FailureStage.DEPOSITING);
+    }
+
+    @Test
+    void projectFileSourceIndexesLegacyDocumentAndLinksSourceMapping() throws Exception {
+        Path sourcePath = Files.createTempFile("source-indexed-", ".txt");
+        Files.writeString(sourcePath, "project paper content");
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "paper.txt",
+                "text/plain",
+                "project paper content".getBytes()
+        );
+        SourceDocument source = new SourceDocument(
+                "source-indexed",
+                "project-1",
+                "note",
+                "paper.txt",
+                sourcePath.toString(),
+                "uploaded",
+                null,
+                null,
+                0,
+                java.time.OffsetDateTime.now(),
+                java.time.OffsetDateTime.now()
+        );
+
+        when(fileStorage.save(file)).thenReturn(sourcePath.toString());
+        when(fileStorage.resolve(sourcePath.toString())).thenReturn(sourcePath);
+        when(documentRepository.insertSource("project-1", "note", "paper.txt", sourcePath.toString(), "uploaded"))
+                .thenReturn(source);
+        when(documentRepository.findSource("project-1", "source-indexed")).thenReturn(Optional.of(source));
+        when(documentRepository.insert("paper.txt", "paper.txt", sourcePath.toString())).thenReturn(42L);
+        when(documentProcessingJob.processDocument(42L)).thenReturn(CompletableFuture.completedFuture(null));
+
+        documentIngestService.importProjectFileSource("project-1", file);
+
+        verify(documentRepository).insert("paper.txt", "paper.txt", sourcePath.toString());
+        verify(documentProcessingJob).processDocument(42L);
+        verify(documentRepository).linkSourceIndexedDocument("project-1", "source-indexed", 42L);
+        verify(documentRepository).updateSourceStatus("project-1", "source-indexed", "deposited", null, null);
+    }
+
+    @Test
+    void projectFileSourceIndexingFailureRecordsIndexingStageAndDoesNotLinkMapping() throws Exception {
+        Path sourcePath = Files.createTempFile("source-index-failure-", ".txt");
+        Files.writeString(sourcePath, "project paper content");
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "paper.txt",
+                "text/plain",
+                "project paper content".getBytes()
+        );
+        SourceDocument source = new SourceDocument(
+                "source-index-failure",
+                "project-1",
+                "note",
+                "paper.txt",
+                sourcePath.toString(),
+                "uploaded",
+                null,
+                null,
+                0,
+                java.time.OffsetDateTime.now(),
+                java.time.OffsetDateTime.now()
+        );
+
+        when(fileStorage.save(file)).thenReturn(sourcePath.toString());
+        when(fileStorage.resolve(sourcePath.toString())).thenReturn(sourcePath);
+        when(documentRepository.insertSource("project-1", "note", "paper.txt", sourcePath.toString(), "uploaded"))
+                .thenReturn(source);
+        when(documentRepository.findSource("project-1", "source-index-failure")).thenReturn(Optional.of(source));
+        when(documentRepository.insert("paper.txt", "paper.txt", sourcePath.toString())).thenReturn(43L);
+        when(documentProcessingJob.processDocument(43L))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("vector indexing failed")));
+
+        documentIngestService.importProjectFileSource("project-1", file);
+
+        verify(documentRepository, never()).linkSourceIndexedDocument("project-1", "source-index-failure", 43L);
+        verify(documentRepository).updateSourceStatus(
+                "project-1",
+                "source-index-failure",
+                "failed",
+                "indexing",
+                "vector indexing failed"
+        );
     }
 
     @Test
@@ -175,6 +261,10 @@ class DocumentIngestServiceTest {
         when(documentRepository.insertSource("project-1", "note", "notes.txt", sourcePath.toString(), "uploaded"))
                 .thenReturn(source);
         when(documentRepository.findSource("project-1", "source-1")).thenReturn(Optional.of(source));
+        if (!"indexing".equals(failingStatus)) {
+            when(documentRepository.insert("notes.txt", "notes.txt", sourcePath.toString())).thenReturn(44L);
+            when(documentProcessingJob.processDocument(44L)).thenReturn(CompletableFuture.completedFuture(null));
+        }
         doAnswer(invocation -> {
             String status = invocation.getArgument(2);
             if (failingStatus.equals(status)) {

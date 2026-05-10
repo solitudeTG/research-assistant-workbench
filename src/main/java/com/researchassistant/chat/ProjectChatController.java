@@ -37,7 +37,7 @@ public class ProjectChatController {
         if (request.sourceFilters() != null && !request.sourceFilters().isEmpty()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "sourceFilters are not supported until F007"
+                    "sourceFilters require project-source-to-index mapping and are not supported yet"
             );
         }
         return supervisorService.answerProject(projectId, sessionId, request);

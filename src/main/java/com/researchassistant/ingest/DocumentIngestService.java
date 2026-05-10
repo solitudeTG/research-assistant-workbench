@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -181,6 +182,9 @@ public class DocumentIngestService {
             ensureStoredFileHasContent(source);
             currentStage = FailureStage.INDEXING;
             transition(source, DocumentStatus.INDEXING, null, null);
+            long indexedDocumentId = documentRepository.insert(source.title(), source.title(), source.uri());
+            awaitIndexing(documentProcessingJob.processDocument(indexedDocumentId));
+            documentRepository.linkSourceIndexedDocument(source.projectId(), source.id(), indexedDocumentId);
             currentStage = FailureStage.EXTRACTING;
             transition(source, DocumentStatus.EXTRACTING, null, null);
             transition(source, DocumentStatus.INDEXED, null, null);
@@ -189,6 +193,18 @@ public class DocumentIngestService {
             return transition(source, DocumentStatus.DEPOSITED, null, null);
         } catch (RuntimeException exception) {
             return markSourceFailed(source, currentStage, exception);
+        }
+    }
+
+    private void awaitIndexing(java.util.concurrent.CompletableFuture<Void> indexing) {
+        try {
+            indexing.join();
+        } catch (CompletionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw exception;
         }
     }
 

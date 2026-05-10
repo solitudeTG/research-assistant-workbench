@@ -4,7 +4,15 @@ import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.events.WorkbenchEventType;
 import com.researchassistant.support.PostgresIntegrationTest;
+import java.io.ByteArrayOutputStream;
 import java.util.List;
+import java.util.Map;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,7 +57,7 @@ class ProjectSourceStatusMachineTest extends PostgresIntegrationTest {
                 "file",
                 "paper.pdf",
                 MediaType.APPLICATION_PDF_VALUE,
-                "paper content".getBytes()
+                pdfBytes("paper content")
         );
 
         var result = mockMvc.perform(multipart("/api/projects/{projectId}/sources", projectId).file(file))
@@ -77,6 +85,19 @@ class ProjectSourceStatusMachineTest extends PostgresIntegrationTest {
         assertThat(sourceStatusEventsFor(sourceId))
                 .extracting(event -> event.payload().get("status"))
                 .containsExactly("uploaded", "parsing", "indexing", "extracting", "indexed", "depositing", "deposited");
+
+        Map<String, Object> mapping = jdbcTemplate.queryForMap("""
+                select s.indexed_document_id, d.title, d.original_file_name, d.status
+                from source_document s
+                join research_document d on d.id = s.indexed_document_id
+                where s.project_id = ?
+                  and s.id = ?
+                """, projectId, sourceId);
+        assertThat(mapping.get("indexed_document_id")).isNotNull();
+        assertThat(mapping)
+                .containsEntry("title", "paper.pdf")
+                .containsEntry("original_file_name", "paper.pdf")
+                .containsEntry("status", "INDEXED");
     }
 
     @Test
@@ -286,5 +307,22 @@ class ProjectSourceStatusMachineTest extends PostgresIntegrationTest {
                 .filter(event -> event.eventType() == WorkbenchEventType.SOURCE_STATUS_CHANGED)
                 .filter(event -> sourceId.equals(event.sourceId()))
                 .toList();
+    }
+
+    private byte[] pdfBytes(String text) throws Exception {
+        try (PDDocument document = new PDDocument();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.LETTER);
+            document.addPage(page);
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                contentStream.beginText();
+                contentStream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                contentStream.newLineAtOffset(72, 720);
+                contentStream.showText(text);
+                contentStream.endText();
+            }
+            document.save(output);
+            return output.toByteArray();
+        }
     }
 }

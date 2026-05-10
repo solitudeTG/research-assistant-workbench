@@ -9,10 +9,18 @@ This file records active engineering state that future sessions must be able to 
 - Status: Epic in progress, split into F003-F011 child Features.
 - Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - Current intent: execute the child Features sequentially with one recoverable commit per Feature.
-- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow.
-- Next step: start F007 retrieval and evidence boundary. Do not implement candidates, feedback, or UI inside F007.
+- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary.
+- Next step: start F008 candidate confirmation and knowledge board. Do not implement feedback scoring, broad source search UI, or F010 live timeline inside F008.
 
 ## Recently Completed
+
+### F007 Retrieval Evidence Boundary
+
+- Status: completed
+- Feature page: [F007-retrieval-evidence-boundary.md](features/F007-retrieval-evidence-boundary.md)
+- Evidence: [EV-006-f007-retrieval-evidence-boundary.md](evidence/EV-006-f007-retrieval-evidence-boundary.md)
+- Result: project answers now layer L3 memory as context, Paper RAG as current evidence, and web supplement as an output boundary; persist paper evidence rows; and publish real retrieval/evidence state in `retrieval.completed` and `evidence.evaluated`.
+- Known limitation: weak evidence can select `WEB_SUPPLEMENT`, but external web retrieval is not implemented in this slice; non-empty `sourceFilters` remain guarded until project sources map to indexed chunks.
 
 ### F006 Agent Run Event Flow
 
