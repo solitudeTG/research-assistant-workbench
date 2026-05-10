@@ -9,10 +9,18 @@ This file records active engineering state that future sessions must be able to 
 - Status: Epic in progress, split into F003-F011 child Features.
 - Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - Current intent: execute the child Features sequentially with one recoverable commit per Feature.
-- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary; F008 candidate confirmation and knowledge board.
-- Next step: start F009 feedback score loop. Do not implement broad source search UI, F010 live timeline, or web retrieval inside F009.
+- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary; F008 candidate confirmation and knowledge board; F009 feedback score loop.
+- Next step: start F010 three-column workbench UI. Do not implement broad source search, web retrieval, long-term personalization, or complex reranking inside F010 unless the F010 Feature page expands scope.
 
 ## Recently Completed
+
+### F009 Feedback Score Loop
+
+- Status: completed
+- Feature page: [F009-feedback-score-loop.md](features/F009-feedback-score-loop.md)
+- Evidence: [EV-008-f009-feedback-score-loop.md](evidence/EV-008-f009-feedback-score-loop.md)
+- Result: project answer feedback can now be posted with `rating=up` or `rating=down`; answer-level feedback is recorded; selected same-project evidence and linked paper chunks receive feedback score deltas; empty evidence selections record answer feedback only; cross-project evidence IDs do not mutate other projects or leak into applied event payloads; `feedback.applied` is published; and keyword, pgvector, and local vector retrieval scoring use the bounded formula `relevance + clamp(feedbackScore * 0.05, -0.2, 0.2)`.
+- Known limitation: F009 provides backend feedback and retrieval scoring only; UI controls, undo/deduplication, long-term personalization, and complex reranking remain outside this slice.
 
 ### F008 Candidate Confirmation and Knowledge Board
 

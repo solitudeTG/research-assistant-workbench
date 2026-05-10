@@ -8,6 +8,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -15,9 +16,11 @@ import org.springframework.stereotype.Component;
 public class PgVectorSearchPort implements VectorSearchPort {
 
     private final VectorStore vectorStore;
+    private final NamedParameterJdbcTemplate jdbcTemplate;
 
-    public PgVectorSearchPort(VectorStore vectorStore) {
+    public PgVectorSearchPort(VectorStore vectorStore, NamedParameterJdbcTemplate jdbcTemplate) {
         this.vectorStore = vectorStore;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
@@ -49,7 +52,7 @@ public class PgVectorSearchPort implements VectorSearchPort {
             return List.of();
         }
 
-        return documents.stream()
+        List<RagChunk> chunks = documents.stream()
                 .map(document -> new RagChunk(
                         Long.parseLong(document.getMetadata().get("chunkId").toString()),
                         Long.parseLong(document.getMetadata().get("documentId").toString()),
@@ -58,7 +61,40 @@ public class PgVectorSearchPort implements VectorSearchPort {
                         document.getScore() == null ? 0.0 : document.getScore()
                 ))
                 .filter(chunk -> allowedDocumentIds == null || allowedDocumentIds.isEmpty() || allowedDocumentIds.contains(chunk.documentId()))
+                .collect(Collectors.toList());
+        Map<Long, Double> feedbackScores = loadFeedbackScores(chunks);
+        return chunks.stream()
+                .map(chunk -> {
+                    double feedbackScore = feedbackScores.getOrDefault(chunk.chunkId(), 0.0);
+                    return new RagChunk(
+                            chunk.chunkId(),
+                            chunk.documentId(),
+                            chunk.chunkIndex(),
+                            chunk.content(),
+                            RetrievalFeedbackScoring.finalScore(chunk.finalScore(), feedbackScore),
+                            feedbackScore
+                    );
+                })
+                .sorted(java.util.Comparator.comparingDouble(RagChunk::finalScore).reversed())
                 .limit(limit)
                 .collect(Collectors.toList());
+    }
+
+    private Map<Long, Double> loadFeedbackScores(List<RagChunk> chunks) {
+        if (chunks.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> chunkIds = chunks.stream().map(RagChunk::chunkId).distinct().toList();
+        return jdbcTemplate.query("""
+                select id, feedback_score
+                from document_chunk
+                where id in (:chunkIds)
+                """, Map.of("chunkIds", chunkIds), resultSet -> {
+            java.util.Map<Long, Double> scores = new java.util.LinkedHashMap<>();
+            while (resultSet.next()) {
+                scores.put(resultSet.getLong("id"), resultSet.getDouble("feedback_score"));
+            }
+            return scores;
+        });
     }
 }

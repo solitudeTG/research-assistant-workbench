@@ -1,45 +1,74 @@
 ---
 id: F009
-status: planned
+doc_kind: feature
+status: completed
 owner: codex
-updated: 2026-05-09
+created: 2026-05-09
+updated: 2026-05-10
 parent_feature: F002
 ---
-# FeedbackScore 检索闭环
+# Feedback Score Loop
 
-## 目标
+## Goal
 
-让用户点赞/点踩形成可观察闭环，回流到回答关联证据 chunk 的 `feedbackScore`，并影响后续检索与轻量重排优先级。
+Make answer thumbs-up/thumbs-down feedback observable and reusable: answer-level feedback is recorded, selected same-project evidence and linked chunks receive a lightweight score delta, and later retrieval can use that score through an explainable bounded formula.
 
-## 范围
+## Current Status
 
-- 范围内：项目级 answer feedback API。
-- 范围内：有证据关联时更新 chunk `feedbackScore`。
-- 范围内：无证据关联时只记录回答级反馈。
-- 范围内：`feedback.applied` 事件。
-- 范围外：复杂个性化推荐、长期用户画像和不可解释重排模型。
+completed.
 
-## 验收标准
+## Scope
 
-- `rating=up` 增加关联证据 chunk 分数。
-- `rating=down` 降低关联证据 chunk 分数并保留原因。
-- 无 `evidenceSourceIds` 时不伪造 chunk 关联。
-- 后续检索排序使用可解释轻量公式纳入 `feedbackScore`。
-- `mvn -Dtest=ProjectFeedbackServiceTest,FeedbackControllerTest,PaperRagServiceTest test` 通过。
+- In scope: `POST /api/projects/{projectId}/answers/{answerId}/feedback`.
+- In scope: validate `rating` as exactly `up` or `down`.
+- In scope: record answer-level feedback in `answer_feedback`.
+- In scope: preserve `reason` or `note`; down feedback can carry a reason and up feedback can optionally carry a note.
+- In scope: when `evidenceSourceIds` are supplied, update only evidence rows under the same `projectId` and `answerId`.
+- In scope: update linked paper chunks only when the selected evidence belongs to the same project and maps through `source_document.indexed_document_id`.
+- In scope: publish `feedback.applied`.
+- In scope: apply chunk `feedback_score` to subsequent keyword/vector retrieval ordering with `relevance + clamp(feedbackScore * 0.05, -0.2, 0.2)`.
+- In scope: keep the local in-memory vector index synchronized when feedback mutates chunk scores.
+- Out of scope: UI, F010 frontend wiring, long-term personalization, user profile modeling, and complex reranking models.
 
-## 合同
+## Acceptance Criteria
 
-- API：`POST /api/projects/{projectId}/answers/{answerId}/feedback`。
-- 事件：`feedback.applied`。
-- 数据：`answer_feedback`、chunk `feedbackScore`。
-- UI：回答级点赞/点踩动作可消费。
+- `rating=up` increases selected same-project evidence and linked chunk scores.
+- `rating=down` decreases selected same-project evidence and linked chunk scores and stores the supplied reason/note.
+- Missing or empty `evidenceSourceIds` records answer-level feedback only and does not mutate evidence or chunks.
+- Cross-project evidence IDs are ignored and do not mutate another project's evidence or chunks.
+- `feedback.applied` event payload reports only same-project evidence IDs that were actually applied.
+- `feedback.applied` is published after the feedback application.
+- Retrieval scoring uses the bounded explainable formula instead of the previous unbounded keyword-only multiplier.
+- Local vector search uses the same bounded feedback formula and receives feedback deltas from both project answer feedback and the legacy message feedback route.
+- Legacy `POST /api/messages/{messageId}/feedback` behavior continues to pass.
+- Acceptance command passes:
+  `& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=ProjectFeedbackServiceTest,FeedbackControllerTest,PaperRagServiceTest' test`
 
-## 链接
+## Contracts
 
-- 父 Feature：[F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
-- 规格：[F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
-- 计划：[F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- API: `POST /api/projects/{projectId}/answers/{answerId}/feedback`.
+- Request:
+  - `rating`: `up` or `down`.
+  - `reason`: optional string, mainly for down feedback.
+  - `note`: optional string.
+  - `evidenceSourceIds`: optional list of evidence IDs.
+- Response:
+  - `status`: `APPLIED`.
+  - `rating`, `feedbackScore`, `updatedEvidenceSourceCount`, and `updatedChunkCount`.
+- Events: `feedback.applied`.
+- Data: `answer_feedback`, `evidence_source.feedback_score`, `document_chunk.feedback_score`.
+- Retrieval formula: `finalScore = relevanceScore + clamp(feedbackScore * 0.05, -0.2, 0.2)`.
 
-## 下一步
+## Evidence
 
-按 F002 实施计划 Task 7 进行 TDD 实现。
+- Evidence record: [EV-008-f009-feedback-score-loop.md](../evidence/EV-008-f009-feedback-score-loop.md)
+
+## Links
+
+- Parent Feature: [F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
+- Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
+- Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+
+## Next Step
+
+Start F010 three-column workbench UI. Do not add broad source search, web retrieval, or personalization inside F010 unless its Feature page expands scope.

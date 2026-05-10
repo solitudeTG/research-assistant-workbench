@@ -50,11 +50,38 @@ public class LocalVectorSearchPort implements VectorSearchPort {
                         candidate.chunk.documentId(),
                         candidate.chunk.chunkIndex(),
                         candidate.chunk.content(),
-                        cosine(queryVector, candidate.vector)))
+                        RetrievalFeedbackScoring.finalScore(
+                                cosine(queryVector, candidate.vector),
+                                candidate.chunk.feedbackScore()),
+                        candidate.chunk.feedbackScore()))
                 .filter(chunk -> chunk.finalScore() > 0.0)
                 .sorted(Comparator.comparingDouble(RagChunk::finalScore).reversed())
                 .limit(limit)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public void applyChunkFeedback(List<Long> chunkIds, double delta) {
+        if (chunkIds == null || chunkIds.isEmpty() || delta == 0.0) {
+            return;
+        }
+        for (Long chunkId : chunkIds) {
+            if (chunkId == null) {
+                continue;
+            }
+            index.computeIfPresent(chunkId, (ignored, indexedChunk) -> {
+                RagChunk chunk = indexedChunk.chunk();
+                RagChunk updatedChunk = new RagChunk(
+                        chunk.chunkId(),
+                        chunk.documentId(),
+                        chunk.chunkIndex(),
+                        chunk.content(),
+                        chunk.finalScore(),
+                        chunk.feedbackScore() + delta
+                );
+                return new IndexedChunk(updatedChunk, indexedChunk.vector());
+            });
+        }
     }
 
     private double cosine(float[] left, float[] right) {

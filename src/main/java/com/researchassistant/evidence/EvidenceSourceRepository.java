@@ -5,9 +5,12 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.researchassistant.rag.RagChunk;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -68,6 +71,115 @@ public class EvidenceSourceRepository {
         ), projectId, answerId);
     }
 
+    public FeedbackApplication applyFeedbackToProjectEvidence(
+            String projectId,
+            String answerId,
+            List<String> evidenceSourceIds,
+            int delta) {
+        List<String> safeEvidenceSourceIds = distinct(evidenceSourceIds);
+        if (safeEvidenceSourceIds.isEmpty()) {
+            return new FeedbackApplication(0, 0, List.of(), List.of());
+        }
+
+        String placeholders = placeholders(safeEvidenceSourceIds.size());
+        List<Object> selectedParams = new ArrayList<>();
+        selectedParams.add(projectId);
+        selectedParams.add(answerId);
+        selectedParams.addAll(safeEvidenceSourceIds);
+        List<String> appliedEvidenceSourceIds = jdbcTemplate.queryForList("""
+                select id
+                from evidence_source
+                where project_id = ?
+                  and answer_id = ?
+                  and id in (%s)
+                """.formatted(placeholders), String.class, selectedParams.toArray());
+
+        if (appliedEvidenceSourceIds.isEmpty()) {
+            return new FeedbackApplication(0, 0, List.of(), List.of());
+        }
+
+        String appliedPlaceholders = placeholders(appliedEvidenceSourceIds.size());
+        List<Object> evidenceParams = new ArrayList<>();
+        evidenceParams.add((double) delta);
+        evidenceParams.add(projectId);
+        evidenceParams.add(answerId);
+        evidenceParams.addAll(appliedEvidenceSourceIds);
+
+        int evidenceCount = jdbcTemplate.update("""
+                update evidence_source
+                set feedback_score = feedback_score + ?
+                where project_id = ?
+                  and answer_id = ?
+                  and id in (%s)
+                """.formatted(appliedPlaceholders), evidenceParams.toArray());
+
+        List<Object> chunkParams = new ArrayList<>();
+        chunkParams.add(projectId);
+        chunkParams.add(answerId);
+        chunkParams.addAll(appliedEvidenceSourceIds);
+        List<Long> chunkIds = jdbcTemplate.queryForList("""
+                with selected_evidence as (
+                    select es.project_id,
+                           es.source_id,
+                           es.source_type,
+                           es.citation_meta_json ->> 'chunkId' as chunk_id_text
+                    from evidence_source es
+                    where es.project_id = ?
+                      and es.answer_id = ?
+                      and es.id in (%s)
+                ),
+                parsed_evidence as (
+                    select project_id,
+                           source_id,
+                           source_type,
+                           case
+                               when chunk_id_text ~ '^[0-9]+$'
+                                and (
+                                    length(chunk_id_text) < 19
+                                    or (
+                                        length(chunk_id_text) = 19
+                                        and chunk_id_text <= '9223372036854775807'
+                                    )
+                                )
+                               then chunk_id_text::bigint
+                               else null
+                           end as chunk_id
+                    from selected_evidence
+                )
+                select distinct dc.id
+                from parsed_evidence es
+                join source_document sd
+                  on sd.project_id = es.project_id
+                 and sd.id = es.source_id
+                join document_chunk dc
+                  on dc.document_id = sd.indexed_document_id
+                 and dc.id = es.chunk_id
+                where es.source_type = 'paper'
+                  and es.chunk_id is not null
+                """.formatted(appliedPlaceholders), Long.class, chunkParams.toArray());
+
+        int chunkCount = 0;
+        if (!chunkIds.isEmpty()) {
+            List<Object> updateChunkParams = new ArrayList<>();
+            updateChunkParams.add((double) delta);
+            updateChunkParams.addAll(chunkIds);
+            chunkCount = jdbcTemplate.update("""
+                    update document_chunk
+                    set feedback_score = feedback_score + ?
+                    where id in (%s)
+                    """.formatted(placeholders(chunkIds.size())), updateChunkParams.toArray());
+        }
+
+        return new FeedbackApplication(evidenceCount, chunkCount, appliedEvidenceSourceIds, chunkIds);
+    }
+
+    public record FeedbackApplication(
+            int updatedEvidenceSourceCount,
+            int updatedChunkCount,
+            List<String> appliedEvidenceSourceIds,
+            List<Long> appliedChunkIds) {
+    }
+
     private EvidenceSourceRecord insertPaperSource(String projectId, String answerId, RagChunk chunk, String sourceId) {
         String evidenceId = UUID.randomUUID().toString();
         String snippet = snippet(chunk.content());
@@ -116,6 +228,23 @@ public class EvidenceSourceRepository {
         }
         String normalized = content.strip();
         return normalized.length() <= 500 ? normalized : normalized.substring(0, 500);
+    }
+
+    private List<String> distinct(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        Set<String> distinctValues = new LinkedHashSet<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                distinctValues.add(value);
+            }
+        }
+        return List.copyOf(distinctValues);
+    }
+
+    private String placeholders(int count) {
+        return String.join(", ", java.util.Collections.nCopies(count, "?"));
     }
 
     private String toJson(Object value) {

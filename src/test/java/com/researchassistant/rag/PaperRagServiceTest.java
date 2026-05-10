@@ -100,4 +100,11 @@ class PaperRagServiceTest {
                 "keywords", rewritePlan.keywords()
         )), any(), any());
     }
+
+    @Test
+    void feedbackScoreAdjustmentIsExplainableAndBounded() {
+        assertThat(RetrievalFeedbackScoring.finalScore(0.50, 2.0)).isEqualTo(0.60);
+        assertThat(RetrievalFeedbackScoring.finalScore(0.50, 99.0)).isEqualTo(0.70);
+        assertThat(RetrievalFeedbackScoring.finalScore(0.50, -99.0)).isEqualTo(0.30);
+    }
 }
