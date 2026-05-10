@@ -3,187 +3,138 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能研究助手工作台</title>
+    <title>研究工作台</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./css/workbench.css">
 </head>
 <body>
-<div class="shell">
+<div class="app-shell">
     <header class="topbar">
         <div class="brand">
-            <div class="brand-mark">LAB</div>
-            <div class="brand-copy">
-                <h1>智能研究助手工作台</h1>
-                <p>上传论文、锁定文档，然后像聊天一样直接提问。</p>
+            <div class="brand-mark" aria-hidden="true">RW</div>
+            <div>
+                <h1>研究工作台</h1>
+                <p id="project-summary">正在载入项目空间</p>
             </div>
         </div>
-        <div class="topbar-meta">
-            <span id="system-status" class="status-pill" data-state="checking">系统检查中</span>
-            <span class="meta-pill">聊天优先布局</span>
-            <span class="meta-pill">本地证据问答</span>
+        <div class="topbar-status">
+            <span id="system-status" class="status-pill" data-state="checking">连接中</span>
+            <span id="active-project-chip" class="context-chip">项目未选择</span>
         </div>
     </header>
 
-    <div class="workspace">
-        <aside class="rail">
-            <div class="panel-stack">
-                <section class="card">
-                    <div class="card-header">
-                        <div>
-                            <p class="eyebrow">会话管理</p>
-                            <h2 class="section-title">研究会话</h2>
-                        </div>
-                        <button id="new-session" class="ghost-button" type="button">新建</button>
+    <div class="workbench-layout">
+        <aside class="left-column" data-region="left-project-sources" aria-label="项目、会话与资料">
+            <section class="project-panel">
+                <div class="section-heading">
+                    <p>Project</p>
+                    <h2 id="project-topic">项目空间</h2>
+                </div>
+                <p id="project-description" class="compact-text">选择或创建一个研究项目后，资料、会话和知识板会围绕该项目工作。</p>
+                <dl class="project-stats">
+                    <div>
+                        <dt>资料</dt>
+                        <dd id="stat-sources">0</dd>
                     </div>
-                    <div class="card-body">
-                        <div id="session-list" class="session-list"></div>
-                        <div class="footer-note">会话会保存在当前浏览器里，方便你连续追问。</div>
+                    <div>
+                        <dt>知识</dt>
+                        <dd id="stat-knowledge">0</dd>
                     </div>
-                </section>
+                    <div>
+                        <dt>会话</dt>
+                        <dd id="stat-sessions">0</dd>
+                    </div>
+                </dl>
+            </section>
 
-                <section class="card">
-                    <div class="card-header">
-                        <div>
-                            <p class="eyebrow">文档库</p>
-                            <h2 class="section-title">论文接入</h2>
-                        </div>
-                        <button id="refresh-documents" class="ghost-button" type="button">刷新</button>
+            <section class="column-section">
+                <div class="section-heading section-heading--inline">
+                    <div>
+                        <p>Sessions</p>
+                        <h2>研究会话</h2>
                     </div>
-                    <div class="card-body">
-                        <div class="upload-box">
-                            <label class="file-input" for="file-input">
-                                <strong>上传论文</strong>
-                                <span class="muted">支持 PDF、TXT、Markdown 和 Word，上传后会自动解析、切块和索引。</span>
-                                <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
-                            </label>
-                            <button id="upload-button" class="primary-button" type="button">上传到工作台</button>
-                        </div>
-                        <p id="document-count" class="footer-note">正在加载文档列表...</p>
-                        <div id="document-list" class="document-list"></div>
+                    <button id="new-session" class="quiet-button" type="button">新建</button>
+                </div>
+                <div id="session-list" class="stack-list" aria-live="polite"></div>
+            </section>
+
+            <section class="column-section">
+                <div class="section-heading section-heading--inline">
+                    <div>
+                        <p>Sources</p>
+                        <h2>资料库</h2>
                     </div>
-                </section>
-            </div>
+                    <button id="refresh-sources" class="quiet-button" type="button">刷新</button>
+                </div>
+                <label class="source-import" for="file-input">
+                    <span>导入论文或笔记</span>
+                    <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
+                </label>
+                <button id="upload-button" class="primary-button" type="button">写入项目资料库</button>
+                <p id="source-count" class="micro-copy">资料状态会随 SSE 或轮询更新。</p>
+                <div id="source-list" class="stack-list" aria-live="polite"></div>
+            </section>
         </aside>
 
-        <main class="workspace-main">
-            <section class="conversation-header">
+        <main class="center-column" data-region="center-research-dialogue" aria-label="多轮研究对话">
+            <header class="dialogue-header">
                 <div>
-                    <p class="eyebrow">当前研究线程</p>
-                    <h2 id="active-session-title" class="conversation-title">研究工作区</h2>
-                    <p id="active-session-meta" class="conversation-subtitle">先在左侧选择一篇论文，再在下方输入框里直接提问。</p>
-                    <div id="document-chips" class="document-chips"></div>
+                    <p class="overline">Research dialogue</p>
+                    <h2 id="active-session-title">多轮研究对话</h2>
+                    <p id="active-session-meta">本地知识优先，证据不足时标记需要补充。</p>
+                </div>
+                <div id="answer-state" class="answer-state">等待问题</div>
+            </header>
+
+            <section id="conversation" class="conversation" aria-live="polite"></section>
+
+            <section class="composer" aria-label="发送研究问题">
+                <div class="composer-modes" aria-label="回答模式">
+                    <label><input id="allow-web" type="checkbox" checked> 证据不足时联网补充</label>
+                    <label><input id="extract-candidates" type="checkbox" checked> 回答后提炼候选</label>
+                </div>
+                <textarea id="composer" rows="4" placeholder="输入研究问题，例：这组资料支持哪些核心结论？"></textarea>
+                <div class="composer-footer">
+                    <span id="status-banner" class="micro-copy">工作台已就绪</span>
+                    <button id="send-button" class="primary-button" type="button">发送问题</button>
                 </div>
             </section>
-
-            <section class="composer composer--sticky">
-                <div class="composer-shell">
-                    <div class="composer-heading">
-                        <div>
-                            <p class="eyebrow">对话区</p>
-                            <h3>直接提问</h3>
-                        </div>
-                        <span class="composer-hint">推荐先问：摘要、研究内容、方法、贡献、结论。</span>
-                    </div>
-                    <textarea id="composer" placeholder="例如：这篇论文研究了什么？摘要是什么？它的方法和主要贡献分别是什么？"></textarea>
-                    <div class="composer-footer">
-                        <span class="footer-note">支持 <code>Ctrl</code> + <code>Enter</code> 快速发送</span>
-                        <button id="send-button" class="primary-button" type="button">发送问题</button>
-                    </div>
-                </div>
-                <div id="status-banner" class="footer-note">工作台已就绪。</div>
-            </section>
-
-            <section id="conversation" class="conversation"></section>
         </main>
 
-        <aside class="inspector">
-            <div class="panel-stack">
-                <section class="card">
-                    <div class="card-header">
-                        <div>
-                            <p class="eyebrow">当前焦点</p>
-                            <h2 id="selected-document-label" class="section-title">尚未选择文档</h2>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="stat-grid">
-                            <div class="stat-card">
-                                <span>回答模式</span>
-                                <strong id="telemetry-answer-mode">等待中</strong>
-                            </div>
-                            <div class="stat-card">
-                                <span>延迟</span>
-                                <strong id="telemetry-latency">暂无请求</strong>
-                            </div>
-                            <div class="stat-card">
-                                <span>证据</span>
-                                <strong id="telemetry-evidence">0 条引用</strong>
-                            </div>
-                            <div class="stat-card">
-                                <span>上下文</span>
-                                <strong id="telemetry-context">工作区空闲</strong>
-                            </div>
-                        </div>
-                        <p id="analysis-summary" class="inspector-summary muted"></p>
-                    </div>
-                </section>
+        <aside class="right-column" data-region="right-research-sidebar" aria-label="研究侧栏">
+            <nav class="sidebar-tabs" aria-label="研究侧栏视图">
+                <button class="tab-button is-active" type="button" data-sidebar-view="knowledge-board">知识板</button>
+                <button class="tab-button" type="button" data-sidebar-view="evidence-sources">证据来源</button>
+                <button class="tab-button" type="button" data-sidebar-view="candidate-confirmation">候选确认</button>
+            </nav>
 
-                <details class="card disclosure-card">
-                    <summary class="disclosure-summary">
-                        <div>
-                            <p class="eyebrow">结构化分析</p>
-                            <h2 class="section-title">论文分析</h2>
-                        </div>
-                        <span class="disclosure-hint">点击展开</span>
-                    </summary>
-                    <div class="card-body">
-                        <div class="analysis-grid">
-                            <div class="analysis-block">
-                                <h4>摘要</h4>
-                                <p id="analysis-abstract"></p>
-                            </div>
-                            <div class="analysis-block">
-                                <h4>方法</h4>
-                                <ul id="analysis-methods"></ul>
-                            </div>
-                            <div class="analysis-block">
-                                <h4>贡献</h4>
-                                <ul id="analysis-contributions"></ul>
-                            </div>
-                            <div class="analysis-block">
-                                <h4>关键词</h4>
-                                <div id="analysis-keywords" class="chip-list"></div>
-                            </div>
-                            <div class="analysis-block">
-                                <h4>大纲</h4>
-                                <ul id="analysis-outline"></ul>
-                            </div>
-                        </div>
-                    </div>
-                </details>
+            <p id="answer-context-line" class="context-line">当前回答还没有关联证据或候选。</p>
 
-                <details class="card disclosure-card">
-                    <summary class="disclosure-summary">
-                        <div>
-                            <p class="eyebrow">证据与轨迹</p>
-                            <h2 class="section-title">引用和检索过程</h2>
-                        </div>
-                        <span class="disclosure-hint">点击展开</span>
-                    </summary>
-                    <div class="card-body stacked-body">
-                        <section>
-                            <h3 class="mini-title">引用片段</h3>
-                            <div id="citation-list" class="citation-list"></div>
-                        </section>
-                        <section>
-                            <h3 class="mini-title">轨迹时间线</h3>
-                            <div id="trace-list" class="trace-list"></div>
-                        </section>
-                    </div>
-                </details>
-            </div>
+            <section class="sidebar-view is-active" data-view="knowledge-board" aria-label="知识板">
+                <div class="section-heading">
+                    <p>Knowledge board</p>
+                    <h2>长期研究知识</h2>
+                </div>
+                <div id="knowledge-board" class="knowledge-board"></div>
+            </section>
+
+            <section class="sidebar-view" data-view="evidence-sources" aria-label="证据来源">
+                <div class="section-heading">
+                    <p>Evidence</p>
+                    <h2>证据来源</h2>
+                </div>
+                <div id="evidence-list" class="stack-list"></div>
+            </section>
+
+            <section class="sidebar-view" data-view="candidate-confirmation" aria-label="候选确认">
+                <div class="section-heading">
+                    <p>Candidates</p>
+                    <h2>候选确认</h2>
+                </div>
+                <div id="candidate-list" class="stack-list"></div>
+            </section>
         </aside>
     </div>
 </div>

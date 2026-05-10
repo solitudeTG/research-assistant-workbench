@@ -1,851 +1,981 @@
 import {
+    applyCandidateAction,
+    applySseEvent,
     applyStreamEvent,
-    buildAnalysisViewModel,
     createLocalSession,
+    createWorkbenchState,
     formatRelativeTime,
-    normalizeDocument
+    normalizeDocument,
+    selectSession,
+    selectSidebarView,
+    startEditingCandidate
 } from "./workbench-model.js";
 
-const STORAGE_KEYS = {
-    sessions: "research-assistant.workbench.sessions",
-    activeSession: "research-assistant.workbench.active-session"
+const EVENT_TYPES = [
+    "run.started",
+    "retrieval.started",
+    "retrieval.completed",
+    "evidence.evaluated",
+    "answer.delta",
+    "answer.completed",
+    "run.completed",
+    "run.failed",
+    "source.status.changed",
+    "candidate.created",
+    "knowledge.entry.created"
+];
+
+const SECTION_LABELS = {
+    current_candidates: "本轮候选",
+    core_concept: "核心概念",
+    method_route: "方法路线",
+    confirmed_finding: "已确认结论",
+    open_question: "待验证问题"
 };
 
-const state = {
-    sessions: [],
-    documents: [],
-    selectedDocumentId: null,
-    analysis: null,
-    systemState: "checking",
-    statusMessage: "正在连接工作台...",
-    focusedMessageId: null,
-    activeStream: null
+const SOURCE_LABELS = {
+    pdf: "论文",
+    web: "网页",
+    note: "笔记",
+    document: "文档"
 };
 
-const elements = {
+const dom = {
     systemStatus: document.getElementById("system-status"),
-    statusBanner: document.getElementById("status-banner"),
+    projectSummary: document.getElementById("project-summary"),
+    activeProjectChip: document.getElementById("active-project-chip"),
+    projectTopic: document.getElementById("project-topic"),
+    projectDescription: document.getElementById("project-description"),
+    statSources: document.getElementById("stat-sources"),
+    statKnowledge: document.getElementById("stat-knowledge"),
+    statSessions: document.getElementById("stat-sessions"),
     sessionList: document.getElementById("session-list"),
-    documentList: document.getElementById("document-list"),
-    documentCount: document.getElementById("document-count"),
-    uploadButton: document.getElementById("upload-button"),
-    fileInput: document.getElementById("file-input"),
-    refreshButton: document.getElementById("refresh-documents"),
     newSessionButton: document.getElementById("new-session"),
+    refreshSourcesButton: document.getElementById("refresh-sources"),
+    fileInput: document.getElementById("file-input"),
+    uploadButton: document.getElementById("upload-button"),
+    sourceCount: document.getElementById("source-count"),
+    sourceList: document.getElementById("source-list"),
     activeSessionTitle: document.getElementById("active-session-title"),
     activeSessionMeta: document.getElementById("active-session-meta"),
-    documentChips: document.getElementById("document-chips"),
+    answerState: document.getElementById("answer-state"),
     conversation: document.getElementById("conversation"),
+    allowWeb: document.getElementById("allow-web"),
+    extractCandidates: document.getElementById("extract-candidates"),
     composer: document.getElementById("composer"),
+    statusBanner: document.getElementById("status-banner"),
     sendButton: document.getElementById("send-button"),
-    selectedDocumentLabel: document.getElementById("selected-document-label"),
-    analysisSummary: document.getElementById("analysis-summary"),
-    analysisAbstract: document.getElementById("analysis-abstract"),
-    analysisMethods: document.getElementById("analysis-methods"),
-    analysisContributions: document.getElementById("analysis-contributions"),
-    analysisKeywords: document.getElementById("analysis-keywords"),
-    analysisOutline: document.getElementById("analysis-outline"),
-    citationList: document.getElementById("citation-list"),
-    traceList: document.getElementById("trace-list"),
-    telemetryAnswerMode: document.getElementById("telemetry-answer-mode"),
-    telemetryLatency: document.getElementById("telemetry-latency"),
-    telemetryEvidence: document.getElementById("telemetry-evidence"),
-    telemetryContext: document.getElementById("telemetry-context")
+    tabs: [...document.querySelectorAll("[data-sidebar-view]")],
+    sidebarViews: [...document.querySelectorAll("[data-view]")],
+    answerContextLine: document.getElementById("answer-context-line"),
+    knowledgeBoard: document.getElementById("knowledge-board"),
+    evidenceList: document.getElementById("evidence-list"),
+    candidateList: document.getElementById("candidate-list")
 };
 
-hydrateSessions();
+const app = {
+    ...createWorkbenchState(),
+    projects: [],
+    activeProject: null,
+    systemState: "checking",
+    statusMessage: "正在连接研究工作台",
+    messages: [],
+    activeStream: null,
+    sampleMode: false
+};
+
 wireEvents();
-renderAll();
+render();
 void bootstrap();
 
 function wireEvents() {
-    elements.newSessionButton.addEventListener("click", () => {
-        const session = createSession("新研究会话");
-        setActiveSession(session.sessionKey);
-        renderAll();
+    dom.newSessionButton.addEventListener("click", () => {
+        void createResearchSession();
     });
 
-    elements.refreshButton.addEventListener("click", () => {
-        void refreshDocuments();
+    dom.refreshSourcesButton.addEventListener("click", () => {
+        void refreshSources();
     });
 
-    elements.uploadButton.addEventListener("click", () => {
-        void uploadDocument();
+    dom.uploadButton.addEventListener("click", () => {
+        void uploadSource();
     });
 
-    elements.sendButton.addEventListener("click", () => {
+    dom.sendButton.addEventListener("click", () => {
         void askQuestion();
     });
 
-    elements.composer.addEventListener("keydown", (event) => {
+    dom.composer.addEventListener("keydown", (event) => {
         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
             void askQuestion();
         }
     });
 
-    elements.sessionList.addEventListener("click", (event) => {
-        const trigger = event.target.closest("[data-session-key]");
+    dom.sessionList.addEventListener("click", (event) => {
+        const trigger = event.target.closest("[data-session-id]");
         if (!trigger) {
             return;
         }
-        setActiveSession(trigger.dataset.sessionKey);
-        renderAll();
+        Object.assign(app, selectSession(app, trigger.dataset.sessionId));
+        app.messages = [];
+        render();
     });
 
-    elements.documentList.addEventListener("click", (event) => {
-        const trigger = event.target.closest("[data-document-id]");
-        if (!trigger) {
-            return;
-        }
-        const documentId = Number(trigger.dataset.documentId);
-        state.selectedDocumentId = documentId;
-        const session = getActiveSession();
-        if (session) {
-            session.pinnedDocumentIds = [documentId];
-            touchSession(session);
-        }
-        void loadAnalysis(documentId);
-        renderAll();
+    dom.tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+            Object.assign(app, selectSidebarView(app, tab.dataset.sidebarView));
+            renderSidebar();
+        });
     });
 
-    elements.conversation.addEventListener("click", (event) => {
-        const trigger = event.target.closest("[data-message-id]");
-        if (!trigger) {
+    dom.candidateList.addEventListener("click", (event) => {
+        const submitEditTrigger = event.target.closest("[data-candidate-edit-submit]");
+        const cancelEditTrigger = event.target.closest("[data-candidate-edit-cancel]");
+        const editTrigger = event.target.closest("[data-candidate-edit]");
+        const actionTrigger = event.target.closest("[data-candidate-action]");
+        if (submitEditTrigger) {
+            const form = submitEditTrigger.closest("[data-candidate-edit-form]");
+            void submitCandidateAction(
+                    "edit-and-accept",
+                    submitEditTrigger.dataset.candidateEditSubmit,
+                    readCandidateEditForm(form)
+            );
             return;
         }
-        state.focusedMessageId = trigger.dataset.messageId;
-        renderInspector();
+        if (cancelEditTrigger) {
+            Object.assign(app, applyCandidateAction(app, cancelEditTrigger.dataset.candidateEditCancel, "cancel"));
+            renderCandidates();
+            return;
+        }
+        if (editTrigger) {
+            Object.assign(app, startEditingCandidate(app, editTrigger.dataset.candidateEdit));
+            renderCandidates();
+            return;
+        }
+        if (actionTrigger) {
+            void submitCandidateAction(
+                    actionTrigger.dataset.candidateAction,
+                    actionTrigger.dataset.candidateId
+            );
+        }
     });
 }
 
 async function bootstrap() {
-    await Promise.allSettled([pingSystem(), refreshDocuments()]);
-    renderAll();
+    await pingSystem();
+    await loadProjects();
+    render();
 }
 
 async function pingSystem() {
     try {
-        const response = await fetch("/api/system/ping");
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        state.systemState = "ok";
+        await getJson("/api/system/ping");
+        app.systemState = "ok";
     } catch (error) {
-        state.systemState = "error";
-        state.statusMessage = `后端健康检查失败：${error.message}`;
+        app.systemState = "error";
+        app.statusMessage = `后端健康检查不可用：${error.message}`;
     }
 }
 
-async function refreshDocuments() {
+async function loadProjects() {
     try {
-        const response = await fetch("/api/documents");
-        const payload = await readJsonSafely(response);
-        if (!response.ok) {
-            throw new Error(payload?.error || `HTTP ${response.status}`);
+        const projects = await getJson("/api/projects");
+        app.projects = Array.isArray(projects) ? projects : [];
+        if (app.projects.length === 0) {
+            installSampleState("当前后端还没有项目。界面使用空项目样例，创建项目后会自动切换到真实数据。");
+            return;
         }
-
-        state.documents = Array.isArray(payload?.documents)
-                ? payload.documents.map(normalizeDocument)
-                : [];
-        elements.documentCount.textContent = `当前共有 ${state.documents.length} 份工作台文档。`;
-        syncSelectedDocument();
-
-        if (state.selectedDocumentId) {
-            await loadAnalysis(state.selectedDocumentId);
-        }
-
-        if (state.documents.length === 0) {
-            state.statusMessage = "当前还没有论文，先上传一篇开始研究。";
-        }
+        app.sampleMode = false;
+        app.activeProject = app.projects[0];
+        app.activeProjectId = app.activeProject.id;
+        await Promise.allSettled([
+            loadSessions(),
+            refreshSources(),
+            refreshKnowledgeBoard(),
+            refreshCandidates()
+        ]);
     } catch (error) {
-        state.documents = [];
-        state.analysis = null;
-        elements.documentCount.textContent = "文档列表暂不可用。";
-        state.statusMessage = `文档工作台暂不可用：${error.message}`;
+        installSampleState(`F002 项目接口暂不可用，已进入本地样例模式：${error.message}`);
+        await refreshSources();
     }
-
-    renderAll();
 }
 
-async function loadAnalysis(documentId) {
-    if (!documentId) {
-        state.analysis = null;
-        renderInspector();
+async function loadSessions() {
+    if (!hasProjectApi()) {
+        return;
+    }
+    const sessions = await getJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions`);
+    app.sessions = Array.isArray(sessions) ? sessions : [];
+    if (app.sessions.length === 0) {
+        const session = await postJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions`, {
+            title: "研究线索梳理"
+        });
+        app.sessions = [session];
+    }
+    app.activeSessionId = app.sessions[0]?.id || null;
+}
+
+async function createResearchSession() {
+    if (!hasProjectApi()) {
+        const session = createLocalSession("本地研究会话");
+        app.sessions = [{ ...session, id: session.sessionKey, status: "drafting", lastMessageAt: session.updatedAt }, ...app.sessions];
+        Object.assign(app, selectSession(app, session.sessionKey));
+        render();
         return;
     }
 
     try {
-        const response = await fetch(`/api/documents/${documentId}/analysis`);
-        if (response.status === 404) {
-            state.analysis = null;
-            renderInspector();
-            return;
-        }
-
-        const payload = await readJsonSafely(response);
-        if (!response.ok) {
-            throw new Error(payload?.error || `HTTP ${response.status}`);
-        }
-        state.analysis = payload;
+        const title = `研究会话 ${app.sessions.length + 1}`;
+        const session = await postJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions`, { title });
+        app.sessions = [session, ...app.sessions];
+        Object.assign(app, selectSession(app, session.id));
+        app.statusMessage = "已创建新的项目会话。";
     } catch (error) {
-        state.analysis = null;
-        state.statusMessage = `文档 ${documentId} 的结构化分析暂不可用：${error.message}`;
+        app.statusMessage = `创建会话失败：${error.message}`;
     }
-
-    renderInspector();
+    render();
 }
 
-async function uploadDocument() {
-    if (!elements.fileInput.files.length) {
-        state.statusMessage = "请先选择要上传的论文。";
+async function refreshSources() {
+    try {
+        if (hasProjectApi()) {
+            const sources = await getJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sources`);
+            app.sources = Array.isArray(sources) ? sources.map(normalizeSource) : [];
+        } else {
+            app.sources = await compatibilityListLegacyDocuments();
+        }
+    } catch (error) {
+        app.sources = await compatibilityListLegacyDocuments();
+        app.statusMessage = `项目资料接口暂不可用，已尝试旧文档接口：${error.message}`;
+    }
+    render();
+}
+
+async function refreshKnowledgeBoard() {
+    if (!hasProjectApi()) {
+        return;
+    }
+    try {
+        const sections = await getJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/knowledge-board`);
+        app.knowledgeBoard = createWorkbenchState({ knowledgeBoard: sections }).knowledgeBoard;
+    } catch (error) {
+        app.statusMessage = `知识板暂不可用：${error.message}`;
+    }
+}
+
+async function refreshCandidates() {
+    if (!hasProjectApi()) {
+        return;
+    }
+    try {
+        const candidates = await getJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/candidates`);
+        app.candidates = Array.isArray(candidates) ? candidates : [];
+    } catch (error) {
+        app.statusMessage = `候选列表暂不可用：${error.message}`;
+    }
+}
+
+async function uploadSource() {
+    if (!dom.fileInput.files.length) {
+        app.statusMessage = "请先选择要导入的论文或笔记。";
         renderStatus();
         return;
     }
 
-    const file = elements.fileInput.files[0];
+    const file = dom.fileInput.files[0];
     const formData = new FormData();
     formData.append("file", file);
-    state.statusMessage = `正在上传 ${file.name}...`;
+    app.statusMessage = `正在导入 ${file.name}`;
     renderStatus();
 
     try {
-        const response = await fetch("/api/documents/upload", {
-            method: "POST",
-            body: formData
-        });
-        const payload = await readJsonSafely(response);
-        if (!response.ok) {
-            throw new Error(payload?.error || `HTTP ${response.status}`);
-        }
-
-        state.statusMessage = `上传已接收，文档 ${payload.documentId} 当前状态：${payload.status}。`;
-        await refreshDocuments();
-        state.selectedDocumentId = Number(payload.documentId);
-        pinDocumentToActiveSession(state.selectedDocumentId);
-        await pollDocumentUntilReady(Number(payload.documentId));
-        elements.fileInput.value = "";
+        const source = hasProjectApi()
+                ? await postForm(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sources`, formData)
+                : await compatibilityUploadLegacyDocument(formData);
+        app.sources = [normalizeSource(source), ...app.sources.filter((item) => item.id !== (source.sourceId || source.id))];
+        dom.fileInput.value = "";
+        app.statusMessage = "资料已进入处理队列。";
     } catch (error) {
-        state.statusMessage = `上传失败：${error.message}`;
-        renderStatus();
+        app.statusMessage = `资料导入失败：${error.message}`;
     }
-}
-
-async function pollDocumentUntilReady(documentId) {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-        await delay(1000);
-        try {
-            const response = await fetch(`/api/documents/${documentId}`);
-            const payload = await readJsonSafely(response);
-            if (!response.ok) {
-                throw new Error(payload?.error || `HTTP ${response.status}`);
-            }
-
-            upsertDocument(payload);
-            renderAll();
-
-            if (payload.status === "INDEXED") {
-                state.statusMessage = `文档 ${documentId} 已索引完成，可以开始提问。`;
-                await loadAnalysis(documentId);
-                return;
-            }
-
-            if (payload.status === "FAILED") {
-                state.statusMessage = `文档 ${documentId} 在 ${payload.failureStage || "处理阶段"} 失败。`;
-                return;
-            }
-        } catch (error) {
-            state.statusMessage = `轮询文档 ${documentId} 状态失败：${error.message}`;
-            return;
-        }
-    }
-
-    state.statusMessage = `文档 ${documentId} 仍在处理中，你可以稍后继续。`;
+    render();
 }
 
 async function askQuestion() {
-    const question = elements.composer.value.trim();
+    const question = dom.composer.value.trim();
     if (!question) {
-        state.statusMessage = "请先输入你的问题。";
+        app.statusMessage = "请先输入研究问题。";
         renderStatus();
         return;
     }
 
     closeStream();
-
-    const session = getActiveSession();
     const now = new Date().toISOString();
-    const userMessage = {
-        id: nextId("user"),
-        role: "user",
-        content: question,
-        createdAt: now
+    const assistantId = nextId("assistant");
+    app.messages = [
+        ...app.messages,
+        { id: nextId("user"), role: "user", content: question, createdAt: now },
+        { id: assistantId, role: "assistant", content: "", createdAt: now, status: "streaming" }
+    ];
+    app.currentAnswer = {
+        answerId: null,
+        text: "",
+        status: "streaming",
+        evidenceState: null,
+        outputMode: null,
+        citationCount: 0,
+        messageId: assistantId
     };
-    const assistantMessage = {
-        id: nextId("assistant"),
-        role: "assistant",
-        content: "",
-        answerMode: "等待中",
-        createdAt: now,
-        citations: [],
-        trace: initialTrace(),
-        telemetry: initialTelemetry()
-    };
-
-    if (session.title === "新研究会话") {
-        session.title = question.slice(0, 42);
-    }
-    session.messages.push(userMessage, assistantMessage);
-    session.messageCount = session.messages.length;
-    touchSession(session);
-    state.focusedMessageId = assistantMessage.id;
-    state.statusMessage = "正在生成回答...";
-    elements.composer.value = "";
-    renderAll();
+    app.statusMessage = "正在生成回答。";
+    dom.composer.value = "";
+    render();
     scrollConversationToBottom();
 
-    const streamState = {
-        answerParts: [],
-        citations: [],
-        trace: [...assistantMessage.trace],
-        telemetry: { ...assistantMessage.telemetry }
-    };
-
-    const params = new URLSearchParams({
-        sessionKey: session.sessionKey,
-        question
-    });
-    if (state.selectedDocumentId) {
-        params.set("documentId", String(state.selectedDocumentId));
+    if (!hasProjectApi() || !app.activeSessionId) {
+        compatibilitySendLegacyChatStream(question, assistantId);
+        return;
     }
 
-    const source = new EventSource(`/api/chat/stream?${params.toString()}`);
-    state.activeStream = source;
-
-    source.addEventListener("heartbeat", () => {
-        streamState.trace = [
-            {
-                label: "流式连接已建立",
-                detail: "后端已接收问题，正在准备检索和生成。"
-            },
-            ...streamState.trace
-        ].slice(0, 8);
-        updateAssistantMessage(assistantMessage.id, {
-            trace: streamState.trace
+    try {
+        const response = await postJson(
+                `/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions/${encodeURIComponent(app.activeSessionId)}/messages`,
+                {
+                    question,
+                    sourceFilters: [],
+                    allowWebSupplement: dom.allowWeb.checked,
+                    extractKnowledgeCandidates: dom.extractCandidates.checked,
+                    answerMode: "local_first"
+                }
+        );
+        app.currentAnswer.answerId = response.answerId;
+        app.activeAnswerContext = {
+            answerId: response.answerId,
+            citationCount: 0,
+            candidateCount: 0
+        };
+        openProjectEventStream(response.sseUrl, assistantId);
+    } catch (error) {
+        updateAssistantMessage(assistantId, {
+            content: `项目回答请求失败：${error.message}`,
+            status: "error"
         });
-    });
+        app.currentAnswer.status = "error";
+        app.statusMessage = "项目回答请求失败。";
+        render();
+    }
+}
 
-    source.addEventListener("message", (event) => {
-        const nextState = applyStreamEvent(streamState, "message", event.data);
-        Object.assign(streamState, nextState);
-        updateAssistantMessage(assistantMessage.id, {
-            content: streamState.answerParts.join(" "),
-            telemetry: normalizeTelemetry({
-                ...streamState.telemetry,
-                latency: "正在接收内容..."
-            })
-        });
-    });
+function openProjectEventStream(sseUrl, assistantMessageId) {
+    const source = new EventSource(sseUrl);
+    app.activeStream = source;
 
-    for (const eventName of ["retrieval-start", "retrieval-step", "telemetry", "error"]) {
-        source.addEventListener(eventName, (event) => {
-            const parsed = parsePossibleJson(event.data);
-            const nextState = applyStreamEvent(streamState, eventName, parsed);
-            Object.assign(streamState, nextState);
-            updateAssistantMessage(assistantMessage.id, {
-                trace: streamState.trace,
-                telemetry: normalizeTelemetry(streamState.telemetry)
-            });
+    for (const eventType of EVENT_TYPES) {
+        source.addEventListener(eventType, async (event) => {
+            const workbenchEvent = parseEventData(event.data);
+            Object.assign(app, applySseEvent(app, workbenchEvent));
+            if (eventType === "evidence.evaluated") {
+                await refreshEvidenceSources(workbenchEvent.answerId || app.currentAnswer?.answerId);
+            }
+            syncAssistantFromCurrentAnswer(assistantMessageId, workbenchEvent);
+            if (eventType === "run.completed" || eventType === "run.failed") {
+                closeStream();
+            }
+            render();
+            scrollConversationToBottom();
         });
     }
-
-    source.addEventListener("done", (event) => {
-        const payload = parsePossibleJson(event.data) || {};
-        const nextState = applyStreamEvent(streamState, "done", payload);
-        Object.assign(streamState, nextState);
-
-        updateAssistantMessage(assistantMessage.id, {
-            content: payload.answer || streamState.answerParts.join(" "),
-            answerMode: payload.answerMode || "未知模式",
-            citations: Array.isArray(payload.citations) ? payload.citations : [],
-            trace: streamState.trace,
-            telemetry: normalizeTelemetry({
-                ...streamState.telemetry,
-                status: "done",
-                answerMode: payload.answerMode || streamState.telemetry.answerMode,
-                evidenceCount: `${Array.isArray(payload.citations) ? payload.citations.length : 0} 条引用`,
-                latency: "已完成"
-            })
-        });
-        state.statusMessage = `回答已完成，模式：${payload.answerMode || "未知模式"}。`;
-        closeStream();
-        renderAll();
-        scrollConversationToBottom();
-    });
 
     source.onerror = () => {
-        updateAssistantMessage(assistantMessage.id, {
-            content: assistantMessage.content || "流式回答在完成前中断了，请稍后重试。",
-            trace: [
-                {
-                    label: "流式连接中断",
-                    detail: "浏览器与后端的 SSE 连接被中断，请重新发送问题。"
-                },
-                ...streamState.trace
-            ].slice(0, 8),
-            telemetry: normalizeTelemetry({
-                ...streamState.telemetry,
-                status: "error",
-                latency: "已中断"
-            })
+        if (app.currentAnswer?.status === "completed") {
+            closeStream();
+            return;
+        }
+        updateAssistantMessage(assistantMessageId, {
+            content: app.currentAnswer?.text || "SSE 连接中断，请稍后重试。",
+            status: "error"
         });
-        state.statusMessage = "流式回答失败，请重试。";
+        app.currentAnswer = {
+            ...(app.currentAnswer || {}),
+            status: "error"
+        };
+        app.statusMessage = "事件流连接中断。";
         closeStream();
-        renderAll();
+        render();
     };
 }
 
-function renderAll() {
+async function refreshEvidenceSources(answerId = app.currentAnswer?.answerId || app.activeAnswerContext?.answerId) {
+    if (!hasProjectApi() || !answerId) {
+        return;
+    }
+    try {
+        const evidenceSources = await getJson(
+                `/api/projects/${encodeURIComponent(app.activeProjectId)}/answers/${encodeURIComponent(answerId)}/evidence`
+        );
+        app.evidenceSources = Array.isArray(evidenceSources) ? evidenceSources : [];
+    } catch (error) {
+        app.statusMessage = `璇佹嵁鏉ユ簮鏆備笉鍙敤锛?{error.message}`;
+    }
+}
+
+async function submitCandidateAction(action, candidateId, editPayload = null) {
+    if (!candidateId) {
+        return;
+    }
+    Object.assign(app, applyCandidateAction(app, candidateId, action));
+    renderCandidates();
+
+    if (!hasProjectApi()) {
+        return;
+    }
+
+    const routeByAction = {
+        accept: "accept",
+        "edit-and-accept": "edit-and-accept",
+        "mark-unverified": "mark-unverified",
+        ignore: "ignore"
+    };
+    const route = routeByAction[action];
+    if (!route) {
+        return;
+    }
+
+    try {
+        await postJson(
+                `/api/projects/${encodeURIComponent(app.activeProjectId)}/candidates/${encodeURIComponent(candidateId)}/${route}`,
+                editPayload || {}
+        );
+        await Promise.allSettled([refreshCandidates(), refreshKnowledgeBoard()]);
+        app.statusMessage = "候选状态已更新。";
+    } catch (error) {
+        app.statusMessage = `候选操作失败：${error.message}`;
+    }
+    render();
+}
+
+function syncAssistantFromCurrentAnswer(messageId, workbenchEvent) {
+    const eventType = workbenchEvent?.eventType;
+    if (eventType === "answer.delta" || eventType === "answer.completed") {
+        updateAssistantMessage(messageId, {
+            content: app.currentAnswer?.text || "",
+            status: app.currentAnswer?.status || "streaming"
+        });
+    }
+    if (eventType === "evidence.evaluated") {
+        Object.assign(app, selectSidebarView(app, "evidence-sources"));
+    }
+    if (eventType === "candidate.created") {
+        Object.assign(app, selectSidebarView(app, "candidate-confirmation"));
+    }
+    if (eventType === "knowledge.entry.created") {
+        Object.assign(app, selectSidebarView(app, "knowledge-board"));
+    }
+    if (eventType === "run.completed") {
+        updateAssistantMessage(messageId, { status: "completed" });
+        app.currentAnswer = { ...(app.currentAnswer || {}), status: "completed" };
+        app.statusMessage = "回答已完成。";
+    }
+    if (eventType === "run.failed") {
+        updateAssistantMessage(messageId, { status: "error" });
+        app.currentAnswer = { ...(app.currentAnswer || {}), status: "error" };
+        app.statusMessage = "回答运行失败。";
+    }
+}
+
+function render() {
     renderStatus();
+    renderProject();
     renderSessions();
-    renderDocuments();
-    renderConversation();
-    renderInspector();
-    renderHeader();
+    renderSources();
+    renderDialogue();
+    renderSidebar();
 }
 
 function renderStatus() {
-    elements.systemStatus.dataset.state = state.systemState;
-    elements.systemStatus.textContent = state.systemState === "ok"
-            ? "系统在线"
-            : state.systemState === "error"
-                    ? "系统异常"
-                    : "系统检查中";
-    elements.statusBanner.textContent = state.statusMessage;
+    dom.systemStatus.dataset.state = app.systemState;
+    dom.systemStatus.textContent = app.systemState === "ok" ? "在线" : app.systemState === "error" ? "离线" : "连接中";
+    dom.statusBanner.textContent = app.statusMessage;
 }
 
-function renderHeader() {
-    const session = getActiveSession();
-    const selectedDocument = getSelectedDocument();
-
-    elements.activeSessionTitle.textContent = session?.title || "研究工作区";
-    elements.activeSessionMeta.textContent = session
-            ? `本地已记录 ${session.messages.length} 轮对话，最近更新于 ${formatRelativeTime(session.updatedAt)}`
-            : "当前没有激活会话。";
-
-    elements.documentChips.innerHTML = "";
-    if (selectedDocument) {
-        appendChip(selectedDocument.title, `${selectedDocument.status} · ${selectedDocument.totalChunks} 个切块`);
-        appendChip("当前上下文", `文档 ${selectedDocument.documentId} · ${selectedDocument.totalTokens} token`);
-    } else {
-        appendChip("尚未锁定文档", "先从左侧上传或选择一篇论文");
-    }
+function renderProject() {
+    const project = app.activeProject;
+    dom.projectTopic.textContent = project?.topic || "项目空间";
+    dom.projectDescription.textContent = project?.summary || "当前没有真实项目数据，仍可查看三栏工作台结构。";
+    dom.projectSummary.textContent = project?.summary || "项目级资料、会话、证据与知识板";
+    dom.activeProjectChip.textContent = project?.id ? `项目 ${project.id.slice(0, 8)}` : "本地样例";
+    dom.statSources.textContent = String(app.sources.length);
+    dom.statKnowledge.textContent = String(knowledgeEntryCount());
+    dom.statSessions.textContent = String(app.sessions.length);
 }
 
 function renderSessions() {
-    elements.sessionList.innerHTML = "";
-    for (const session of state.sessions) {
+    dom.sessionList.replaceChildren();
+    if (!app.sessions.length) {
+        dom.sessionList.appendChild(emptyBlock("还没有研究会话。"));
+        return;
+    }
+    for (const session of app.sessions) {
         const button = document.createElement("button");
-        button.className = `session-item${session.sessionKey === getActiveSession()?.sessionKey ? " is-active" : ""}`;
-        button.dataset.sessionKey = session.sessionKey;
-        button.innerHTML = `
-            <h3>${escapeHtml(session.title)}</h3>
-            <p class="muted">${escapeHtml(session.messages.at(-1)?.content?.slice(0, 88) || "当前还没有消息，开始提问吧。")}</p>
-            <div class="meta-row">
-                <span class="meta-token">${session.messageCount} 轮</span>
-                <span class="meta-token">${formatRelativeTime(session.updatedAt)}</span>
-            </div>
-        `;
-        elements.sessionList.appendChild(button);
+        button.type = "button";
+        button.className = `row-item${session.id === app.activeSessionId ? " is-active" : ""}`;
+        button.dataset.sessionId = session.id;
+        button.append(
+                textElement("strong", session.title || "未命名会话"),
+                textElement("span", `${session.status || "drafting"} · ${formatRelativeTime(session.lastMessageAt || session.updatedAt)}`)
+        );
+        dom.sessionList.appendChild(button);
     }
 }
 
-function renderDocuments() {
-    elements.documentList.innerHTML = "";
-
-    if (state.documents.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "empty-state";
-        empty.textContent = "当前还没有文档。上传论文后，工作台会自动跟踪索引状态、切块数量和结构化分析。";
-        elements.documentList.appendChild(empty);
+function renderSources() {
+    dom.sourceCount.textContent = `当前 ${app.sources.length} 份资料`;
+    dom.sourceList.replaceChildren();
+    if (!app.sources.length) {
+        dom.sourceList.appendChild(emptyBlock("资料库为空。导入论文、网页或个人笔记后，状态会显示在这里。"));
         return;
     }
-
-    for (const documentRecord of state.documents) {
-        const button = document.createElement("button");
-        button.className = `document-item${documentRecord.documentId === state.selectedDocumentId ? " is-active" : ""}`;
-        button.dataset.documentId = String(documentRecord.documentId);
-        button.innerHTML = `
-            <h3>${escapeHtml(documentRecord.title)}</h3>
-            <p class="muted">${escapeHtml(documentRecord.originalFileName)}</p>
-            <div class="meta-row">
-                <span class="meta-token" data-tone="${documentRecord.tone}">${documentRecord.status}</span>
-                <span class="meta-token">${documentRecord.totalChunks} 个切块</span>
-                <span class="meta-token">${documentRecord.totalTokens} token</span>
+    for (const source of app.sources) {
+        const item = document.createElement("article");
+        item.className = "source-row";
+        item.innerHTML = `
+            <div>
+                <strong>${escapeHtml(source.title || "未命名资料")}</strong>
+                <span>${escapeHtml(sourceTypeLabel(source.type))} · ${escapeHtml(source.depositedKnowledgeCount ?? 0)} 条知识</span>
             </div>
+            <mark data-status="${escapeHtml(source.status || "unknown")}">${escapeHtml(source.status || "unknown")}</mark>
         `;
-        elements.documentList.appendChild(button);
+        dom.sourceList.appendChild(item);
     }
 }
 
-function renderConversation() {
-    const session = getActiveSession();
-    const messages = session?.messages || [];
-    elements.conversation.innerHTML = "";
-
-    if (messages.length === 0) {
-        elements.conversation.innerHTML = `
-            <div class="empty-state">
-                先在左侧选择一篇论文，然后直接在上方输入框里提问。这里会保留本地会话历史，方便你连续追问。
-            </div>
-        `;
+function renderDialogue() {
+    const session = app.sessions.find((item) => item.id === app.activeSessionId);
+    dom.activeSessionTitle.textContent = session?.title || "多轮研究对话";
+    dom.activeSessionMeta.textContent = session
+            ? `${session.status || "drafting"} · 最近更新 ${formatRelativeTime(session.lastMessageAt || session.updatedAt)}`
+            : "选择会话后开始提问。";
+    dom.answerState.textContent = answerStateText();
+    dom.conversation.replaceChildren();
+    if (!app.messages.length) {
+        dom.conversation.appendChild(emptyBlock("在下方输入研究问题。回答是研究过程，确认后的知识才会写入右侧知识板。"));
         return;
     }
-
-    const timeline = document.createElement("div");
-    timeline.className = "timeline";
-    for (const message of messages) {
+    for (const message of app.messages) {
         const article = document.createElement("article");
         article.className = `message message--${message.role}`;
-        article.innerHTML = `
-            <div class="message-avatar">${message.role === "assistant" ? "AI" : "我"}</div>
-            <div class="message-card${message.id === state.focusedMessageId ? " is-selected" : ""}" data-message-id="${message.id}">
-                <h3>${message.role === "assistant" ? "证据约束回答" : "用户问题"}</h3>
-                <p>${escapeHtml(message.content || (message.role === "assistant" ? "正在等待流式返回内容..." : ""))}</p>
-                <div class="message-foot">
-                    <span>${escapeHtml(message.answerMode || "本地会话")}</span>
-                    <span>${formatRelativeTime(message.createdAt)}</span>
-                </div>
-            </div>
-        `;
-        timeline.appendChild(article);
+        article.append(
+                textElement("div", message.role === "assistant" ? "AI" : "我", "message-avatar"),
+                messageBody(message)
+        );
+        dom.conversation.appendChild(article);
     }
-    elements.conversation.appendChild(timeline);
 }
 
-function renderInspector() {
-    const selectedDocument = getSelectedDocument();
-    const analysis = buildAnalysisViewModel(state.analysis, selectedDocument?.title || "当前文档");
-    const focusedAssistant = getFocusedAssistantMessage();
-
-    elements.selectedDocumentLabel.textContent = selectedDocument
-            ? `${selectedDocument.title} · ${selectedDocument.status}`
-            : "尚未选择文档";
-
-    elements.analysisSummary.textContent = analysis.summary;
-    elements.analysisAbstract.textContent = analysis.abstractText;
-    renderList(elements.analysisMethods, analysis.methods, "暂无方法信息。");
-    renderList(elements.analysisContributions, analysis.contributions, "暂无贡献信息。");
-    renderInlineChips(elements.analysisKeywords, analysis.keywords);
-    renderList(elements.analysisOutline, analysis.outline, "暂无可用大纲。");
-
-    if (!focusedAssistant) {
-        elements.citationList.innerHTML = `<div class="empty-state">当前回答还没有引用片段。</div>`;
-        elements.traceList.innerHTML = `<div class="empty-state">发送问题后，这里会展示本次检索与生成过程。</div>`;
-        elements.telemetryAnswerMode.textContent = "等待中";
-        elements.telemetryLatency.textContent = "暂无请求";
-        elements.telemetryEvidence.textContent = selectedDocument ? `已索引 ${selectedDocument.totalChunks} 个切块` : "0 条引用";
-        elements.telemetryContext.textContent = selectedDocument ? `文档:${selectedDocument.documentId}` : "工作区空闲";
-        return;
-    }
-
-    renderCitations(focusedAssistant.citations || []);
-    renderTrace(focusedAssistant.trace || []);
-    const telemetry = focusedAssistant.telemetry || {};
-    elements.telemetryAnswerMode.textContent = telemetry.answerMode || focusedAssistant.answerMode || "未知模式";
-    elements.telemetryLatency.textContent = telemetry.latency || "支持流式返回";
-    elements.telemetryEvidence.textContent = telemetry.evidenceCount || `${(focusedAssistant.citations || []).length} 条引用`;
-    elements.telemetryContext.textContent = telemetry.contextWindow || (selectedDocument ? `文档:${selectedDocument.documentId}` : "仅本地上下文");
+function renderSidebar() {
+    dom.tabs.forEach((tab) => {
+        tab.classList.toggle("is-active", tab.dataset.sidebarView === app.selectedSidebarView);
+    });
+    dom.sidebarViews.forEach((view) => {
+        view.classList.toggle("is-active", view.dataset.view === app.selectedSidebarView);
+    });
+    const citationCount = app.currentAnswer?.citationCount || app.activeAnswerContext?.citationCount || 0;
+    const candidateCount = app.candidates.filter((candidate) => candidate.status === "pending").length;
+    dom.answerContextLine.textContent = `当前回答关联 ${citationCount} 条引用，${candidateCount} 条待确认候选。`;
+    renderKnowledgeBoard();
+    renderEvidenceSources();
+    renderCandidates();
 }
 
-function renderCitations(citations) {
-    elements.citationList.innerHTML = "";
-    if (!citations.length) {
-        elements.citationList.innerHTML = `<div class="empty-state">当前回答没有返回引用片段。</div>`;
+function renderKnowledgeBoard() {
+    dom.knowledgeBoard.replaceChildren();
+    const board = createWorkbenchState({ knowledgeBoard: app.knowledgeBoard }).knowledgeBoard;
+    for (const section of board.sections) {
+        const details = document.createElement("details");
+        details.className = "knowledge-section";
+        details.open = section.entries.length > 0 || section.section === "core_concept";
+        const summary = document.createElement("summary");
+        summary.append(
+                textElement("span", SECTION_LABELS[section.section] || section.title || section.section),
+                textElement("small", String(section.entries.length))
+        );
+        details.appendChild(summary);
+        if (section.entries.length === 0) {
+            details.appendChild(emptyBlock("暂无已确认条目。"));
+        } else {
+            for (const entry of section.entries) {
+                const row = document.createElement("article");
+                row.className = "knowledge-entry";
+                row.append(
+                        textElement("strong", entry.title || "未命名知识"),
+                        textElement("p", entry.content || entry.statement || ""),
+                        textElement("span", entry.evidenceStatus || "unverified")
+                );
+                details.appendChild(row);
+            }
+        }
+        dom.knowledgeBoard.appendChild(details);
+    }
+}
+
+function renderEvidenceSources() {
+    dom.evidenceList.replaceChildren();
+    if (!app.evidenceSources.length) {
+        dom.evidenceList.appendChild(emptyBlock("当前回答尚未返回可审计证据。"));
         return;
     }
-
-    for (const citation of citations) {
+    for (const evidence of app.evidenceSources) {
         const item = document.createElement("article");
-        item.className = "citation-item";
-        item.innerHTML = `
-            <h3>文档 ${citation.documentId} · 切块 ${citation.chunkIndex}</h3>
-            <p>${escapeHtml(citation.excerpt || "当前没有返回摘录内容。")}</p>
-            <div class="meta-row">
-                <span class="meta-token">chunkId ${citation.chunkId}</span>
-            </div>
-        `;
-        elements.citationList.appendChild(item);
+        item.className = "evidence-row";
+        item.append(
+                textElement("strong", evidence.sourceTitle || evidence.title || evidence.sourceType || "证据来源"),
+                textElement("p", evidence.snippet || evidence.summary || "暂无摘录。"),
+                textElement("span", `${evidence.sourceType || "local"} · ${evidence.strength || evidence.relevanceScore || "未评分"}`)
+        );
+        dom.evidenceList.appendChild(item);
     }
 }
 
-function renderTrace(trace) {
-    elements.traceList.innerHTML = "";
-    if (!trace.length) {
-        elements.traceList.innerHTML = `<div class="empty-state">当前回答还没有轨迹信息。</div>`;
+function renderCandidates() {
+    dom.candidateList.replaceChildren();
+    if (!app.candidates.length) {
+        dom.candidateList.appendChild(emptyBlock("回答产生的知识候选会出现在这里，确认前不会进入知识板。"));
         return;
     }
-
-    for (const step of trace) {
+    for (const candidate of app.candidates) {
         const item = document.createElement("article");
-        item.className = "trace-item";
-        item.innerHTML = `
-            <h3>${escapeHtml(step.label || "轨迹步骤")}</h3>
-            <p>${escapeHtml(step.detail || "暂无更多细节。")}</p>
-        `;
-        elements.traceList.appendChild(item);
-    }
-}
-
-function renderList(container, items, emptyText) {
-    container.innerHTML = "";
-    if (!items.length) {
-        const li = document.createElement("li");
-        li.textContent = emptyText;
-        container.appendChild(li);
-        return;
-    }
-    for (const item of items) {
-        const li = document.createElement("li");
-        li.textContent = item;
-        container.appendChild(li);
-    }
-}
-
-function renderInlineChips(container, items) {
-    container.innerHTML = "";
-    for (const item of items) {
-        const chip = document.createElement("span");
-        chip.className = "meta-token";
-        chip.textContent = item;
-        container.appendChild(chip);
-    }
-}
-
-function normalizeTelemetry(telemetry) {
-    return {
-        status: telemetry.status || "idle",
-        answerMode: telemetry.answerMode || "未知模式",
-        latency: telemetry.latency || "支持流式返回",
-        evidenceCount: telemetry.evidenceCount || "0 条引用",
-        contextWindow: telemetry.contextWindow || (state.selectedDocumentId ? `文档:${state.selectedDocumentId}` : "仅本地上下文")
-    };
-}
-
-function hydrateSessions() {
-    try {
-        const rawSessions = JSON.parse(localStorage.getItem(STORAGE_KEYS.sessions) || "[]");
-        state.sessions = Array.isArray(rawSessions) ? rawSessions : [];
-    } catch (error) {
-        state.sessions = [];
-    }
-
-    if (state.sessions.length === 0) {
-        state.sessions.push(createSession("新研究会话"));
-    }
-
-    const preferredSessionKey = localStorage.getItem(STORAGE_KEYS.activeSession);
-    const hasPreferred = state.sessions.some((session) => session.sessionKey === preferredSessionKey);
-    if (!hasPreferred) {
-        localStorage.setItem(STORAGE_KEYS.activeSession, state.sessions[0].sessionKey);
-    }
-
-    for (const session of state.sessions) {
-        if (!Array.isArray(session.messages)) {
-            session.messages = [];
+        item.className = "candidate-row";
+        item.append(
+                textElement("strong", candidate.title || "未命名候选"),
+                textElement("p", candidate.statement || ""),
+                textElement("span", `${SECTION_LABELS[candidate.suggestedSection] || candidate.suggestedSection || "待分类"} · ${candidate.status || "pending"}`)
+        );
+        if (app.editingCandidateId === candidate.id) {
+            item.appendChild(candidateEditForm(candidate));
+            dom.candidateList.appendChild(item);
+            continue;
         }
-        if (!Array.isArray(session.pinnedDocumentIds)) {
-            session.pinnedDocumentIds = [];
-        }
-        localizeLegacySession(session);
-    }
-
-    persistSessions();
-}
-
-function persistSessions() {
-    localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessions));
-}
-
-function localizeLegacySession(session) {
-    if (session.title === "New research session" || session.title === "Research workspace") {
-        session.title = "新研究会话";
-    }
-
-    if (!Array.isArray(session.messages)) {
-        return;
-    }
-
-    for (const message of session.messages) {
-        if (message.answerMode === "PENDING") {
-            message.answerMode = "等待中";
-        }
-        if (message.answerMode === "LOCAL_SESSION") {
-            message.answerMode = "本地会话";
-        }
+        const actions = document.createElement("div");
+        actions.className = "candidate-actions";
+        actions.append(
+                candidateButton(candidate.id, "accept", "写入"),
+                candidateButton(candidate.id, "mark-unverified", "待验证"),
+                candidateButton(candidate.id, "ignore", "忽略"),
+                candidateEditButton(candidate.id)
+        );
+        item.appendChild(actions);
+        dom.candidateList.appendChild(item);
     }
 }
 
-function createSession(title) {
-    const session = createLocalSession(title);
-    session.messages = [];
-    state.sessions.unshift(session);
-    persistSessions();
-    return session;
-}
-
-function setActiveSession(sessionKey) {
-    localStorage.setItem(STORAGE_KEYS.activeSession, sessionKey);
-    const session = getActiveSession();
-    if (session?.pinnedDocumentIds?.length) {
-        state.selectedDocumentId = session.pinnedDocumentIds[0];
-        void loadAnalysis(state.selectedDocumentId);
-    }
-}
-
-function getActiveSession() {
-    const activeKey = localStorage.getItem(STORAGE_KEYS.activeSession);
-    return state.sessions.find((session) => session.sessionKey === activeKey) || state.sessions[0];
-}
-
-function touchSession(session) {
-    session.updatedAt = new Date().toISOString();
-    session.messageCount = session.messages.length;
-    persistSessions();
-}
-
-function getSelectedDocument() {
-    return state.documents.find((item) => item.documentId === state.selectedDocumentId) || null;
-}
-
-function syncSelectedDocument() {
-    if (!state.documents.length) {
-        state.selectedDocumentId = null;
-        return;
-    }
-
-    const stillExists = state.documents.some((item) => item.documentId === state.selectedDocumentId);
-    if (stillExists) {
-        return;
-    }
-
-    const activeSession = getActiveSession();
-    const pinnedId = activeSession?.pinnedDocumentIds?.[0];
-    const pinnedExists = state.documents.some((item) => item.documentId === pinnedId);
-    state.selectedDocumentId = pinnedExists
-            ? pinnedId
-            : state.documents.find((item) => item.status === "INDEXED")?.documentId || state.documents[0].documentId;
-}
-
-function getFocusedAssistantMessage() {
-    const session = getActiveSession();
-    const assistantMessages = (session?.messages || []).filter((message) => message.role === "assistant");
-    return assistantMessages.find((message) => message.id === state.focusedMessageId) || assistantMessages.at(-1) || null;
+function messageBody(message) {
+    const body = document.createElement("div");
+    body.className = "message-body";
+    body.append(
+            textElement("strong", message.role === "assistant" ? "证据约束回答" : "研究问题"),
+            textElement("p", message.content || (message.status === "streaming" ? "正在接收回答..." : "")),
+            textElement("span", `${message.status || "sent"} · ${formatRelativeTime(message.createdAt)}`)
+    );
+    return body;
 }
 
 function updateAssistantMessage(messageId, patch) {
-    const session = getActiveSession();
-    const message = session?.messages.find((item) => item.id === messageId);
-    if (!message) {
-        return;
-    }
-    Object.assign(message, patch);
-    touchSession(session);
-    renderConversation();
-    renderInspector();
+    app.messages = app.messages.map((message) => message.id === messageId ? { ...message, ...patch } : message);
 }
 
-function upsertDocument(rawDocument) {
-    const normalized = normalizeDocument(rawDocument);
-    const existingIndex = state.documents.findIndex((item) => item.documentId === normalized.documentId);
-    if (existingIndex >= 0) {
-        state.documents.splice(existingIndex, 1, {
-            ...state.documents[existingIndex],
-            ...normalized
-        });
-    } else {
-        state.documents.unshift(normalized);
-    }
-}
-
-function pinDocumentToActiveSession(documentId) {
-    const session = getActiveSession();
-    if (!session) {
-        return;
-    }
-    session.pinnedDocumentIds = [documentId];
-    touchSession(session);
-}
-
-function closeStream() {
-    if (state.activeStream) {
-        state.activeStream.close();
-        state.activeStream = null;
-    }
-}
-
-function scrollConversationToBottom() {
-    elements.conversation.scrollTop = elements.conversation.scrollHeight;
-}
-
-function appendChip(label, meta) {
-    const element = document.createElement("div");
-    element.className = "chip";
-    element.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(meta)}</span>`;
-    elements.documentChips.appendChild(element);
-}
-
-function initialTrace() {
-    if (state.selectedDocumentId) {
-        return [{
-            label: "问题已提交",
-            detail: `当前将基于文档 ${state.selectedDocumentId} 进行证据约束回答。`
-        }];
-    }
-    return [{
-        label: "问题已提交",
-        detail: "当前没有锁定文档，将优先使用本地会话与已有上下文。"
+function installSampleState(message) {
+    app.sampleMode = true;
+    app.activeProject = {
+        id: null,
+        topic: "样例研究项目",
+        summary: "用于展示 F010 三栏工作台的空状态。"
+    };
+    app.activeProjectId = null;
+    app.sessions = [{
+        id: "sample-session",
+        title: "研究线索梳理",
+        status: "drafting",
+        updatedAt: new Date().toISOString()
     }];
+    app.activeSessionId = "sample-session";
+    app.statusMessage = message;
 }
 
-function initialTelemetry() {
+function normalizeSource(raw) {
+    const id = raw.sourceId || raw.id || raw.documentId;
     return {
-        status: "connecting",
-        answerMode: "等待中",
-        latency: "正在建立流式连接...",
-        evidenceCount: "0 条引用",
-        contextWindow: state.selectedDocumentId ? `文档:${state.selectedDocumentId}` : "仅本地上下文"
+        id: String(id),
+        sourceId: String(id),
+        type: raw.type || "document",
+        title: raw.title || raw.originalFileName || `资料 ${id}`,
+        status: String(raw.status || "unknown").toLowerCase(),
+        failureStage: raw.failureStage || null,
+        errorMessage: raw.errorMessage || "",
+        depositedKnowledgeCount: Number(raw.depositedKnowledgeCount ?? 0),
+        updatedAt: raw.updatedAt || raw.createdAt || ""
     };
 }
 
-function nextId(prefix) {
-    if (window.crypto?.randomUUID) {
-        return `${prefix}-${window.crypto.randomUUID()}`;
+async function compatibilityListLegacyDocuments() {
+    try {
+        const payload = await getJson("/api/documents");
+        const documents = Array.isArray(payload?.documents) ? payload.documents : [];
+        return documents.map((documentRecord) => {
+            const normalized = normalizeDocument(documentRecord);
+            return normalizeSource({
+                id: normalized.documentId,
+                type: "document",
+                title: normalized.title,
+                status: normalized.status,
+                depositedKnowledgeCount: 0,
+                updatedAt: normalized.updatedAt
+            });
+        });
+    } catch (error) {
+        return [];
     }
-    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function parsePossibleJson(raw) {
-    if (typeof raw !== "string") {
-        return raw;
+async function compatibilityUploadLegacyDocument(formData) {
+    const payload = await postForm("/api/documents/upload", formData);
+    return {
+        id: payload.documentId,
+        sourceId: payload.documentId,
+        type: "document",
+        title: payload.originalFileName || `文档 ${payload.documentId}`,
+        status: payload.status || "uploaded"
+    };
+}
+
+function compatibilitySendLegacyChatStream(question, assistantMessageId) {
+    const streamState = {
+        answerParts: [],
+        citations: [],
+        trace: [],
+        telemetry: {}
+    };
+    const params = new URLSearchParams({
+        sessionKey: app.activeSessionId || "sample-session",
+        question
+    });
+    const source = new EventSource(`/api/chat/stream?${params.toString()}`);
+    app.activeStream = source;
+
+    source.addEventListener("message", (event) => {
+        Object.assign(streamState, applyStreamEvent(streamState, "message", event.data));
+        updateAssistantMessage(assistantMessageId, {
+            content: streamState.answerParts.join(" "),
+            status: "streaming"
+        });
+        renderDialogue();
+    });
+
+    source.addEventListener("done", (event) => {
+        const payload = parseEventData(event.data);
+        Object.assign(streamState, applyStreamEvent(streamState, "done", payload));
+        updateAssistantMessage(assistantMessageId, {
+            content: payload.answer || streamState.answerParts.join(" "),
+            status: "completed"
+        });
+        app.currentAnswer = {
+            ...(app.currentAnswer || {}),
+            status: "completed",
+            outputMode: payload.answerMode,
+            citationCount: Array.isArray(payload.citations) ? payload.citations.length : 0
+        };
+        app.statusMessage = "兼容回答已完成。";
+        closeStream();
+        render();
+    });
+
+    source.onerror = () => {
+        updateAssistantMessage(assistantMessageId, {
+            content: "兼容聊天接口暂不可用。请先创建 F002 项目后再提问。",
+            status: "error"
+        });
+        app.statusMessage = "兼容聊天接口连接失败。";
+        closeStream();
+        render();
+    };
+}
+
+function hasProjectApi() {
+    return Boolean(app.activeProjectId && !app.sampleMode);
+}
+
+async function getJson(url) {
+    const response = await fetch(url);
+    return readResponse(response);
+}
+
+async function postJson(url, body) {
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+    });
+    return readResponse(response);
+}
+
+async function postForm(url, formData) {
+    const response = await fetch(url, {
+        method: "POST",
+        body: formData
+    });
+    return readResponse(response);
+}
+
+async function readResponse(response) {
+    const text = await response.text();
+    const payload = text ? parseEventData(text) : null;
+    if (!response.ok) {
+        throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
+    }
+    return payload;
+}
+
+function parseEventData(raw) {
+    if (!raw || typeof raw !== "string") {
+        return raw || {};
     }
     try {
         return JSON.parse(raw);
     } catch (error) {
-        return raw;
+        return { text: raw };
     }
 }
 
-async function readJsonSafely(response) {
-    const text = await response.text();
-    if (!text) {
-        return null;
+function closeStream() {
+    if (app.activeStream) {
+        app.activeStream.close();
+        app.activeStream = null;
     }
-    try {
-        return JSON.parse(text);
-    } catch (error) {
-        return { raw: text };
+}
+
+function scrollConversationToBottom() {
+    dom.conversation.scrollTop = dom.conversation.scrollHeight;
+}
+
+function answerStateText() {
+    const answer = app.currentAnswer || {};
+    if (answer.status === "streaming") {
+        return "回答生成中";
     }
+    if (answer.status === "completed") {
+        return `${answer.outputMode || "已完成"} · ${answer.citationCount || 0} 条引用`;
+    }
+    if (answer.status === "error") {
+        return "回答失败";
+    }
+    return "等待问题";
+}
+
+function knowledgeEntryCount() {
+    return (app.knowledgeBoard?.sections || []).reduce((sum, section) => sum + (section.entries?.length || 0), 0);
+}
+
+function sourceTypeLabel(type) {
+    return SOURCE_LABELS[String(type || "").toLowerCase()] || type || "资料";
+}
+
+function candidateButton(candidateId, action, label) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quiet-button";
+    button.dataset.candidateId = candidateId;
+    button.dataset.candidateAction = action;
+    button.textContent = label;
+    return button;
+}
+
+function candidateEditButton(candidateId) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quiet-button";
+    button.dataset.candidateEdit = candidateId;
+    button.textContent = app.editingCandidateId === candidateId ? "编辑中" : "编辑";
+    return button;
+}
+
+function candidateEditForm(candidate) {
+    const form = document.createElement("div");
+    form.className = "candidate-edit-form";
+    form.dataset.candidateEditForm = candidate.id;
+
+    const titleInput = document.createElement("input");
+    titleInput.name = "title";
+    titleInput.value = candidate.title || "";
+    titleInput.placeholder = "知识标题";
+
+    const contentInput = document.createElement("textarea");
+    contentInput.name = "content";
+    contentInput.rows = 4;
+    contentInput.value = candidate.statement || candidate.content || "";
+    contentInput.placeholder = "确认后的知识内容";
+
+    const sectionSelect = document.createElement("select");
+    sectionSelect.name = "section";
+    for (const section of ["core_concept", "method_route", "confirmed_finding", "open_question"]) {
+        const option = document.createElement("option");
+        option.value = section;
+        option.textContent = SECTION_LABELS[section] || section;
+        option.selected = section === candidate.suggestedSection;
+        sectionSelect.appendChild(option);
+    }
+
+    const evidenceSelect = document.createElement("select");
+    evidenceSelect.name = "evidenceStatus";
+    const evidenceStatusOptions = [
+        { value: "confirmed", label: "已确认" },
+        { value: "unverified", label: "待验证" }
+    ];
+    for (const status of evidenceStatusOptions) {
+        const option = document.createElement("option");
+        option.value = status.value;
+        option.textContent = status.label;
+        evidenceSelect.appendChild(option);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "candidate-actions";
+    const submit = document.createElement("button");
+    submit.type = "button";
+    submit.className = "primary-button";
+    submit.dataset.candidateEditSubmit = candidate.id;
+    submit.textContent = "确认写入";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "quiet-button";
+    cancel.dataset.candidateEditCancel = candidate.id;
+    cancel.textContent = "取消";
+    actions.append(submit, cancel);
+
+    form.append(titleInput, contentInput, sectionSelect, evidenceSelect, actions);
+    return form;
+}
+
+function readCandidateEditForm(form) {
+    if (!form) {
+        return {};
+    }
+    const title = form.querySelector('[name="title"]')?.value?.trim() || "未命名知识";
+    const content = form.querySelector('[name="content"]')?.value?.trim() || "";
+    const section = form.querySelector('[name="section"]')?.value || "open_question";
+    const evidenceStatus = form.querySelector('[name="evidenceStatus"]')?.value || "unverified";
+    return { title, content, section, evidenceStatus };
+}
+
+function emptyBlock(text) {
+    return textElement("div", text, "empty-state");
+}
+
+function textElement(tagName, text, className = "") {
+    const element = document.createElement(tagName);
+    if (className) {
+        element.className = className;
+    }
+    element.textContent = text ?? "";
+    return element;
 }
 
 function escapeHtml(value) {
@@ -857,8 +987,9 @@ function escapeHtml(value) {
             .replaceAll("'", "&#39;");
 }
 
-function delay(milliseconds) {
-    return new Promise((resolve) => {
-        window.setTimeout(resolve, milliseconds);
-    });
+function nextId(prefix) {
+    if (window.crypto?.randomUUID) {
+        return `${prefix}-${window.crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

@@ -9,10 +9,18 @@ This file records active engineering state that future sessions must be able to 
 - Status: Epic in progress, split into F003-F011 child Features.
 - Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - Current intent: execute the child Features sequentially with one recoverable commit per Feature.
-- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary; F008 candidate confirmation and knowledge board; F009 feedback score loop.
-- Next step: start F010 three-column workbench UI. Do not implement broad source search, web retrieval, long-term personalization, or complex reranking inside F010 unless the F010 Feature page expands scope.
+- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary; F008 candidate confirmation and knowledge board; F009 feedback score loop; F010 three-column workbench UI.
+- Next step: start F011 F002 end-to-end validation. Do not add new product capabilities in F011; verify the full F002 system, capture evidence, and close or mark remaining gaps based on the results.
 
 ## Recently Completed
+
+### F010 Three-Column Research Workbench UI
+
+- Status: completed
+- Feature page: [F010-three-column-workbench-ui.md](features/F010-three-column-workbench-ui.md)
+- Evidence: [EV-009-f010-three-column-workbench-ui.md](evidence/EV-009-f010-three-column-workbench-ui.md)
+- Result: static workbench now exposes stable left project/source, center dialogue, and right research-sidebar regions; the frontend state model handles session selection, source status changes, answer deltas, evidence hydration, pending candidates, confirmed knowledge entries, deterministic fallback IDs, and duplicate SSE event IDs; `workbench-app.js` uses F002 project endpoints and run SSE as the main path with named compatibility functions for legacy demo endpoints; parent-session Chrome verification covered desktop layout, narrow viewport overflow, typed SSE updates, evidence refresh, and candidate edit-and-accept.
+- Known limitation: full-system F002 validation remains F011; F010 does not add source-scoped live SSE, broad search, web retrieval, account preferences, or multi-tenant UI.
 
 ### F009 Feedback Score Loop
 

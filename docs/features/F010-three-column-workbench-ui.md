@@ -1,47 +1,48 @@
 ---
 id: F010
-status: planned
+status: completed
 owner: codex
-updated: 2026-05-09
+updated: 2026-05-10
 parent_feature: F002
+evidence:
+  - ../evidence/EV-009-f010-three-column-workbench-ui.md
 ---
-# 三栏研究工作台 UI
+# Three-Column Research Workbench UI
 
-## 目标
+## Goal
 
-把前端从单文档问答界面升级为三栏研究工作台：左侧项目/会话/资料，中间多轮研究对话，右侧知识板/证据来源/候选确认。
+Upgrade the static frontend from a single-document Q&A demo into the F002 three-column research workbench: project/session/source management on the left, multi-turn research dialogue in the center, and knowledge/evidence/candidate confirmation in the right research sidebar.
 
-## 范围
+## Scope
 
-- 范围内：静态 HTML/CSS/JS 工作台结构。
-- 范围内：前端状态模型和 SSE 去重合并。
-- 范围内：资料状态、回答 streaming、证据与候选右侧栏切换。
-- 范围外：完整设计系统重做、账号偏好同步、多租户 UI。
+- In scope: static `HTML/CSS/JS` workbench structure.
+- In scope: pure frontend state model and SSE deduplication.
+- In scope: source status, answer streaming state, and right-sidebar view switching for evidence and candidates.
+- Out of scope: backend API implementation, broad source search, web retrieval, account preferences, and multi-tenant UI.
 
-## 验收标准
+## Acceptance Criteria
 
-- 桌面端三栏均可用。
-- 窄屏下文本和控件不重叠。
-- `source.status.changed` 更新左侧资料状态。
-- `answer.delta` 更新中间回答。
-- `candidate.created` 不会直接增加知识板条目。
-- `knowledge.entry.created` 会更新正确知识板分区。
-- `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` 通过。
+- Desktop layout exposes three usable columns.
+- Narrow viewport stacks columns without overlapping text or controls.
+- `source.status.changed` updates the matching source row in frontend state.
+- `answer.delta` updates the center answer state.
+- `candidate.created` adds a pending candidate without adding a knowledge-board entry.
+- `knowledge.entry.created` updates the correct knowledge-board section.
+- Duplicate SSE event IDs are ignored.
+- `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` passes.
 
-## 合同
+## Result
 
-- API：消费 F002 项目级 API。
-- 事件：消费 F002 SSE 投影。
-- 数据：前端本地状态模型。
-- UI：三栏研究工作台。
+F010 is completed as a static frontend and Harness slice. The workbench now has stable three-column regions, project-scoped API loading where the F002 backend exists, run SSE consumption for the center answer and sidebar context, evidence hydration for evaluated answers, inline candidate edit-and-accept controls, compatibility fallback functions for old demo endpoints, focused Node ESM tests for the frontend state model, and parent-session Chrome verification for desktop and narrow viewport behavior.
 
-## 链接
+## Links
 
-- 父 Feature：[F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
-- 规格：[F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
-- 计划：[F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
-- UI 规格：[research-workbench-ui-interaction-spec.md](../product/research-workbench-ui-interaction-spec.md)
+- Parent Feature: [F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
+- Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
+- Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- UI spec: [research-workbench-ui-interaction-spec.md](../product/research-workbench-ui-interaction-spec.md)
+- Evidence: [EV-009-f010-three-column-workbench-ui.md](../evidence/EV-009-f010-three-column-workbench-ui.md)
 
-## 下一步
+## Next Step
 
-按 F002 实施计划 Task 8 进行 TDD 和浏览器验证。
+Start F011 end-to-end F002 validation. Do not expand F011 into new product capabilities; it should verify the full F002 system and close the parent Feature based on evidence.

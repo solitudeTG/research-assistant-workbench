@@ -7,6 +7,355 @@ const STATUS_TONE = {
     UNKNOWN: "idle"
 };
 
+const SIDEBAR_VIEWS = new Set(["knowledge-board", "evidence-sources", "candidate-confirmation"]);
+const KNOWLEDGE_SECTIONS = [
+    { section: "current_candidates", title: "本轮候选" },
+    { section: "core_concept", title: "核心概念" },
+    { section: "method_route", title: "方法路线" },
+    { section: "confirmed_finding", title: "已确认结论" },
+    { section: "open_question", title: "待验证问题" }
+];
+
+export function selectSession(state, sessionId) {
+    return {
+        ...state,
+        activeSessionId: sessionId,
+        activeAnswerContext: null,
+        currentAnswer: {
+            ...(state.currentAnswer || {}),
+            text: state.activeSessionId === sessionId ? state.currentAnswer?.text || "" : "",
+            status: "idle"
+        }
+    };
+}
+
+export function selectSidebarView(state, view) {
+    const nextView = SIDEBAR_VIEWS.has(view) ? view : "knowledge-board";
+    return {
+        ...state,
+        selectedSidebarView: nextView
+    };
+}
+
+export function startEditingCandidate(state, candidateId) {
+    const exists = (state.candidates || []).some((candidate) => candidate.id === candidateId);
+    return {
+        ...state,
+        editingCandidateId: exists ? candidateId : state.editingCandidateId || null
+    };
+}
+
+export function applyCandidateAction(state, candidateId, action) {
+    const statusByAction = {
+        accept: "accepted",
+        "edit-and-accept": "edited_accepted",
+        "mark-unverified": "marked_unverified",
+        ignore: "ignored",
+        cancel: "pending"
+    };
+    const nextStatus = statusByAction[action] || action;
+    return {
+        ...state,
+        editingCandidateId: state.editingCandidateId === candidateId ? null : state.editingCandidateId || null,
+        candidates: (state.candidates || []).map((candidate) => {
+            if (candidate.id !== candidateId) {
+                return candidate;
+            }
+            return {
+                ...candidate,
+                status: nextStatus
+            };
+        })
+    };
+}
+
+export function applySseEvent(state, event) {
+    if (!event) {
+        return state;
+    }
+
+    const eventId = event.eventId || event.id || null;
+    const processedEventIds = Array.isArray(state.processedEventIds) ? state.processedEventIds : [];
+    if (eventId && processedEventIds.includes(eventId)) {
+        return state;
+    }
+
+    const next = {
+        ...state,
+        processedEventIds: eventId ? [...processedEventIds, eventId] : processedEventIds
+    };
+    const eventType = normalizeEventType(event.eventType || event.type || event.eventName);
+    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+
+    if (eventType === "source.status.changed") {
+        return applySourceStatusChanged(next, event, payload);
+    }
+
+    if (eventType === "answer.delta") {
+        return applyAnswerDelta(next, event, payload);
+    }
+
+    if (eventType === "answer.completed") {
+        return applyAnswerCompleted(next, event, payload);
+    }
+
+    if (eventType === "evidence.evaluated") {
+        return applyEvidenceEvaluated(next, event, payload);
+    }
+
+    if (eventType === "candidate.created") {
+        return applyCandidateCreated(next, event, payload);
+    }
+
+    if (eventType === "knowledge.entry.created") {
+        return applyKnowledgeEntryCreated(next, event, payload);
+    }
+
+    return next;
+}
+
+export function createWorkbenchState(seed = {}) {
+    return {
+        activeProjectId: seed.activeProjectId || null,
+        activeSessionId: seed.activeSessionId || null,
+        activeAnswerContext: seed.activeAnswerContext || null,
+        selectedSidebarView: seed.selectedSidebarView || "knowledge-board",
+        sources: Array.isArray(seed.sources) ? seed.sources : [],
+        sessions: Array.isArray(seed.sessions) ? seed.sessions : [],
+        messages: Array.isArray(seed.messages) ? seed.messages : [],
+        currentAnswer: seed.currentAnswer || {
+            answerId: null,
+            text: "",
+            status: "idle",
+            evidenceState: null,
+            outputMode: null,
+            citationCount: 0
+        },
+        evidenceSources: Array.isArray(seed.evidenceSources) ? seed.evidenceSources : [],
+        candidates: Array.isArray(seed.candidates) ? seed.candidates : [],
+        editingCandidateId: seed.editingCandidateId || null,
+        knowledgeBoard: normalizeKnowledgeBoard(seed.knowledgeBoard),
+        processedEventIds: Array.isArray(seed.processedEventIds) ? seed.processedEventIds : []
+    };
+}
+
+function applySourceStatusChanged(state, event, payload) {
+    const sourceId = String(payload.sourceId || event.sourceId || payload.id || "");
+    if (!sourceId) {
+        return state;
+    }
+    const sources = state.sources || [];
+    const existingIndex = sources.findIndex((source) => sourceMatches(source, sourceId));
+    const patch = {
+        id: sourceId,
+        sourceId,
+        ...payload,
+        status: payload.status || "unknown"
+    };
+    if (existingIndex < 0) {
+        return {
+            ...state,
+            sources: [patch, ...sources]
+        };
+    }
+    return {
+        ...state,
+        sources: sources.map((source, index) => index === existingIndex ? { ...source, ...patch } : source)
+    };
+}
+
+function applyAnswerDelta(state, event, payload) {
+    const previous = state.currentAnswer || {};
+    const answerId = payload.answerId || event.answerId || previous.answerId || null;
+    const delta = String(payload.text || payload.delta || payload.content || "");
+    const mode = payload.append === false ? "replace" : "append";
+    const text = mode === "replace" ? delta : `${previous.text || ""}${delta}`;
+    return {
+        ...state,
+        activeAnswerContext: {
+            ...(state.activeAnswerContext || {}),
+            answerId
+        },
+        currentAnswer: {
+            ...previous,
+            answerId,
+            text,
+            status: "streaming"
+        }
+    };
+}
+
+function applyAnswerCompleted(state, event, payload) {
+    const previous = state.currentAnswer || {};
+    return {
+        ...state,
+        currentAnswer: {
+            ...previous,
+            answerId: payload.answerId || event.answerId || previous.answerId || null,
+            text: payload.answer || payload.text || previous.text || "",
+            status: "completed",
+            outputMode: payload.answerMode || payload.outputMode || previous.outputMode || null,
+            evidenceState: payload.evidenceState || previous.evidenceState || null,
+            citationCount: Number(payload.citationCount ?? previous.citationCount ?? 0)
+        }
+    };
+}
+
+function applyEvidenceEvaluated(state, event, payload) {
+    const previous = state.currentAnswer || {};
+    const evidenceSources = Array.isArray(payload.evidenceSources)
+            ? payload.evidenceSources
+            : Array.isArray(payload.sources)
+                    ? payload.sources
+                    : state.evidenceSources || [];
+    return {
+        ...state,
+        activeAnswerContext: {
+            ...(state.activeAnswerContext || {}),
+            answerId: event.answerId || previous.answerId || null,
+            citationCount: Number(payload.citationCount ?? 0)
+        },
+        currentAnswer: {
+            ...previous,
+            answerId: event.answerId || previous.answerId || null,
+            evidenceState: payload.evidenceState || previous.evidenceState || null,
+            outputMode: payload.outputMode || previous.outputMode || null,
+            citationCount: Number(payload.citationCount ?? previous.citationCount ?? 0)
+        },
+        evidenceSources
+    };
+}
+
+function applyCandidateCreated(state, event, payload) {
+    const candidate = normalizeCandidate(payload.candidate || payload, event);
+    const candidates = state.candidates || [];
+    const exists = candidates.some((item) => item.id === candidate.id);
+    return {
+        ...state,
+        selectedSidebarView: "candidate-confirmation",
+        activeAnswerContext: {
+            ...(state.activeAnswerContext || {}),
+            answerId: candidate.answerId || state.activeAnswerContext?.answerId || event.answerId || null
+        },
+        candidates: exists
+                ? candidates.map((item) => item.id === candidate.id ? { ...item, ...candidate } : item)
+                : [candidate, ...candidates]
+    };
+}
+
+function applyKnowledgeEntryCreated(state, event, payload) {
+    const entry = normalizeKnowledgeEntry(payload.entry || payload, event);
+    const board = normalizeKnowledgeBoard(state.knowledgeBoard);
+    const sections = board.sections.map((section) => {
+        if (section.section !== entry.section) {
+            return section;
+        }
+        const exists = section.entries.some((item) => item.id === entry.id);
+        return {
+            ...section,
+            entries: exists
+                    ? section.entries.map((item) => item.id === entry.id ? { ...item, ...entry } : item)
+                    : [entry, ...section.entries]
+        };
+    });
+    const hasSection = sections.some((section) => section.section === entry.section);
+    return {
+        ...state,
+        selectedSidebarView: "knowledge-board",
+        candidates: (state.candidates || []).map((candidate) => {
+            if (candidate.id && candidate.id === entry.sourceCandidateId) {
+                return { ...candidate, status: candidate.status === "edited_accepted" ? "edited_accepted" : "accepted" };
+            }
+            return candidate;
+        }),
+        knowledgeBoard: {
+            ...board,
+            sections: hasSection
+                    ? sections
+                    : [{ section: entry.section, title: titleForSection(entry.section), entries: [entry] }, ...sections]
+        }
+    };
+}
+
+function normalizeEventType(eventType) {
+    if (typeof eventType === "string") {
+        return eventType;
+    }
+    if (eventType && typeof eventType.wireName === "string") {
+        return eventType.wireName;
+    }
+    return "";
+}
+
+function normalizeCandidate(raw, event) {
+    const id = raw.id || raw.candidateId || event.candidateId || stableFallbackId("candidate", event);
+    return {
+        id,
+        candidateId: id,
+        projectId: raw.projectId || event.projectId || null,
+        sessionId: raw.sessionId || event.sessionId || null,
+        answerId: raw.answerId || event.answerId || null,
+        title: raw.title || "未命名候选",
+        statement: raw.statement || raw.content || "",
+        suggestedSection: raw.suggestedSection || raw.section || "open_question",
+        sourceTypes: Array.isArray(raw.sourceTypes) ? raw.sourceTypes : [],
+        evidenceSourceIds: Array.isArray(raw.evidenceSourceIds) ? raw.evidenceSourceIds : [],
+        status: raw.status || "pending",
+        createdAt: raw.createdAt || event.createdAt || "",
+        updatedAt: raw.updatedAt || raw.createdAt || event.createdAt || ""
+    };
+}
+
+function normalizeKnowledgeEntry(raw, event) {
+    const id = raw.id || raw.entryId || event.entryId || stableFallbackId("entry", event);
+    return {
+        id,
+        projectId: raw.projectId || event.projectId || null,
+        section: raw.section || "open_question",
+        title: raw.title || "未命名知识",
+        content: raw.content || raw.statement || "",
+        evidenceStatus: raw.evidenceStatus || "unverified",
+        sourceCandidateId: raw.sourceCandidateId || raw.candidateId || null,
+        evidenceSourceIds: Array.isArray(raw.evidenceSourceIds) ? raw.evidenceSourceIds : [],
+        archived: Boolean(raw.archived),
+        createdAt: raw.createdAt || event.createdAt || "",
+        updatedAt: raw.updatedAt || raw.createdAt || event.createdAt || ""
+    };
+}
+
+function normalizeKnowledgeBoard(board) {
+    const existingSections = Array.isArray(board?.sections) ? board.sections : Array.isArray(board) ? board : [];
+    const sectionMap = new Map(existingSections.map((section) => [
+        section.section,
+        {
+            ...section,
+            title: section.title || titleForSection(section.section),
+            entries: Array.isArray(section.entries) ? section.entries : []
+        }
+    ]));
+    for (const section of KNOWLEDGE_SECTIONS) {
+        if (!sectionMap.has(section.section)) {
+            sectionMap.set(section.section, { ...section, entries: [] });
+        }
+    }
+    return {
+        sections: [...sectionMap.values()]
+    };
+}
+
+function titleForSection(section) {
+    return KNOWLEDGE_SECTIONS.find((item) => item.section === section)?.title || section;
+}
+
+function stableFallbackId(prefix, event) {
+    const eventId = event?.eventId || event?.id || event?.createdAt || "unknown";
+    return `${prefix}-${eventId}`;
+}
+
+function sourceMatches(source, sourceId) {
+    return String(source.id || source.sourceId || source.documentId || "") === sourceId;
+}
+
 export function normalizeDocument(rawDocument = {}) {
     const fallbackTitle = rawDocument.title || rawDocument.originalFileName || `文档 ${rawDocument.documentId ?? "?"}`;
     const status = String(rawDocument.status || "UNKNOWN").toUpperCase();
