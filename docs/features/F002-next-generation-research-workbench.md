@@ -1,55 +1,74 @@
 ---
 id: F002
-status: epic
+status: completed
 owner: codex
-updated: 2026-05-09
+updated: 2026-05-10
+evidence:
+  - ../evidence/EV-010-f002-implementation-validation.md
 ---
-# 下一代研究工作台
+# Next-Generation Research Workbench
 
-## 目标
+## Goal
 
-围绕“项目级长期研究工作台”重建系统，让简历中的能力可以真实演示：多 Agent 协作、Redis Stream 到 SSE 的过程渲染、资料接入状态机、三层记忆、混合检索、证据治理和反馈驱动学习。
+Rebuild the application from a single-document Q&A demo into a project-scoped long-running research workbench. The implemented baseline lets a project own its sources, sessions, run events, evidence, candidates, knowledge board entries, and feedback scoring through documented contracts.
 
-## 范围
+## Current Status
 
-- 范围内：项目级工作区模型、资料库、研究会话、知识板、候选确认、证据检查、Agent 过程时间线和流式事件合同。
-- 范围内：当替换比保留更低成本时，直接替换当前低价值实现。
-- 范围外：完整账号体系、权限系统、多租户 SaaS 行为，以及不支撑简历或产品主循环的发散功能。
+completed.
 
-## 验收标准
+F003-F010 delivered the implementation slices. F011 completed validation and Harness closeout without adding product capability. Final validation is recorded in [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-implementation-validation.md).
 
-- UI、后端实体和流式事件共享同一份文档化合同。
-- 用户可以进入研究项目、导入资料、提问、查看证据，并把确认后的知识沉淀到知识板。
-- 多 Agent 或分阶段处理过程通过 SSE 事件可见，而不是只存在于最终回答背后。
-- Redis Stream 要么作为事件骨干被实现，要么在编码前通过 ADR 明确否决。
-- 长期记忆有清晰写入触发器，并避免自动污染已确认知识。
-- 点赞点踩会更新检索评分；如果暂不实现，必须明确拆成后续 Feature。
+## Scope
 
-## 合同
+- In scope: project-scoped workbench model, source library, research sessions, answer evidence, candidate confirmation, knowledge board, feedback scoring, run events, and static three-column UI.
+- In scope: replacing low-value legacy surfaces where replacement was lower cost than preserving compatibility.
+- Out of scope: account management, permission systems, multi-tenant SaaS behavior, generic task graphs, broad source search, and product flows not needed by the workbench baseline.
 
-- API：在 F002 正式规格中定义。
-- 事件：Agent、检索、证据、记忆和回答流事件。
-- 数据：`Project`、`ResearchSession`、`SourceDocument`、`KnowledgeCandidate`、`KnowledgeEntry`、`EvidenceSource`、流式事件记录。
-- UI：采用 `docs/product/research-workbench-ui-interaction-spec.md` 中的三栏研究工作台方向。
+## Acceptance Criteria
 
-## 链接
+- UI, backend entities, and streaming events share the F002 documented contract.
+- Users can enter a research project, import sources, ask questions, inspect evidence, and write confirmed knowledge to the project knowledge board.
+- Agent or staged processing is visible through SSE events rather than hidden behind a final answer only.
+- Redis Stream is implemented as the event backbone, with an in-memory default for tests.
+- Long-term memory and evidence boundaries avoid automatically polluting confirmed knowledge.
+- Thumbs-up/thumbs-down feedback updates retrieval scoring through a bounded, explainable formula.
+- Final validation evidence exists and passes backend, frontend, browser, and Harness checks appropriate to the current baseline.
 
-- 正式规格：[F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
-- 实施计划：[F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
-- 开发前 Vision Gate：[VG-001-f002-before-development.md](../reviews/VG-001-f002-before-development.md)
-- 子 Feature：[F003 项目级数据模型与基础 API](F003-project-workbench-model-api.md)
-- 子 Feature：[F004 工作台事件骨干与 SSE 投影](F004-workbench-event-stream-sse.md)
-- 子 Feature：[F005 项目级资料接入状态机](F005-project-source-status-machine.md)
-- 子 Feature：[F006 Agent 编排与过程事件](F006-agent-run-event-flow.md)
-- 子 Feature：[F007 检索分层与证据边界](F007-retrieval-evidence-boundary.md)
-- 子 Feature：[F008 候选确认与知识板](F008-candidate-confirmation-knowledge-board.md)
-- 子 Feature：[F009 FeedbackScore 检索闭环](F009-feedback-score-loop.md)
-- 子 Feature：[F010 三栏研究工作台 UI](F010-three-column-workbench-ui.md)
-- 子 Feature：[F011 F002 端到端验收与 Evidence 收尾](F011-f002-end-to-end-validation.md)
-- 产品 UI 规格：[research-workbench-ui-interaction-spec.md](../product/research-workbench-ui-interaction-spec.md)
-- 架构护栏：[智能研究助手Agent-实现对齐与追问护栏-V2.md](../project-goal-alig/智能研究助手Agent-实现对齐与追问护栏-V2.md)
-- ADR：[ADR-002-rebuild-around-project-workbench.md](../decisions/ADR-002-rebuild-around-project-workbench.md)
+## Contracts
 
-## 下一步
+- API: defined in [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md).
+- Events: `WorkbenchEvent` envelope and F002 event wire names.
+- Data: `Project`, `ResearchSession`, `SourceDocument`, `AssistantAnswer`, `EvidenceSource`, `KnowledgeCandidate`, `KnowledgeEntry`, stream events, and feedback records.
+- UI: three-column research workbench from [research-workbench-ui-interaction-spec.md](../product/research-workbench-ui-interaction-spec.md).
 
-从 F003 项目级数据模型与基础 API 开始开发。F002 只作为 Epic 和总合同，不直接承载全部代码验收。
+## Evidence
+
+- Final validation: [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-implementation-validation.md)
+- UI/browser validation: [EV-009-f010-three-column-workbench-ui.md](../evidence/EV-009-f010-three-column-workbench-ui.md)
+
+## Known Limitations
+
+- F004 SSE projection replays available run events and completes; continuous live tailing remains future work.
+- External web retrieval is a boundary/fallback, not an implemented web search connector.
+- Source-scoped live SSE, broad source search, account preferences, multi-tenant behavior, feedback undo/deduplication, and long-term personalization remain outside F002.
+
+## Links
+
+- Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
+- Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- Vision Gate: [VG-001-f002-before-development.md](../reviews/VG-001-f002-before-development.md)
+- Child Feature: [F003 Project Workbench Model API](F003-project-workbench-model-api.md)
+- Child Feature: [F004 Workbench Event Stream SSE](F004-workbench-event-stream-sse.md)
+- Child Feature: [F005 Project Source Status Machine](F005-project-source-status-machine.md)
+- Child Feature: [F006 Agent Run Event Flow](F006-agent-run-event-flow.md)
+- Child Feature: [F007 Retrieval Evidence Boundary](F007-retrieval-evidence-boundary.md)
+- Child Feature: [F008 Candidate Confirmation and Knowledge Board](F008-candidate-confirmation-knowledge-board.md)
+- Child Feature: [F009 Feedback Score Loop](F009-feedback-score-loop.md)
+- Child Feature: [F010 Three-Column Workbench UI](F010-three-column-workbench-ui.md)
+- Child Feature: [F011 F002 End-to-End Validation](F011-f002-end-to-end-validation.md)
+- ADR: [ADR-002-rebuild-around-project-workbench.md](../decisions/ADR-002-rebuild-around-project-workbench.md)
+- Product UI spec: [research-workbench-ui-interaction-spec.md](../product/research-workbench-ui-interaction-spec.md)
+
+## Next Step
+
+No active F002 implementation remains. Future work should be opened as separate Features from the known limitations above instead of expanding F011 or reopening the parent Feature.

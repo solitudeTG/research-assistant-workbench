@@ -698,7 +698,7 @@ Capture screenshots or written observations for Evidence.
 ## Task 9: Full-system Evidence and Harness closeout
 
 **Files:**
-- Create: `docs/evidence/EV-002-f002-implementation-validation.md`
+- Create: `docs/evidence/EV-010-f002-implementation-validation.md`
 - Modify: `docs/features/F002-next-generation-research-workbench.md`
 - Modify: `docs/BACKLOG.md`
 
@@ -738,7 +738,7 @@ knowledge_check: ok
 
 - [ ] **Step 4: Write Evidence**
 
-Create `EV-002-f002-implementation-validation.md` with:
+Create `EV-010-f002-implementation-validation.md` with:
 
 - commands run
 - exit status and key output
@@ -786,7 +786,7 @@ Spec coverage:
 - SSE 前端事件合同：Task 2 and Task 8 implement browser consumption and dedupe.
 - Agent 写入边界：Task 4-6 enforce candidate versus confirmed knowledge separation.
 - 前端状态模型：Task 8 covers pure state transitions.
-- 验收证据：Task 9 creates EV-002 and updates Feature/Backlog.
+- 验收证据：Task 9 creates EV-010 and updates Feature/Backlog. EV-010 is used because EV-002 already belongs to F003.
 
 Placeholder scan:
 

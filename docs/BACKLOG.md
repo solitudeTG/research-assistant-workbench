@@ -4,15 +4,32 @@ This file records active engineering state that future sessions must be able to 
 
 ## Active Work
 
-### F002 Next-Generation Research Workbench
+### No active F002 implementation
 
-- Status: Epic in progress, split into F003-F011 child Features.
-- Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
-- Current intent: execute the child Features sequentially with one recoverable commit per Feature.
-- Completed slices: F003 project workbench model API; F004 workbench event stream and SSE projection; F005 project-scoped source status machine; F006 agent run event flow; F007 retrieval evidence boundary; F008 candidate confirmation and knowledge board; F009 feedback score loop; F010 three-column workbench UI.
-- Next step: start F011 F002 end-to-end validation. Do not add new product capabilities in F011; verify the full F002 system, capture evidence, and close or mark remaining gaps based on the results.
+- Status: F002/F011 closeout complete.
+- Parent Feature: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
+- Validation Feature: [F011-f002-end-to-end-validation.md](features/F011-f002-end-to-end-validation.md)
+- Evidence: [EV-010-f002-implementation-validation.md](evidence/EV-010-f002-implementation-validation.md)
+- Current intent: no active F002 implementation remains. Future work should be opened as separate Features from known limitations, not by expanding F011.
+- Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ## Recently Completed
+
+### F011 F002 End-to-End Validation
+
+- Status: completed
+- Feature page: [F011-f002-end-to-end-validation.md](features/F011-f002-end-to-end-validation.md)
+- Evidence: [EV-010-f002-implementation-validation.md](evidence/EV-010-f002-implementation-validation.md)
+- Result: F011 closed F002 with validation evidence only. Parent-session backend full verification first exposed a validation harness gap in `Phase1HappyPathTest`; after hardening the test harness, targeted backend validation, full backend validation, frontend model tests, and Harness validation all passed.
+- Known limitation: F011 did not add product capability; F010 browser evidence remains in EV-009 and is summarized by EV-010.
+
+### F002 Next-Generation Research Workbench
+
+- Status: completed
+- Feature page: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
+- Evidence: [EV-010-f002-implementation-validation.md](evidence/EV-010-f002-implementation-validation.md)
+- Result: F003-F010 delivered the implemented workbench baseline, and F011 completed validation and Harness closeout.
+- Known limitation: remaining gaps are future-feature candidates only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ### F010 Three-Column Research Workbench UI
 
@@ -20,7 +37,7 @@ This file records active engineering state that future sessions must be able to 
 - Feature page: [F010-three-column-workbench-ui.md](features/F010-three-column-workbench-ui.md)
 - Evidence: [EV-009-f010-three-column-workbench-ui.md](evidence/EV-009-f010-three-column-workbench-ui.md)
 - Result: static workbench now exposes stable left project/source, center dialogue, and right research-sidebar regions; the frontend state model handles session selection, source status changes, answer deltas, evidence hydration, pending candidates, confirmed knowledge entries, deterministic fallback IDs, and duplicate SSE event IDs; `workbench-app.js` uses F002 project endpoints and run SSE as the main path with named compatibility functions for legacy demo endpoints; parent-session Chrome verification covered desktop layout, narrow viewport overflow, typed SSE updates, evidence refresh, and candidate edit-and-accept.
-- Known limitation: full-system F002 validation remains F011; F010 does not add source-scoped live SSE, broad search, web retrieval, account preferences, or multi-tenant UI.
+- Known limitation: F010 does not add source-scoped live SSE, broad search, web retrieval, account preferences, or multi-tenant UI.
 
 ### F009 Feedback Score Loop
 

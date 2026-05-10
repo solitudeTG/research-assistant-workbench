@@ -32,22 +32,25 @@ class ChatControllerTest extends PostgresIntegrationTest {
     @MockBean(answer = Answers.RETURNS_DEEP_STUBS)
     private org.springframework.ai.chat.client.ChatClient chatClient;
 
+    private Long documentId;
+
     @BeforeEach
     void seedChunks() {
-        jdbcTemplate.update("""
+        documentId = jdbcTemplate.queryForObject("""
                 insert into research_document(title, original_file_name, storage_path, status)
                 values ('paper.pdf', 'paper.pdf', 'ignored', 'INDEXED')
-                """);
+                returning id
+                """, Long.class);
         jdbcTemplate.update("""
                 insert into document_chunk(document_id, chunk_index, content, token_count, metadata_json)
-                values (1, 0, 'Attention computes weighted token interactions for sequence modeling.', 12, '{}'::jsonb)
-                """);
+                values (?, 0, 'Attention computes weighted token interactions for sequence modeling.', 12, '{}'::jsonb)
+                """, documentId);
         when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
                 .thenReturn("Attention computes weighted token interactions for sequence modeling.");
-        when(vectorSearchPort.search(anyString(), org.mockito.ArgumentMatchers.eq(java.util.List.of(1L)), org.mockito.ArgumentMatchers.eq(5)))
+        when(vectorSearchPort.search(anyString(), org.mockito.ArgumentMatchers.eq(java.util.List.of(documentId)), org.mockito.ArgumentMatchers.eq(5)))
                 .thenReturn(java.util.List.of(new RagChunk(
                         1L,
-                        1L,
+                        documentId,
                         0,
                         "Attention computes weighted token interactions for sequence modeling.",
                         2.0
@@ -60,15 +63,15 @@ class ChatControllerTest extends PostgresIntegrationTest {
                 {
                   "sessionKey": "session-42",
                   "question": "What does attention do?",
-                  "documentIds": [1]
+                  "documentIds": [%d]
                 }
-                """;
+                """.formatted(documentId);
 
         mockMvc.perform(post("/api/chat")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answerMode").value("LOCAL_EVIDENCE"))
-                .andExpect(jsonPath("$.citations[0].documentId").value(1));
+                .andExpect(jsonPath("$.citations[0].documentId").value(documentId.intValue()));
     }
 }

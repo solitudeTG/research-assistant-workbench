@@ -1,44 +1,60 @@
 ---
 id: F011
-status: planned
+status: completed
 owner: codex
-updated: 2026-05-09
+updated: 2026-05-10
 parent_feature: F002
+evidence:
+  - ../evidence/EV-010-f002-implementation-validation.md
 ---
-# F002 端到端验收与 Evidence 收尾
+# F002 End-to-End Validation and Evidence Closeout
 
-## 目标
+## Goal
 
-在 F003-F010 实现后，完成 F002 端到端验证、Evidence 记录和 Harness 收尾，确保下一代研究工作台不是只由局部测试证明，而是由可追溯证据证明。
+Close F002 with end-to-end validation evidence after F003-F010 shipped the implementation slices. F011 exists to prove the workbench baseline is recoverable and verifiable, not to add new product capability.
 
-## 范围
+## Current Status
 
-- 范围内：后端全量测试、前端模型测试、Harness 校验。
-- 范围内：API/SSE 样例、浏览器验证记录、已知限制和回滚说明。
-- 范围内：更新 F002 Feature 与 BACKLOG 状态。
-- 范围外：新增业务能力。
+completed.
 
-## 验收标准
+F011 uses [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-implementation-validation.md) instead of the originally planned `EV-002-f002-implementation-validation.md` filename because `EV-002` already belongs to F003. Unique Evidence IDs are required for Harness traceability.
 
-- `mvn test` 通过。
-- `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` 通过。
-- `python scripts/knowledge_check.py` 通过。
-- 存在 `docs/evidence/EV-002-f002-implementation-validation.md`。
-- F002 Feature 链接到最终 Evidence。
+## Scope
 
-## 合同
+- In scope: full backend test verification.
+- In scope: F002 frontend model verification.
+- In scope: Harness `knowledge_check.py`.
+- In scope: API/SSE sample recording, known limitations, and rollback notes.
+- In scope: updating F002 and BACKLOG status.
+- Out of scope: new product capabilities, new API behavior, broad source search, web retrieval, or UI expansion.
 
-- API：不新增。
-- 事件：记录验证样例。
-- 数据：Evidence 文档。
-- UI：记录浏览器验证证据。
+## Acceptance Criteria
 
-## 链接
+- `mvn test` passes.
+- `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` passes.
+- `python scripts/knowledge_check.py` passes.
+- Final F002 validation Evidence exists as `docs/evidence/EV-010-f002-implementation-validation.md`.
+- F002 Feature links to final Evidence.
+- BACKLOG records that no active F002 implementation remains.
 
-- 父 Feature：[F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
-- 规格：[F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
-- 计划：[F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+## Contracts
 
-## 下一步
+- API: no new F011 API.
+- Events: no new F011 event type; EV-010 records representative F002 event samples.
+- Data: Evidence and Feature status only.
+- UI: no new F011 UI; browser evidence remains owned by F010/EV-009 and is summarized by EV-010.
 
-等待 F003-F010 完成后执行 F002 实施计划 Task 9。
+## Evidence
+
+- Final Evidence: [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-implementation-validation.md)
+
+## Links
+
+- Parent Feature: [F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
+- Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
+- Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
+- Browser Evidence: [EV-009-f010-three-column-workbench-ui.md](../evidence/EV-009-f010-three-column-workbench-ui.md)
+
+## Next Step
+
+F011 is closed. Future work should be opened as new Features from the known limitations rather than expanding F011 or reopening the F002 parent.
