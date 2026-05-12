@@ -6,137 +6,231 @@
     <title>研究工作台</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./css/workbench.css">
 </head>
 <body>
 <div class="app-shell">
-    <header class="topbar">
-        <div class="brand">
-            <div class="brand-mark" aria-hidden="true">RW</div>
+    <nav class="nav-rail" aria-label="工作区导航">
+        <div class="rail-mark" aria-hidden="true">RW</div>
+        <div class="rail-actions">
+            <button class="rail-button is-active" type="button" data-workspace-target="session" data-icon="chat_bubble" title="会话" aria-label="会话"><span>会话</span></button>
+            <button class="rail-button" type="button" data-workspace-target="sources" data-icon="library_books" title="资料库" aria-label="资料库"><span>资料库</span></button>
+            <button class="rail-button" type="button" data-workspace-target="knowledge" data-icon="hub" title="知识" aria-label="知识"><span>知识</span></button>
+            <button class="rail-button" type="button" data-workspace-target="project" data-icon="folder" title="项目" aria-label="项目"><span>项目</span></button>
+        </div>
+        <div class="rail-footer">
+            <span id="system-status" class="status-pill" data-state="checking">连接中</span>
+        </div>
+    </nav>
+
+    <aside class="left-column" aria-label="工作区上下文">
+        <header class="drawer-header">
             <div>
+                <p class="overline">Research workspace</p>
                 <h1>研究工作台</h1>
                 <p id="project-summary">正在载入项目空间</p>
             </div>
-        </div>
-        <div class="topbar-status">
-            <span id="system-status" class="status-pill" data-state="checking">连接中</span>
             <span id="active-project-chip" class="context-chip">项目未选择</span>
-        </div>
-    </header>
+        </header>
 
-    <div class="workbench-layout">
-        <aside class="left-column" data-region="left-project-sources" aria-label="项目、会话与资料">
-            <section class="project-panel">
-                <div class="section-heading">
-                    <p>Project</p>
-                    <h2 id="project-topic">项目空间</h2>
+        <section class="drawer-panel is-active" data-context-panel="session">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <p>Sessions</p>
+                    <h2>研究会话</h2>
                 </div>
-                <p id="project-description" class="compact-text">选择或创建一个研究项目后，资料、会话和知识板会围绕该项目工作。</p>
-                <dl class="project-stats">
+                <button id="new-session" class="quiet-button" type="button">新建</button>
+            </div>
+            <div class="drawer-search" aria-hidden="true">
+                <input type="search" placeholder="筛选会话" tabindex="-1">
+            </div>
+            <div id="session-list" class="stack-list" aria-live="polite"></div>
+        </section>
+
+        <section class="drawer-panel" data-context-panel="sources">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <p>Sources</p>
+                    <h2>资料集合</h2>
+                </div>
+                <button id="refresh-sources" class="quiet-button" type="button">刷新</button>
+            </div>
+            <div id="source-nav" class="context-nav" aria-label="资料库筛选"></div>
+            <label class="source-import" for="file-input">
+                <span>导入论文或笔记</span>
+                <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
+            </label>
+            <button id="upload-button" class="primary-button drawer-wide-button" type="button">写入资料库</button>
+        </section>
+
+        <section class="drawer-panel" data-context-panel="knowledge">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <p>Knowledge</p>
+                    <h2>知识分区</h2>
+                </div>
+                <button class="quiet-button" type="button" data-knowledge-action="new">新建</button>
+            </div>
+            <div id="knowledge-nav" class="context-nav" aria-label="知识库分区"></div>
+        </section>
+
+        <section class="drawer-panel" data-context-panel="project">
+            <div class="section-heading">
+                <p>Project</p>
+                <h2 id="project-topic">项目空间</h2>
+            </div>
+            <p id="project-description" class="compact-text">选择或创建一个研究项目后，资料、会话和知识会围绕该项目工作。</p>
+            <dl class="project-stats">
+                <div><dt>资料</dt><dd id="stat-sources">0</dd></div>
+                <div><dt>知识</dt><dd id="stat-knowledge">0</dd></div>
+                <div><dt>会话</dt><dd id="stat-sessions">0</dd></div>
+            </dl>
+        </section>
+    </aside>
+
+    <main class="workspace-root" aria-label="主工作区">
+        <section class="workspace workspace--session is-active" data-workspace="session" aria-label="研究会话工作区">
+            <main class="center-column" data-region="center-research-dialogue" aria-label="多轮研究对话">
+                <header class="dialogue-header">
                     <div>
-                        <dt>资料</dt>
-                        <dd id="stat-sources">0</dd>
+                        <p class="overline">Research dialogue</p>
+                        <h2 id="active-session-title">多轮研究对话</h2>
+                        <p id="active-session-meta">本地知识优先，证据不足时标记需要补充。</p>
                     </div>
-                    <div>
-                        <dt>知识</dt>
-                        <dd id="stat-knowledge">0</dd>
+                    <div id="answer-state" class="answer-state">等待问题</div>
+                </header>
+                <section id="conversation" class="conversation" aria-live="polite"></section>
+                <section class="composer" aria-label="发送研究问题">
+                    <div class="composer-surface">
+                        <div class="composer-modes" aria-label="回答模式">
+                            <label><input id="allow-web" type="checkbox" checked> 联网补充</label>
+                            <label><input id="extract-candidates" type="checkbox" checked> 提炼候选</label>
+                            <span>本地知识优先</span>
+                        </div>
+                        <textarea id="composer" rows="3" placeholder="输入研究指令，例如：这组资料支持哪些核心结论？"></textarea>
+                        <div class="composer-footer">
+                            <span id="status-banner" class="micro-copy">工作台正在连接</span>
+                            <button id="send-button" class="primary-button" type="button">发送</button>
+                        </div>
                     </div>
-                    <div>
-                        <dt>会话</dt>
-                        <dd id="stat-sessions">0</dd>
+                </section>
+            </main>
+
+            <aside class="right-column" data-region="right-research-sidebar" aria-label="研究审阅区">
+                <nav class="sidebar-tabs" aria-label="会话上下文视图">
+                    <button class="tab-button" type="button" data-sidebar-view="knowledge-board">知识</button>
+                    <button class="tab-button is-active" type="button" data-sidebar-view="evidence-sources">证据</button>
+                    <button class="tab-button" type="button" data-sidebar-view="candidate-confirmation">候选</button>
+                </nav>
+                <p id="answer-context-line" class="context-line">当前回答还没有关联证据或候选。</p>
+                <section class="sidebar-view" data-view="knowledge-board" aria-label="知识板">
+                    <div class="section-heading"><p>Knowledge board</p><h2>长期研究知识</h2></div>
+                    <div id="knowledge-board" class="knowledge-board"></div>
+                </section>
+                <section class="sidebar-view is-active" data-view="evidence-sources" aria-label="证据来源">
+                    <div class="section-heading"><p>Evidence</p><h2>证据来源</h2></div>
+                    <div id="evidence-list" class="stack-list"></div>
+                </section>
+                <section class="sidebar-view" data-view="candidate-confirmation" aria-label="候选确认">
+                    <div class="section-heading"><p>Candidates</p><h2>候选确认</h2></div>
+                    <div id="candidate-list" class="stack-list"></div>
+                </section>
+            </aside>
+        </section>
+
+        <section class="workspace workspace--sources" data-workspace="sources" aria-label="资料库工作区">
+            <header class="workspace-header">
+                <div>
+                    <p class="overline">研究工作台 / 资料库</p>
+                    <h2>资料库</h2>
+                    <p>管理项目论文、网页与笔记，处理完成后进入本地知识检索。</p>
+                </div>
+                <div class="workspace-actions">
+                    <button class="primary-button" type="button" data-upload-proxy>上传论文</button>
+                    <button class="quiet-button" type="button" disabled>添加网页</button>
+                </div>
+            </header>
+            <section class="operations-band">
+                <label class="drop-zone" for="file-input">
+                    <strong>拖入 PDF、网页链接或笔记</strong>
+                    <span>支持当前项目资料导入；网页入口待后续合同补齐。</span>
+                </label>
+                <div id="source-pipeline" class="pipeline-summary"></div>
+            </section>
+            <section class="workspace-split">
+                <div class="workspace-list-pane">
+                    <div class="table-toolbar">
+                        <input type="search" placeholder="搜索已载入资料" data-source-search>
+                        <select data-source-type-filter><option>全部类型</option><option>论文</option><option>网页</option><option>笔记</option></select>
+                        <select data-source-status-filter><option>全部状态</option><option>已入库</option><option>索引中</option><option>失败</option></select>
                     </div>
+                    <p id="source-count" class="micro-copy">当前 0 份资料</p>
+                    <div id="source-list" class="source-table" aria-live="polite"></div>
+                </div>
+                <aside class="workspace-inspector" aria-label="来源详情">
+                    <div class="section-heading"><p>Source detail</p><h2>来源详情</h2></div>
+                    <div id="source-detail"></div>
+                </aside>
+            </section>
+        </section>
+
+        <section class="workspace workspace--knowledge" data-workspace="knowledge" aria-label="知识工作区">
+            <header class="workspace-header">
+                <div>
+                    <p class="overline">研究工作台 / 知识</p>
+                    <h2>知识库</h2>
+                    <p>管理已确认的项目知识，审阅候选并维护可复用研究结论。</p>
+                </div>
+                <div class="workspace-actions">
+                    <button class="primary-button" type="button" data-knowledge-action="new">新建知识</button>
+                    <button class="quiet-button" type="button">导入候选</button>
+                </div>
+            </header>
+            <section id="knowledge-metrics" class="metrics-band"></section>
+            <section class="workspace-split">
+                <div class="workspace-list-pane">
+                    <div class="table-toolbar">
+                        <input type="search" placeholder="搜索知识条目">
+                        <select><option>全部分区</option><option>核心概念</option><option>方法路线</option><option>已确认结论</option></select>
+                        <select><option>全部证据状态</option><option>已确认</option><option>待验证</option></select>
+                    </div>
+                    <div id="knowledge-workspace-board" class="knowledge-workspace-board"></div>
+                    <section class="candidate-lane">
+                        <div class="section-heading section-heading--inline">
+                            <div><p>Candidate review</p><h2>候选审阅</h2></div>
+                        </div>
+                        <div id="knowledge-candidate-list" class="stack-list"></div>
+                    </section>
+                </div>
+                <aside class="workspace-inspector" aria-label="知识详情">
+                    <div class="section-heading"><p>Knowledge detail</p><h2>知识详情</h2></div>
+                    <div id="knowledge-detail"></div>
+                </aside>
+            </section>
+        </section>
+
+        <section class="workspace workspace--project" data-workspace="project" aria-label="项目工作区">
+            <header class="workspace-header">
+                <div>
+                    <p class="overline">研究工作台 / 项目</p>
+                    <h2>项目概览</h2>
+                    <p>查看当前研究项目的资料、会话与知识状态。</p>
+                </div>
+            </header>
+            <section class="project-overview">
+                <div class="project-overview-card">
+                    <h3 id="project-overview-topic">项目空间</h3>
+                    <p id="project-overview-summary">暂无项目摘要。</p>
+                </div>
+                <dl class="project-stats project-stats--wide">
+                    <div><dt>资料</dt><dd id="overview-stat-sources">0</dd></div>
+                    <div><dt>知识</dt><dd id="overview-stat-knowledge">0</dd></div>
+                    <div><dt>会话</dt><dd id="overview-stat-sessions">0</dd></div>
                 </dl>
             </section>
-
-            <section class="column-section">
-                <div class="section-heading section-heading--inline">
-                    <div>
-                        <p>Sessions</p>
-                        <h2>研究会话</h2>
-                    </div>
-                    <button id="new-session" class="quiet-button" type="button">新建</button>
-                </div>
-                <div id="session-list" class="stack-list" aria-live="polite"></div>
-            </section>
-
-            <section class="column-section">
-                <div class="section-heading section-heading--inline">
-                    <div>
-                        <p>Sources</p>
-                        <h2>资料库</h2>
-                    </div>
-                    <button id="refresh-sources" class="quiet-button" type="button">刷新</button>
-                </div>
-                <label class="source-import" for="file-input">
-                    <span>导入论文或笔记</span>
-                    <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
-                </label>
-                <button id="upload-button" class="primary-button" type="button">写入项目资料库</button>
-                <p id="source-count" class="micro-copy">资料状态会随 SSE 或轮询更新。</p>
-                <div id="source-list" class="stack-list" aria-live="polite"></div>
-            </section>
-        </aside>
-
-        <main class="center-column" data-region="center-research-dialogue" aria-label="多轮研究对话">
-            <header class="dialogue-header">
-                <div>
-                    <p class="overline">Research dialogue</p>
-                    <h2 id="active-session-title">多轮研究对话</h2>
-                    <p id="active-session-meta">本地知识优先，证据不足时标记需要补充。</p>
-                </div>
-                <div id="answer-state" class="answer-state">等待问题</div>
-            </header>
-
-            <section id="conversation" class="conversation" aria-live="polite"></section>
-
-            <section class="composer" aria-label="发送研究问题">
-                <div class="composer-modes" aria-label="回答模式">
-                    <label><input id="allow-web" type="checkbox" checked> 证据不足时联网补充</label>
-                    <label><input id="extract-candidates" type="checkbox" checked> 回答后提炼候选</label>
-                </div>
-                <textarea id="composer" rows="4" placeholder="输入研究问题，例：这组资料支持哪些核心结论？"></textarea>
-                <div class="composer-footer">
-                    <span id="status-banner" class="micro-copy">工作台已就绪</span>
-                    <button id="send-button" class="primary-button" type="button">发送问题</button>
-                </div>
-            </section>
-        </main>
-
-        <aside class="right-column" data-region="right-research-sidebar" aria-label="研究侧栏">
-            <nav class="sidebar-tabs" aria-label="研究侧栏视图">
-                <button class="tab-button is-active" type="button" data-sidebar-view="knowledge-board">知识板</button>
-                <button class="tab-button" type="button" data-sidebar-view="evidence-sources">证据来源</button>
-                <button class="tab-button" type="button" data-sidebar-view="candidate-confirmation">候选确认</button>
-            </nav>
-
-            <p id="answer-context-line" class="context-line">当前回答还没有关联证据或候选。</p>
-
-            <section class="sidebar-view is-active" data-view="knowledge-board" aria-label="知识板">
-                <div class="section-heading">
-                    <p>Knowledge board</p>
-                    <h2>长期研究知识</h2>
-                </div>
-                <div id="knowledge-board" class="knowledge-board"></div>
-            </section>
-
-            <section class="sidebar-view" data-view="evidence-sources" aria-label="证据来源">
-                <div class="section-heading">
-                    <p>Evidence</p>
-                    <h2>证据来源</h2>
-                </div>
-                <div id="evidence-list" class="stack-list"></div>
-            </section>
-
-            <section class="sidebar-view" data-view="candidate-confirmation" aria-label="候选确认">
-                <div class="section-heading">
-                    <p>Candidates</p>
-                    <h2>候选确认</h2>
-                </div>
-                <div id="candidate-list" class="stack-list"></div>
-            </section>
-        </aside>
-    </div>
+        </section>
+    </main>
 </div>
 
 <script type="module" src="./js/workbench-app.js"></script>

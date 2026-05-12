@@ -1,21 +1,39 @@
 import {
     applyCandidateAction,
     applySseEvent,
-    applyStreamEvent,
+    buildProjectMessageUrl,
+    buildProjectSessionMessagesUrl,
+    buildProjectSessionRenameUrl,
     createLocalSession,
     createWorkbenchState,
     formatRelativeTime,
+    getWorkspaceVisibility,
     normalizeDocument,
+    normalizeProjectMessage,
+    renameSessionTitle,
+    requireProjectChatContext,
     selectSession,
     selectSidebarView,
+    selectWorkspace,
     startEditingCandidate
 } from "./workbench-model.js";
 
 const EVENT_TYPES = [
     "run.started",
+    "agent.plan.created",
+    "agent.step.started",
+    "agent.step.completed",
+    "agent.step.failed",
+    "tool.called",
+    "tool.completed",
+    "tool.failed",
     "retrieval.started",
+    "retrieval.hit",
     "retrieval.completed",
+    "memory.hit",
+    "memory.completed",
     "evidence.evaluated",
+    "evidence.gap.detected",
     "answer.delta",
     "answer.completed",
     "run.completed",
@@ -36,6 +54,7 @@ const SECTION_LABELS = {
 const SOURCE_LABELS = {
     pdf: "论文",
     web: "网页",
+    web_page: "网页",
     note: "笔记",
     document: "文档"
 };
@@ -56,6 +75,10 @@ const dom = {
     uploadButton: document.getElementById("upload-button"),
     sourceCount: document.getElementById("source-count"),
     sourceList: document.getElementById("source-list"),
+    sourceNav: document.getElementById("source-nav"),
+    sourcePipeline: document.getElementById("source-pipeline"),
+    sourceDetail: document.getElementById("source-detail"),
+    uploadProxy: document.querySelector("[data-upload-proxy]"),
     activeSessionTitle: document.getElementById("active-session-title"),
     activeSessionMeta: document.getElementById("active-session-meta"),
     answerState: document.getElementById("answer-state"),
@@ -70,18 +93,36 @@ const dom = {
     answerContextLine: document.getElementById("answer-context-line"),
     knowledgeBoard: document.getElementById("knowledge-board"),
     evidenceList: document.getElementById("evidence-list"),
-    candidateList: document.getElementById("candidate-list")
+    candidateList: document.getElementById("candidate-list"),
+    workspaceButtons: [...document.querySelectorAll("[data-workspace-target]")],
+    contextPanels: [...document.querySelectorAll("[data-context-panel]")],
+    workspaces: [...document.querySelectorAll("[data-workspace]")],
+    knowledgeNav: document.getElementById("knowledge-nav"),
+    knowledgeMetrics: document.getElementById("knowledge-metrics"),
+    knowledgeWorkspaceBoard: document.getElementById("knowledge-workspace-board"),
+    knowledgeCandidateList: document.getElementById("knowledge-candidate-list"),
+    knowledgeDetail: document.getElementById("knowledge-detail"),
+    projectOverviewTopic: document.getElementById("project-overview-topic"),
+    projectOverviewSummary: document.getElementById("project-overview-summary"),
+    overviewStatSources: document.getElementById("overview-stat-sources"),
+    overviewStatKnowledge: document.getElementById("overview-stat-knowledge"),
+    overviewStatSessions: document.getElementById("overview-stat-sessions")
 };
 
 const app = {
-    ...createWorkbenchState(),
+    ...createWorkbenchState({ selectedSidebarView: "evidence-sources" }),
     projects: [],
     activeProject: null,
     systemState: "checking",
     statusMessage: "正在连接研究工作台",
     messages: [],
+    messageLoadState: "idle",
     activeStream: null,
-    sampleMode: false
+    editingSessionId: null,
+    selectedSourceId: null,
+    selectedKnowledgeEntryId: null,
+    sampleMode: false,
+    collapsedResearchProcesses: new Set()
 };
 
 wireEvents();
@@ -89,22 +130,28 @@ render();
 void bootstrap();
 
 function wireEvents() {
+    dom.workspaceButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            Object.assign(app, selectWorkspace(app, button.dataset.workspaceTarget));
+            render();
+        });
+    });
+
     dom.newSessionButton.addEventListener("click", () => {
         void createResearchSession();
     });
-
     dom.refreshSourcesButton.addEventListener("click", () => {
         void refreshSources();
     });
-
     dom.uploadButton.addEventListener("click", () => {
         void uploadSource();
     });
-
+    dom.uploadProxy?.addEventListener("click", () => {
+        dom.fileInput.click();
+    });
     dom.sendButton.addEventListener("click", () => {
         void askQuestion();
     });
-
     dom.composer.addEventListener("keydown", (event) => {
         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
@@ -112,14 +159,75 @@ function wireEvents() {
         }
     });
 
-    dom.sessionList.addEventListener("click", (event) => {
-        const trigger = event.target.closest("[data-session-id]");
-        if (!trigger) {
+    dom.conversation.addEventListener("click", (event) => {
+        const toggle = event.target.closest("[data-process-toggle]");
+        if (!toggle) {
             return;
         }
-        Object.assign(app, selectSession(app, trigger.dataset.sessionId));
-        app.messages = [];
-        render();
+        const processId = toggle.dataset.processToggle;
+        if (!processId) {
+            return;
+        }
+        if (app.collapsedResearchProcesses.has(processId)) {
+            app.collapsedResearchProcesses.delete(processId);
+        } else {
+            app.collapsedResearchProcesses.add(processId);
+        }
+        renderDialogue();
+    });
+
+    dom.sessionList.addEventListener("click", (event) => {
+        const renameTrigger = event.target.closest("[data-session-rename]");
+        const renameSubmit = event.target.closest("[data-session-rename-submit]");
+        const renameCancel = event.target.closest("[data-session-rename-cancel]");
+        const selectTrigger = event.target.closest("[data-session-id]");
+        if (renameTrigger) {
+            app.editingSessionId = renameTrigger.dataset.sessionRename;
+            renderSessions();
+            focusSessionRenameInput();
+            return;
+        }
+        if (renameSubmit) {
+            void submitSessionRename(renameSubmit.dataset.sessionRenameSubmit);
+            return;
+        }
+        if (renameCancel) {
+            app.editingSessionId = null;
+            renderSessions();
+            return;
+        }
+        if (selectTrigger) {
+            void switchSession(selectTrigger.dataset.sessionId);
+        }
+    });
+
+    dom.sessionList.addEventListener("keydown", (event) => {
+        const input = event.target.closest("[data-session-rename-input]");
+        if (!input) {
+            return;
+        }
+        if (event.key === "Enter") {
+            event.preventDefault();
+            void submitSessionRename(input.dataset.sessionRenameInput);
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            app.editingSessionId = null;
+            renderSessions();
+        }
+    });
+
+    dom.sourceList.addEventListener("click", (event) => {
+        const retryTrigger = event.target.closest("[data-source-retry]");
+        const sourceRow = event.target.closest("[data-source-id]");
+        if (retryTrigger) {
+            void retrySource(retryTrigger.dataset.sourceRetry);
+            return;
+        }
+        if (sourceRow) {
+            app.selectedSourceId = sourceRow.dataset.sourceId;
+            renderSources();
+        }
     });
 
     dom.tabs.forEach((tab) => {
@@ -129,7 +237,7 @@ function wireEvents() {
         });
     });
 
-    dom.candidateList.addEventListener("click", (event) => {
+    const handleCandidateClick = (event) => {
         const submitEditTrigger = event.target.closest("[data-candidate-edit-submit]");
         const cancelEditTrigger = event.target.closest("[data-candidate-edit-cancel]");
         const editTrigger = event.target.closest("[data-candidate-edit]");
@@ -145,21 +253,20 @@ function wireEvents() {
         }
         if (cancelEditTrigger) {
             Object.assign(app, applyCandidateAction(app, cancelEditTrigger.dataset.candidateEditCancel, "cancel"));
-            renderCandidates();
+            render();
             return;
         }
         if (editTrigger) {
             Object.assign(app, startEditingCandidate(app, editTrigger.dataset.candidateEdit));
-            renderCandidates();
+            render();
             return;
         }
         if (actionTrigger) {
-            void submitCandidateAction(
-                    actionTrigger.dataset.candidateAction,
-                    actionTrigger.dataset.candidateId
-            );
+            void submitCandidateAction(actionTrigger.dataset.candidateAction, actionTrigger.dataset.candidateId);
         }
-    });
+    };
+    dom.candidateList.addEventListener("click", handleCandidateClick);
+    dom.knowledgeCandidateList.addEventListener("click", handleCandidateClick);
 }
 
 async function bootstrap() {
@@ -183,14 +290,15 @@ async function loadProjects() {
         const projects = await getJson("/api/projects");
         app.projects = Array.isArray(projects) ? projects : [];
         if (app.projects.length === 0) {
-            installSampleState("当前后端还没有项目。界面使用空项目样例，创建项目后会自动切换到真实数据。");
+            installSampleState("当前后端还没有项目。界面使用本地样例，创建项目后会切换到真实数据。");
             return;
         }
         app.sampleMode = false;
         app.activeProject = app.projects[0];
         app.activeProjectId = app.activeProject.id;
+        await loadSessions();
         await Promise.allSettled([
-            loadSessions(),
+            loadActiveSessionMessages(),
             refreshSources(),
             refreshKnowledgeBoard(),
             refreshCandidates()
@@ -205,6 +313,7 @@ async function loadSessions() {
     if (!hasProjectApi()) {
         return;
     }
+    const previousSessionId = app.activeSessionId;
     const sessions = await getJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions`);
     app.sessions = Array.isArray(sessions) ? sessions : [];
     if (app.sessions.length === 0) {
@@ -213,7 +322,75 @@ async function loadSessions() {
         });
         app.sessions = [session];
     }
-    app.activeSessionId = app.sessions[0]?.id || null;
+    app.activeSessionId = app.sessions.some((session) => session.id === previousSessionId)
+            ? previousSessionId
+            : app.sessions[0]?.id || null;
+}
+
+async function switchSession(sessionId) {
+    if (!sessionId || sessionId === app.activeSessionId) {
+        return;
+    }
+    closeStream();
+    Object.assign(app, selectSession(app, sessionId));
+    app.messages = [];
+    app.messageLoadState = "loading";
+    render();
+    await loadActiveSessionMessages();
+    render();
+}
+
+async function submitSessionRename(sessionId) {
+    const input = dom.sessionList.querySelector(`[data-session-rename-input="${cssEscape(sessionId)}"]`);
+    const title = input?.value?.trim() || "";
+    if (!sessionId || !title) {
+        app.statusMessage = "会话名称不能为空。";
+        renderStatus();
+        return;
+    }
+    if (!hasProjectApi()) {
+        Object.assign(app, renameSessionTitle(app, sessionId, title));
+        app.editingSessionId = null;
+        render();
+        return;
+    }
+    try {
+        const session = await patchJson(
+                buildProjectSessionRenameUrl({ projectId: app.activeProjectId, sessionId }),
+                { title }
+        );
+        app.sessions = app.sessions.map((item) => item.id === sessionId ? session : item);
+        app.editingSessionId = null;
+        app.statusMessage = "会话名称已更新。";
+    } catch (error) {
+        app.statusMessage = `重命名会话失败：${error.message}`;
+    }
+    render();
+}
+
+async function loadActiveSessionMessages() {
+    if (!hasProjectApi() || !app.activeSessionId) {
+        app.messageLoadState = "idle";
+        return;
+    }
+    let context;
+    try {
+        context = requireProjectChatContext(app);
+    } catch (error) {
+        app.messageLoadState = "error";
+        app.statusMessage = error.message;
+        return;
+    }
+    app.messageLoadState = "loading";
+    try {
+        const messages = await getJson(buildProjectSessionMessagesUrl(context));
+        app.messages = Array.isArray(messages) ? messages.map(normalizeProjectMessage) : [];
+        app.messageLoadState = "idle";
+    } catch (error) {
+        app.messages = [];
+        app.messageLoadState = "error";
+        app.statusMessage = `载入会话消息失败：${error.message}`;
+    }
 }
 
 async function createResearchSession() {
@@ -221,15 +398,20 @@ async function createResearchSession() {
         const session = createLocalSession("本地研究会话");
         app.sessions = [{ ...session, id: session.sessionKey, status: "drafting", lastMessageAt: session.updatedAt }, ...app.sessions];
         Object.assign(app, selectSession(app, session.sessionKey));
+        app.messages = [];
+        app.messageLoadState = "idle";
+        Object.assign(app, selectWorkspace(app, "session"));
         render();
         return;
     }
-
     try {
         const title = `研究会话 ${app.sessions.length + 1}`;
         const session = await postJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions`, { title });
         app.sessions = [session, ...app.sessions];
         Object.assign(app, selectSession(app, session.id));
+        Object.assign(app, selectWorkspace(app, "session"));
+        app.messages = [];
+        app.messageLoadState = "idle";
         app.statusMessage = "已创建新的项目会话。";
     } catch (error) {
         app.statusMessage = `创建会话失败：${error.message}`;
@@ -249,6 +431,7 @@ async function refreshSources() {
         app.sources = await compatibilityListLegacyDocuments();
         app.statusMessage = `项目资料接口暂不可用，已尝试旧文档接口：${error.message}`;
     }
+    ensureSelectedSource();
     render();
 }
 
@@ -282,22 +465,47 @@ async function uploadSource() {
         renderStatus();
         return;
     }
-
     const file = dom.fileInput.files[0];
     const formData = new FormData();
     formData.append("file", file);
     app.statusMessage = `正在导入 ${file.name}`;
     renderStatus();
-
     try {
         const source = hasProjectApi()
                 ? await postForm(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sources`, formData)
                 : await compatibilityUploadLegacyDocument(formData);
-        app.sources = [normalizeSource(source), ...app.sources.filter((item) => item.id !== (source.sourceId || source.id))];
+        const normalized = normalizeSource(source);
+        app.sources = [normalized, ...app.sources.filter((item) => item.id !== normalized.id)];
+        app.selectedSourceId = normalized.id;
         dom.fileInput.value = "";
+        Object.assign(app, selectWorkspace(app, "sources"));
         app.statusMessage = "资料已进入处理队列。";
     } catch (error) {
         app.statusMessage = `资料导入失败：${error.message}`;
+    }
+    render();
+}
+
+async function retrySource(sourceId) {
+    if (!sourceId) {
+        return;
+    }
+    app.statusMessage = "正在重试失败资料。";
+    renderStatus();
+    if (!hasProjectApi()) {
+        app.sources = app.sources.map((source) => source.id === sourceId ? { ...source, status: "uploaded", failureStage: null } : source);
+        render();
+        return;
+    }
+    try {
+        const source = await postJson(
+                `/api/projects/${encodeURIComponent(app.activeProjectId)}/sources/${encodeURIComponent(sourceId)}/retry`,
+                {}
+        );
+        app.sources = app.sources.map((item) => item.id === sourceId ? normalizeSource(source) : item);
+        app.statusMessage = "资料已重新进入处理队列。";
+    } catch (error) {
+        app.statusMessage = `重试失败：${error.message}`;
     }
     render();
 }
@@ -309,10 +517,10 @@ async function askQuestion() {
         renderStatus();
         return;
     }
-
     closeStream();
     const now = new Date().toISOString();
     const assistantId = nextId("assistant");
+    app.messageLoadState = "idle";
     app.messages = [
         ...app.messages,
         { id: nextId("user"), role: "user", content: question, createdAt: now },
@@ -332,14 +540,23 @@ async function askQuestion() {
     render();
     scrollConversationToBottom();
 
-    if (!hasProjectApi() || !app.activeSessionId) {
-        compatibilitySendLegacyChatStream(question, assistantId);
+    let chatContext;
+    try {
+        chatContext = requireProjectChatContext(app);
+    } catch (error) {
+        updateAssistantMessage(assistantId, {
+            content: "项目会话尚未初始化，无法发送研究消息。请刷新页面或先创建项目会话。",
+            status: "error"
+        });
+        app.currentAnswer.status = "error";
+        app.statusMessage = error.message;
+        render();
         return;
     }
 
     try {
         const response = await postJson(
-                `/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions/${encodeURIComponent(app.activeSessionId)}/messages`,
+                buildProjectMessageUrl(chatContext),
                 {
                     question,
                     sourceFilters: [],
@@ -349,11 +566,14 @@ async function askQuestion() {
                 }
         );
         app.currentAnswer.answerId = response.answerId;
-        app.activeAnswerContext = {
+        app.currentAnswer.runId = response.streamRunId;
+        app.activeAnswerContext = { answerId: response.answerId, citationCount: 0, candidateCount: 0 };
+        updateAssistantMessage(assistantId, {
             answerId: response.answerId,
-            citationCount: 0,
-            candidateCount: 0
-        };
+            runId: response.streamRunId
+        });
+        render();
+        scrollConversationToBottom();
         openProjectEventStream(response.sseUrl, assistantId);
     } catch (error) {
         updateAssistantMessage(assistantId, {
@@ -369,7 +589,6 @@ async function askQuestion() {
 function openProjectEventStream(sseUrl, assistantMessageId) {
     const source = new EventSource(sseUrl);
     app.activeStream = source;
-
     for (const eventType of EVENT_TYPES) {
         source.addEventListener(eventType, async (event) => {
             const workbenchEvent = parseEventData(event.data);
@@ -378,6 +597,9 @@ function openProjectEventStream(sseUrl, assistantMessageId) {
                 await refreshEvidenceSources(workbenchEvent.answerId || app.currentAnswer?.answerId);
             }
             syncAssistantFromCurrentAnswer(assistantMessageId, workbenchEvent);
+            if (eventType === "run.completed") {
+                await loadSessions();
+            }
             if (eventType === "run.completed" || eventType === "run.failed") {
                 closeStream();
             }
@@ -385,7 +607,6 @@ function openProjectEventStream(sseUrl, assistantMessageId) {
             scrollConversationToBottom();
         });
     }
-
     source.onerror = () => {
         if (app.currentAnswer?.status === "completed") {
             closeStream();
@@ -395,10 +616,7 @@ function openProjectEventStream(sseUrl, assistantMessageId) {
             content: app.currentAnswer?.text || "SSE 连接中断，请稍后重试。",
             status: "error"
         });
-        app.currentAnswer = {
-            ...(app.currentAnswer || {}),
-            status: "error"
-        };
+        app.currentAnswer = { ...(app.currentAnswer || {}), status: "error" };
         app.statusMessage = "事件流连接中断。";
         closeStream();
         render();
@@ -415,7 +633,7 @@ async function refreshEvidenceSources(answerId = app.currentAnswer?.answerId || 
         );
         app.evidenceSources = Array.isArray(evidenceSources) ? evidenceSources : [];
     } catch (error) {
-        app.statusMessage = `璇佹嵁鏉ユ簮鏆備笉鍙敤锛?{error.message}`;
+        app.statusMessage = `证据来源暂不可用：${error.message}`;
     }
 }
 
@@ -424,12 +642,10 @@ async function submitCandidateAction(action, candidateId, editPayload = null) {
         return;
     }
     Object.assign(app, applyCandidateAction(app, candidateId, action));
-    renderCandidates();
-
+    render();
     if (!hasProjectApi()) {
         return;
     }
-
     const routeByAction = {
         accept: "accept",
         "edit-and-accept": "edit-and-accept",
@@ -440,7 +656,6 @@ async function submitCandidateAction(action, candidateId, editPayload = null) {
     if (!route) {
         return;
     }
-
     try {
         await postJson(
                 `/api/projects/${encodeURIComponent(app.activeProjectId)}/candidates/${encodeURIComponent(candidateId)}/${route}`,
@@ -485,11 +700,13 @@ function syncAssistantFromCurrentAnswer(messageId, workbenchEvent) {
 
 function render() {
     renderStatus();
+    renderWorkspaceNavigation();
     renderProject();
     renderSessions();
     renderSources();
     renderDialogue();
     renderSidebar();
+    renderKnowledgeWorkspace();
 }
 
 function renderStatus() {
@@ -498,15 +715,68 @@ function renderStatus() {
     dom.statusBanner.textContent = app.statusMessage;
 }
 
+function renderWorkspaceNavigation() {
+    const visibility = getWorkspaceVisibility(app);
+    dom.workspaceButtons.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.workspaceTarget === app.activeWorkspace);
+    });
+    dom.contextPanels.forEach((panel) => {
+        panel.classList.toggle("is-active", panel.dataset.contextPanel === app.activeWorkspace);
+    });
+    dom.workspaces.forEach((workspace) => {
+        const isActive = Boolean(visibility[workspace.dataset.workspace]);
+        workspace.classList.toggle("is-active", isActive);
+        workspace.toggleAttribute("hidden", !isActive);
+    });
+}
+
 function renderProject() {
     const project = app.activeProject;
+    const knowledgeCount = knowledgeEntryCount();
     dom.projectTopic.textContent = project?.topic || "项目空间";
-    dom.projectDescription.textContent = project?.summary || "当前没有真实项目数据，仍可查看三栏工作台结构。";
+    dom.projectDescription.textContent = project?.summary || "选择或创建一个研究项目后，资料、会话和知识会围绕该项目工作。";
     dom.projectSummary.textContent = project?.summary || "项目级资料、会话、证据与知识板";
-    dom.activeProjectChip.textContent = project?.id ? `项目 ${project.id.slice(0, 8)}` : "本地样例";
+    dom.activeProjectChip.textContent = `${app.sessions.length} 会话 · ${app.sources.length} 来源 · ${knowledgeCount} 知识`;
     dom.statSources.textContent = String(app.sources.length);
-    dom.statKnowledge.textContent = String(knowledgeEntryCount());
+    dom.statKnowledge.textContent = String(knowledgeCount);
     dom.statSessions.textContent = String(app.sessions.length);
+    dom.projectOverviewTopic.textContent = project?.topic || "项目空间";
+    dom.projectOverviewSummary.textContent = project?.summary || "当前没有真实项目数据，仍可查看工作区结构。";
+    dom.overviewStatSources.textContent = String(app.sources.length);
+    dom.overviewStatKnowledge.textContent = String(knowledgeCount);
+    dom.overviewStatSessions.textContent = String(app.sessions.length);
+    renderSourceNav();
+    renderKnowledgeNav();
+}
+
+function renderSourceNav() {
+    const counts = countSourcesByStatus();
+    const items = [
+        ["全部资料", app.sources.length],
+        ["待处理", counts.uploaded + counts.submitted],
+        ["索引中", counts.parsing + counts.fetching + counts.indexing + counts.extracting + counts.depositing],
+        ["已入库", counts.deposited + counts.indexed],
+        ["失败", counts.failed],
+        ["网页来源", app.sources.filter((source) => source.type === "web" || source.type === "web_page").length],
+        ["个人笔记", app.sources.filter((source) => source.type === "note").length]
+    ];
+    dom.sourceNav.replaceChildren(...items.map(([label, count], index) => contextNavItem(label, count, index === 0)));
+}
+
+function renderKnowledgeNav() {
+    const board = normalizedBoard();
+    const sectionCount = (sectionName) => board.sections.find((section) => section.section === sectionName)?.entries.length || 0;
+    const pendingCandidates = app.candidates.filter((candidate) => candidate.status === "pending").length;
+    const items = [
+        ["全部知识", knowledgeEntryCount()],
+        ["本轮候选", pendingCandidates],
+        ["核心概念", sectionCount("core_concept")],
+        ["方法路线", sectionCount("method_route")],
+        ["已确认结论", sectionCount("confirmed_finding")],
+        ["待验证问题", sectionCount("open_question")],
+        ["已归档", 0]
+    ];
+    dom.knowledgeNav.replaceChildren(...items.map(([label, count], index) => contextNavItem(label, count, index === 0)));
 }
 
 function renderSessions() {
@@ -516,37 +786,113 @@ function renderSessions() {
         return;
     }
     for (const session of app.sessions) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `row-item${session.id === app.activeSessionId ? " is-active" : ""}`;
-        button.dataset.sessionId = session.id;
-        button.append(
+        const item = document.createElement("article");
+        item.className = `row-item session-row${session.id === app.activeSessionId ? " is-active" : ""}`;
+        if (app.editingSessionId === session.id) {
+            item.appendChild(sessionRenameForm(session));
+            dom.sessionList.appendChild(item);
+            continue;
+        }
+        const selectButton = document.createElement("button");
+        selectButton.type = "button";
+        selectButton.className = "session-select";
+        selectButton.dataset.sessionId = session.id;
+        selectButton.append(
                 textElement("strong", session.title || "未命名会话"),
                 textElement("span", `${session.status || "drafting"} · ${formatRelativeTime(session.lastMessageAt || session.updatedAt)}`)
         );
-        dom.sessionList.appendChild(button);
+        const renameButton = document.createElement("button");
+        renameButton.type = "button";
+        renameButton.className = "icon-button";
+        renameButton.dataset.sessionRename = session.id;
+        renameButton.title = "重命名会话";
+        renameButton.setAttribute("aria-label", "重命名会话");
+        renameButton.textContent = "✎";
+        item.append(selectButton, renameButton);
+        dom.sessionList.appendChild(item);
     }
 }
 
 function renderSources() {
+    ensureSelectedSource();
     dom.sourceCount.textContent = `当前 ${app.sources.length} 份资料`;
     dom.sourceList.replaceChildren();
+    renderSourcePipeline();
     if (!app.sources.length) {
         dom.sourceList.appendChild(emptyBlock("资料库为空。导入论文、网页或个人笔记后，状态会显示在这里。"));
+        renderSourceDetail(null);
         return;
     }
     for (const source of app.sources) {
         const item = document.createElement("article");
-        item.className = "source-row";
-        item.innerHTML = `
-            <div>
-                <strong>${escapeHtml(source.title || "未命名资料")}</strong>
-                <span>${escapeHtml(sourceTypeLabel(source.type))} · ${escapeHtml(source.depositedKnowledgeCount ?? 0)} 条知识</span>
-            </div>
-            <mark data-status="${escapeHtml(source.status || "unknown")}">${escapeHtml(source.status || "unknown")}</mark>
-        `;
+        item.className = `source-table-row${source.id === app.selectedSourceId ? " is-selected" : ""}`;
+        item.dataset.sourceId = source.id;
+        item.append(
+                textElement("strong", source.title || "未命名资料"),
+                textElement("span", sourceTypeLabel(source.type)),
+                statusChip(source.status || "unknown"),
+                textElement("span", String(source.totalChunks ?? source.chunkCount ?? "—")),
+                textElement("span", `${source.depositedKnowledgeCount ?? 0} 条`),
+                textElement("span", formatRelativeTime(source.updatedAt || source.createdAt))
+        );
+        const actions = document.createElement("div");
+        actions.className = "table-row-actions";
+        if (isFailedSource(source)) {
+            const retry = document.createElement("button");
+            retry.type = "button";
+            retry.className = "quiet-button";
+            retry.dataset.sourceRetry = source.id;
+            retry.textContent = "重试";
+            actions.appendChild(retry);
+        } else {
+            actions.appendChild(textElement("span", "查看"));
+        }
+        item.appendChild(actions);
         dom.sourceList.appendChild(item);
     }
+    renderSourceDetail(selectedSource());
+}
+
+function renderSourcePipeline() {
+    const counts = countSourcesByStatus();
+    const steps = [
+        ["已上传", counts.uploaded + counts.submitted],
+        ["解析中", counts.parsing + counts.fetching],
+        ["索引中", counts.indexing],
+        ["提取中", counts.extracting],
+        ["已入库", counts.deposited + counts.indexed],
+        ["失败", counts.failed]
+    ];
+    dom.sourcePipeline.replaceChildren(...steps.map(([label, count]) => {
+        const step = document.createElement("div");
+        step.className = "pipeline-step";
+        step.append(textElement("strong", String(count)), textElement("span", label));
+        return step;
+    }));
+}
+
+function renderSourceDetail(source) {
+    dom.sourceDetail.replaceChildren();
+    if (!source) {
+        dom.sourceDetail.appendChild(emptyBlock("选择一份资料后查看处理阶段、失败原因和来源摘要。"));
+        return;
+    }
+    const meta = document.createElement("div");
+    meta.className = "detail-stack";
+    meta.append(
+            textElement("h3", source.title || "未命名资料"),
+            detailRow("类型", sourceTypeLabel(source.type)),
+            detailRow("状态", source.status || "unknown"),
+            detailRow("失败阶段", source.failureStage || "无"),
+            detailRow("沉淀知识", `${source.depositedKnowledgeCount ?? 0} 条`)
+    );
+    if (source.errorMessage) {
+        const error = document.createElement("div");
+        error.className = "detail-alert";
+        error.textContent = source.errorMessage;
+        meta.appendChild(error);
+    }
+    dom.sourceDetail.appendChild(meta);
 }
 
 function renderDialogue() {
@@ -557,8 +903,16 @@ function renderDialogue() {
             : "选择会话后开始提问。";
     dom.answerState.textContent = answerStateText();
     dom.conversation.replaceChildren();
+    if (app.messageLoadState === "loading") {
+        dom.conversation.appendChild(emptyBlock("正在载入会话消息。"));
+        return;
+    }
+    if (app.messageLoadState === "error") {
+        dom.conversation.appendChild(emptyBlock("会话消息暂时不可用。"));
+        return;
+    }
     if (!app.messages.length) {
-        dom.conversation.appendChild(emptyBlock("在下方输入研究问题。回答是研究过程，确认后的知识才会写入右侧知识板。"));
+        dom.conversation.appendChild(emptyBlock("输入研究问题后，这里会显示回答过程。确认后的结论才会写入知识板。"));
         return;
     }
     for (const message of app.messages) {
@@ -582,17 +936,44 @@ function renderSidebar() {
     const citationCount = app.currentAnswer?.citationCount || app.activeAnswerContext?.citationCount || 0;
     const candidateCount = app.candidates.filter((candidate) => candidate.status === "pending").length;
     dom.answerContextLine.textContent = `当前回答关联 ${citationCount} 条引用，${candidateCount} 条待确认候选。`;
-    renderKnowledgeBoard();
+    renderKnowledgeBoard(dom.knowledgeBoard, { compact: true });
     renderEvidenceSources();
-    renderCandidates();
+    renderCandidates(dom.candidateList);
 }
 
-function renderKnowledgeBoard() {
-    dom.knowledgeBoard.replaceChildren();
-    const board = createWorkbenchState({ knowledgeBoard: app.knowledgeBoard }).knowledgeBoard;
+function renderKnowledgeWorkspace() {
+    renderKnowledgeMetrics();
+    renderKnowledgeBoard(dom.knowledgeWorkspaceBoard, { compact: false });
+    renderCandidates(dom.knowledgeCandidateList);
+    renderKnowledgeDetail(selectedKnowledgeEntry());
+}
+
+function renderKnowledgeMetrics() {
+    const board = normalizedBoard();
+    const entries = board.sections.flatMap((section) => section.entries);
+    const pendingCandidates = app.candidates.filter((candidate) => candidate.status === "pending").length;
+    const unverified = entries.filter((entry) => entry.evidenceStatus === "unverified").length;
+    const metrics = [
+        ["已确认", entries.length],
+        ["待验证", unverified],
+        ["候选", pendingCandidates],
+        ["引用覆盖", entries.filter((entry) => entry.evidenceSourceIds?.length).length]
+    ];
+    const review = document.createElement("div");
+    review.className = "review-strip";
+    review.append(
+            textElement("strong", `本轮候选 ${pendingCandidates} 条`),
+            textElement("span", pendingCandidates ? "待确认候选不会自动写入知识库" : "暂无待审阅候选")
+    );
+    dom.knowledgeMetrics.replaceChildren(...metrics.map(([label, count]) => metricItem(label, count)), review);
+}
+
+function renderKnowledgeBoard(target, { compact }) {
+    target.replaceChildren();
+    const board = normalizedBoard();
     for (const section of board.sections) {
         const details = document.createElement("details");
-        details.className = "knowledge-section";
+        details.className = compact ? "knowledge-section" : "knowledge-section knowledge-section--workspace";
         details.open = section.entries.length > 0 || section.section === "core_concept";
         const summary = document.createElement("summary");
         summary.append(
@@ -605,23 +986,46 @@ function renderKnowledgeBoard() {
         } else {
             for (const entry of section.entries) {
                 const row = document.createElement("article");
-                row.className = "knowledge-entry";
+                row.className = `knowledge-entry${entry.id === app.selectedKnowledgeEntryId ? " is-selected" : ""}`;
+                row.addEventListener("click", () => {
+                    app.selectedKnowledgeEntryId = entry.id;
+                    renderKnowledgeWorkspace();
+                });
                 row.append(
                         textElement("strong", entry.title || "未命名知识"),
                         textElement("p", entry.content || entry.statement || ""),
-                        textElement("span", entry.evidenceStatus || "unverified")
+                        textElement("span", `${entry.evidenceStatus || "unverified"} · ${formatRelativeTime(entry.updatedAt || entry.createdAt)}`)
                 );
                 details.appendChild(row);
             }
         }
-        dom.knowledgeBoard.appendChild(details);
+        target.appendChild(details);
     }
+}
+
+function renderKnowledgeDetail(entry) {
+    dom.knowledgeDetail.replaceChildren();
+    if (!entry) {
+        dom.knowledgeDetail.appendChild(emptyBlock("选择知识条目后查看证据覆盖、来源和维护动作。"));
+        return;
+    }
+    const detail = document.createElement("div");
+    detail.className = "detail-stack";
+    detail.append(
+            textElement("h3", entry.title || "未命名知识"),
+            detailRow("分区", SECTION_LABELS[entry.section] || entry.section || "待分类"),
+            detailRow("证据状态", entry.evidenceStatus || "unverified"),
+            textElement("p", entry.content || entry.statement || ""),
+            detailRow("关联证据", `${entry.evidenceSourceIds?.length || 0} 条`),
+            detailActions(["保存修改", "移动分区", "标为待验证", "归档"])
+    );
+    dom.knowledgeDetail.appendChild(detail);
 }
 
 function renderEvidenceSources() {
     dom.evidenceList.replaceChildren();
     if (!app.evidenceSources.length) {
-        dom.evidenceList.appendChild(emptyBlock("当前回答尚未返回可审计证据。"));
+        dom.evidenceList.appendChild(emptyBlock("暂无证据。提问后会显示引用来源。"));
         return;
     }
     for (const evidence of app.evidenceSources) {
@@ -636,10 +1040,10 @@ function renderEvidenceSources() {
     }
 }
 
-function renderCandidates() {
-    dom.candidateList.replaceChildren();
+function renderCandidates(target) {
+    target.replaceChildren();
     if (!app.candidates.length) {
-        dom.candidateList.appendChild(emptyBlock("回答产生的知识候选会出现在这里，确认前不会进入知识板。"));
+        target.appendChild(emptyBlock("暂无候选。候选需确认后写入知识板。"));
         return;
     }
     for (const candidate of app.candidates) {
@@ -652,19 +1056,19 @@ function renderCandidates() {
         );
         if (app.editingCandidateId === candidate.id) {
             item.appendChild(candidateEditForm(candidate));
-            dom.candidateList.appendChild(item);
+            target.appendChild(item);
             continue;
         }
         const actions = document.createElement("div");
         actions.className = "candidate-actions";
         actions.append(
-                candidateButton(candidate.id, "accept", "写入"),
-                candidateButton(candidate.id, "mark-unverified", "待验证"),
+                candidateButton(candidate.id, "accept", "写入知识库"),
+                candidateButton(candidate.id, "mark-unverified", "标为待验证"),
                 candidateButton(candidate.id, "ignore", "忽略"),
                 candidateEditButton(candidate.id)
         );
         item.appendChild(actions);
-        dom.candidateList.appendChild(item);
+        target.appendChild(item);
     }
 }
 
@@ -672,11 +1076,277 @@ function messageBody(message) {
     const body = document.createElement("div");
     body.className = "message-body";
     body.append(
-            textElement("strong", message.role === "assistant" ? "证据约束回答" : "研究问题"),
-            textElement("p", message.content || (message.status === "streaming" ? "正在接收回答..." : "")),
+            textElement("strong", message.role === "assistant" ? "研究回答" : "研究问题"),
+            textElement("p", message.content || (message.status === "streaming" ? "正在接收回答..." : ""), "message-content"),
             textElement("span", `${message.status || "sent"} · ${formatRelativeTime(message.createdAt)}`)
     );
+    if (message.role === "assistant") {
+        const process = researchProcessPanel(message);
+        if (process) {
+            body.appendChild(process);
+        }
+    }
     return body;
+}
+
+function researchProcessPanel(message) {
+    const runId = message.runId || (app.currentAnswer?.messageId === message.id ? app.currentAnswer.runId : null);
+    const trace = runId ? app.agentTraces?.[runId] : null;
+    const shouldShow = Boolean(trace) || message.status === "streaming" || Boolean(runId);
+    if (!shouldShow) {
+        return null;
+    }
+
+    const processId = runId || message.id;
+    const isCollapsed = app.collapsedResearchProcesses.has(processId);
+
+    const summary = trace?.summary || {};
+    const tools = trace?.tools || [];
+    const retrievalHits = trace?.retrievalHits || [];
+    const memoryHits = trace?.memoryHits || [];
+    const evidenceEvents = trace?.evidenceEvents || [];
+    const answerDeltas = trace?.answerDeltas || [];
+    const gaps = evidenceEvents.filter((event) => event.eventType === "evidence.gap.detected");
+
+    const section = document.createElement("section");
+    section.className = `research-process${isCollapsed ? " is-collapsed" : ""}`;
+    section.setAttribute("aria-label", "研究过程");
+
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "research-process__header";
+    header.dataset.processToggle = processId;
+    header.setAttribute("aria-expanded", String(!isCollapsed));
+    header.append(
+            textElement("span", processStatusLabel(message, trace), "process-status"),
+            textElement("strong", "研究过程"),
+            textElement("small", processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas)),
+            textElement("span", isCollapsed ? "灞曞紑" : "鏀惰捣", "process-toggle-label")
+    );
+    section.appendChild(header);
+    if (isCollapsed) {
+        return section;
+    }
+
+    const metrics = document.createElement("div");
+    metrics.className = "process-metrics";
+    metrics.append(
+            processMetric("工具", processToolCount(tools)),
+            processMetric("证据", Number(summary.evidenceCount ?? retrievalHits.length)),
+            processMetric("记忆", memoryHits.length),
+            processMetric("边界", gaps.length)
+    );
+
+    const timeline = document.createElement("ol");
+    timeline.className = "process-timeline";
+    const timelineItems = processTimelineItems(trace, message);
+    timeline.replaceChildren(...timelineItems.map(processTimelineItem));
+
+    const evidenceMatrix = document.createElement("div");
+    evidenceMatrix.className = "process-evidence";
+    evidenceMatrix.appendChild(textElement("strong", "证据与记忆"));
+    const evidenceItems = [...retrievalHits, ...memoryHits].slice(0, 5);
+    if (evidenceItems.length) {
+        evidenceMatrix.append(...evidenceItems.map(processEvidenceItem));
+    } else {
+        evidenceMatrix.appendChild(textElement("p", "等待资料命中、联网补充或记忆召回事件。"));
+    }
+
+    if (gaps.length) {
+        const gapList = document.createElement("div");
+        gapList.className = "process-gaps";
+        gapList.appendChild(textElement("strong", "证据边界"));
+        gapList.append(...gaps.slice(0, 3).map((gap) => textElement("p", gap.reason || gap.claim || "当前回答存在证据边界。")));
+        evidenceMatrix.appendChild(gapList);
+    }
+
+    section.append(metrics, timeline, evidenceMatrix);
+    return section;
+}
+
+function processStatusLabel(message, trace) {
+    if (message.status === "error") {
+        return "失败";
+    }
+    if (message.status === "completed") {
+        return "完成";
+    }
+    if (trace?.answerDeltas?.length) {
+        return "生成中";
+    }
+    return "运行中";
+}
+
+function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas) {
+    if (!tools.length && !retrievalHits.length && !memoryHits.length && !answerDeltas.length) {
+        return "等待后端步骤事件";
+    }
+    const parts = [];
+    if (tools.length) {
+        parts.push(`${tools.length} 个工具事件`);
+    }
+    if (retrievalHits.length) {
+        parts.push(`${retrievalHits.length} 条证据命中`);
+    }
+    if (memoryHits.length) {
+        parts.push(`${memoryHits.length} 条记忆`);
+    }
+    if (gaps.length) {
+        parts.push(`${gaps.length} 个边界提示`);
+    }
+    return parts.join(" · ");
+}
+
+function processMetric(label, value) {
+    const item = document.createElement("div");
+    item.className = "process-metric";
+    item.append(textElement("span", label), textElement("strong", String(value)));
+    return item;
+}
+
+function processToolCount(tools) {
+    const keys = new Set();
+    for (const tool of tools || []) {
+        keys.add(tool.stepId || tool.toolName || tool.eventId);
+    }
+    return keys.size;
+}
+
+function processTimelineItems(trace, message) {
+    const tools = trace?.tools || [];
+    const retrievalHits = trace?.retrievalHits || [];
+    const memoryHits = trace?.memoryHits || [];
+    const evidenceEvents = trace?.evidenceEvents || [];
+    const answerDeltas = trace?.answerDeltas || [];
+    const orderedEvents = [
+        ...tools.map((event, index) => processToolTimelineEvent(event, index)),
+        ...retrievalHits.map((event, index) => processHitTimelineEvent(event, index, "retrieval")),
+        ...memoryHits.map((event, index) => processHitTimelineEvent(event, index, "memory")),
+        ...evidenceEvents.map((event, index) => processEvidenceTimelineEvent(event, index)),
+        ...answerDeltas.slice(0, 1).map((event, index) => processAnswerTimelineEvent(event, index))
+    ].filter(Boolean);
+    if (!orderedEvents.length) {
+        return [{
+            eventType: message.status === "completed" ? "run.completed" : "run.started",
+            status: message.status === "completed" ? "completed" : "running",
+            label: message.status === "completed" ? "回答已完成" : "等待研究步骤",
+            detail: message.status === "completed" ? "本轮没有额外工具事件。" : "后端事件到达后会更新这里。"
+        }];
+    }
+    return orderedEvents.sort((left, right) => processEventOrder(left) - processEventOrder(right));
+}
+
+function processToolTimelineEvent(event, index) {
+    return {
+        eventType: event.eventType,
+        status: toolEventStatus(event),
+        label: toolDisplayName(event),
+        detail: toolDetail(event),
+        order: processEventOrderValue(event, index)
+    };
+}
+
+function processHitTimelineEvent(event, index, kind) {
+    return {
+        eventType: event.eventType,
+        status: "completed",
+        label: kind === "memory" ? "记忆命中" : "证据命中",
+        detail: event.title || event.label || event.sourceId || event.snippet || "过程命中事件",
+        order: processEventOrderValue(event, 100 + index)
+    };
+}
+
+function processEvidenceTimelineEvent(event, index) {
+    return {
+        eventType: event.eventType,
+        status: event.eventType === "evidence.gap.detected" ? "failed" : "completed",
+        label: event.eventType === "evidence.gap.detected" ? "证据边界" : "证据评估",
+        detail: event.reason || event.claim || event.resultSummary || "证据状态已更新",
+        order: processEventOrderValue(event, 200 + index)
+    };
+}
+
+function processAnswerTimelineEvent(event, index) {
+    return {
+        eventType: event.eventType,
+        status: "running",
+        label: "回答生成",
+        detail: event.delta ? "正在组织最终回答。" : "开始生成回答。",
+        order: processEventOrderValue(event, 300 + index)
+    };
+}
+
+function processEventOrder(item) {
+    return Number.isFinite(item.order) ? item.order : Number.MAX_SAFE_INTEGER;
+}
+
+function processEventOrderValue(event, fallback) {
+    const numericValue = Number(event.sequence ?? event.offset);
+    if (Number.isFinite(numericValue)) {
+        return numericValue;
+    }
+    const timeValue = Date.parse(event.createdAt || event.timestamp || "");
+    return Number.isFinite(timeValue) ? timeValue : fallback;
+}
+
+function processTimelineItem(item) {
+    const li = document.createElement("li");
+    li.className = `process-step process-step--${item.status}`;
+    li.append(
+            textElement("span", "", "process-step__dot"),
+            textElement("strong", item.label || "研究步骤"),
+            textElement("p", item.detail || "")
+    );
+    return li;
+}
+
+function toolEventStatus(event) {
+    if (event.eventType === "tool.failed") {
+        return "failed";
+    }
+    if (event.eventType === "tool.completed") {
+        return "completed";
+    }
+    return "running";
+}
+
+function toolDisplayName(event) {
+    const names = {
+        paper_rag: "资料检索步骤",
+        web_search: "联网检索步骤",
+        tavily_web_search: "联网检索步骤",
+        memory_recall: "记忆召回步骤"
+    };
+    return event.toolDisplayName || names[event.toolName] || event.toolName || "工具调用";
+}
+
+function toolDetail(event) {
+    if (event.eventType === "tool.failed") {
+        return `${event.errorType || "工具失败"} · ${event.message || "未返回错误详情"}`;
+    }
+    if (event.resultSummary) {
+        return event.resultSummary;
+    }
+    if (event.query) {
+        return `查询：${event.query}`;
+    }
+    return event.eventType === "tool.completed" ? "步骤已完成。" : "步骤运行中。";
+}
+
+function processEvidenceItem(event) {
+    const item = document.createElement("article");
+    item.className = "process-evidence__item";
+    const type = event.sourceType === "web"
+            ? "联网"
+            : event.memoryLayer
+                    ? "记忆"
+                    : "资料";
+    item.append(
+            textElement("span", type, "process-source-type"),
+            textElement("strong", event.title || event.label || event.sourceId || "研究来源"),
+            textElement("p", event.snippet || event.reason || "暂无摘录。")
+    );
+    return item;
 }
 
 function updateAssistantMessage(messageId, patch) {
@@ -688,7 +1358,7 @@ function installSampleState(message) {
     app.activeProject = {
         id: null,
         topic: "样例研究项目",
-        summary: "用于展示 F010 三栏工作台的空状态。"
+        summary: "用于展示一级工作区导航的本地样例。"
     };
     app.activeProjectId = null;
     app.sessions = [{
@@ -698,6 +1368,10 @@ function installSampleState(message) {
         updatedAt: new Date().toISOString()
     }];
     app.activeSessionId = "sample-session";
+    app.sources = sampleSources();
+    app.knowledgeBoard = sampleKnowledgeBoard();
+    app.candidates = sampleCandidates();
+    app.selectedSourceId = app.sources[0]?.id || null;
     app.statusMessage = message;
 }
 
@@ -712,6 +1386,8 @@ function normalizeSource(raw) {
         failureStage: raw.failureStage || null,
         errorMessage: raw.errorMessage || "",
         depositedKnowledgeCount: Number(raw.depositedKnowledgeCount ?? 0),
+        totalChunks: Number(raw.totalChunks ?? raw.chunkCount ?? 0),
+        createdAt: raw.createdAt || "",
         updatedAt: raw.updatedAt || raw.createdAt || ""
     };
 }
@@ -727,12 +1403,13 @@ async function compatibilityListLegacyDocuments() {
                 type: "document",
                 title: normalized.title,
                 status: normalized.status,
+                totalChunks: normalized.totalChunks,
                 depositedKnowledgeCount: 0,
                 updatedAt: normalized.updatedAt
             });
         });
     } catch (error) {
-        return [];
+        return app.sources?.length ? app.sources : sampleSources();
     }
 }
 
@@ -744,58 +1421,6 @@ async function compatibilityUploadLegacyDocument(formData) {
         type: "document",
         title: payload.originalFileName || `文档 ${payload.documentId}`,
         status: payload.status || "uploaded"
-    };
-}
-
-function compatibilitySendLegacyChatStream(question, assistantMessageId) {
-    const streamState = {
-        answerParts: [],
-        citations: [],
-        trace: [],
-        telemetry: {}
-    };
-    const params = new URLSearchParams({
-        sessionKey: app.activeSessionId || "sample-session",
-        question
-    });
-    const source = new EventSource(`/api/chat/stream?${params.toString()}`);
-    app.activeStream = source;
-
-    source.addEventListener("message", (event) => {
-        Object.assign(streamState, applyStreamEvent(streamState, "message", event.data));
-        updateAssistantMessage(assistantMessageId, {
-            content: streamState.answerParts.join(" "),
-            status: "streaming"
-        });
-        renderDialogue();
-    });
-
-    source.addEventListener("done", (event) => {
-        const payload = parseEventData(event.data);
-        Object.assign(streamState, applyStreamEvent(streamState, "done", payload));
-        updateAssistantMessage(assistantMessageId, {
-            content: payload.answer || streamState.answerParts.join(" "),
-            status: "completed"
-        });
-        app.currentAnswer = {
-            ...(app.currentAnswer || {}),
-            status: "completed",
-            outputMode: payload.answerMode,
-            citationCount: Array.isArray(payload.citations) ? payload.citations.length : 0
-        };
-        app.statusMessage = "兼容回答已完成。";
-        closeStream();
-        render();
-    });
-
-    source.onerror = () => {
-        updateAssistantMessage(assistantMessageId, {
-            content: "兼容聊天接口暂不可用。请先创建 F002 项目后再提问。",
-            status: "error"
-        });
-        app.statusMessage = "兼容聊天接口连接失败。";
-        closeStream();
-        render();
     };
 }
 
@@ -817,11 +1442,17 @@ async function postJson(url, body) {
     return readResponse(response);
 }
 
-async function postForm(url, formData) {
+async function patchJson(url, body) {
     const response = await fetch(url, {
-        method: "POST",
-        body: formData
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
     });
+    return readResponse(response);
+}
+
+async function postForm(url, formData) {
+    const response = await fetch(url, { method: "POST", body: formData });
     return readResponse(response);
 }
 
@@ -871,11 +1502,102 @@ function answerStateText() {
 }
 
 function knowledgeEntryCount() {
-    return (app.knowledgeBoard?.sections || []).reduce((sum, section) => sum + (section.entries?.length || 0), 0);
+    return normalizedBoard().sections.reduce((sum, section) => sum + (section.entries?.length || 0), 0);
+}
+
+function normalizedBoard() {
+    return createWorkbenchState({ knowledgeBoard: app.knowledgeBoard }).knowledgeBoard;
+}
+
+function selectedSource() {
+    return app.sources.find((source) => source.id === app.selectedSourceId) || app.sources[0] || null;
+}
+
+function ensureSelectedSource() {
+    if (!app.sources.length) {
+        app.selectedSourceId = null;
+        return;
+    }
+    if (!app.sources.some((source) => source.id === app.selectedSourceId)) {
+        app.selectedSourceId = app.sources[0].id;
+    }
+}
+
+function selectedKnowledgeEntry() {
+    const entries = normalizedBoard().sections.flatMap((section) => section.entries.map((entry) => ({ ...entry, section: entry.section || section.section })));
+    if (!entries.length) {
+        return null;
+    }
+    return entries.find((entry) => entry.id === app.selectedKnowledgeEntryId) || entries[0];
+}
+
+function countSourcesByStatus() {
+    return app.sources.reduce((counts, source) => {
+        const status = String(source.status || "unknown").toLowerCase();
+        counts[status] = (counts[status] || 0) + 1;
+        return counts;
+    }, {
+        uploaded: 0,
+        submitted: 0,
+        parsing: 0,
+        fetching: 0,
+        indexing: 0,
+        extracting: 0,
+        depositing: 0,
+        deposited: 0,
+        indexed: 0,
+        failed: 0
+    });
+}
+
+function isFailedSource(source) {
+    return String(source.status || "").toLowerCase() === "failed" || Boolean(source.failureStage);
 }
 
 function sourceTypeLabel(type) {
     return SOURCE_LABELS[String(type || "").toLowerCase()] || type || "资料";
+}
+
+function statusChip(status) {
+    const chip = document.createElement("mark");
+    chip.dataset.status = String(status || "unknown").toLowerCase();
+    chip.textContent = status || "unknown";
+    return chip;
+}
+
+function contextNavItem(label, count, active = false) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `context-nav-item${active ? " is-active" : ""}`;
+    item.append(textElement("span", label), textElement("strong", String(count)));
+    return item;
+}
+
+function metricItem(label, count) {
+    const item = document.createElement("div");
+    item.className = "metric-item";
+    item.append(textElement("strong", String(count)), textElement("span", label));
+    return item;
+}
+
+function detailRow(label, value) {
+    const row = document.createElement("div");
+    row.className = "detail-row";
+    row.append(textElement("span", label), textElement("strong", value || "—"));
+    return row;
+}
+
+function detailActions(labels) {
+    const actions = document.createElement("div");
+    actions.className = "detail-actions";
+    actions.append(...labels.map((label, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = index === 0 ? "primary-button" : "quiet-button";
+        button.textContent = label;
+        return button;
+    }));
+    return actions;
 }
 
 function candidateButton(candidateId, action, label) {
@@ -901,18 +1623,15 @@ function candidateEditForm(candidate) {
     const form = document.createElement("div");
     form.className = "candidate-edit-form";
     form.dataset.candidateEditForm = candidate.id;
-
     const titleInput = document.createElement("input");
     titleInput.name = "title";
     titleInput.value = candidate.title || "";
     titleInput.placeholder = "知识标题";
-
     const contentInput = document.createElement("textarea");
     contentInput.name = "content";
     contentInput.rows = 4;
     contentInput.value = candidate.statement || candidate.content || "";
     contentInput.placeholder = "确认后的知识内容";
-
     const sectionSelect = document.createElement("select");
     sectionSelect.name = "section";
     for (const section of ["core_concept", "method_route", "confirmed_finding", "open_question"]) {
@@ -922,20 +1641,14 @@ function candidateEditForm(candidate) {
         option.selected = section === candidate.suggestedSection;
         sectionSelect.appendChild(option);
     }
-
     const evidenceSelect = document.createElement("select");
     evidenceSelect.name = "evidenceStatus";
-    const evidenceStatusOptions = [
-        { value: "confirmed", label: "已确认" },
-        { value: "unverified", label: "待验证" }
-    ];
-    for (const status of evidenceStatusOptions) {
+    for (const status of [{ value: "confirmed", label: "已确认" }, { value: "unverified", label: "待验证" }]) {
         const option = document.createElement("option");
         option.value = status.value;
         option.textContent = status.label;
         evidenceSelect.appendChild(option);
     }
-
     const actions = document.createElement("div");
     actions.className = "candidate-actions";
     const submit = document.createElement("button");
@@ -949,9 +1662,44 @@ function candidateEditForm(candidate) {
     cancel.dataset.candidateEditCancel = candidate.id;
     cancel.textContent = "取消";
     actions.append(submit, cancel);
-
     form.append(titleInput, contentInput, sectionSelect, evidenceSelect, actions);
     return form;
+}
+
+function sessionRenameForm(session) {
+    const form = document.createElement("div");
+    form.className = "session-rename-form";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = session.title || "";
+    input.maxLength = 120;
+    input.dataset.sessionRenameInput = session.id;
+    input.setAttribute("aria-label", "会话名称");
+    const actions = document.createElement("div");
+    actions.className = "session-row-actions";
+    const submit = document.createElement("button");
+    submit.type = "button";
+    submit.className = "primary-button";
+    submit.dataset.sessionRenameSubmit = session.id;
+    submit.textContent = "保存";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "quiet-button";
+    cancel.dataset.sessionRenameCancel = session.id;
+    cancel.textContent = "取消";
+    actions.append(submit, cancel);
+    form.append(input, actions);
+    return form;
+}
+
+function focusSessionRenameInput() {
+    requestAnimationFrame(() => {
+        const input = dom.sessionList.querySelector("[data-session-rename-input]");
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    });
 }
 
 function readCandidateEditForm(form) {
@@ -978,18 +1726,72 @@ function textElement(tagName, text, className = "") {
     return element;
 }
 
-function escapeHtml(value) {
-    return String(value ?? "")
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll('"', "&quot;")
-            .replaceAll("'", "&#39;");
-}
-
 function nextId(prefix) {
     if (window.crypto?.randomUUID) {
         return `${prefix}-${window.crypto.randomUUID()}`;
     }
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function cssEscape(value) {
+    if (window.CSS?.escape) {
+        return window.CSS.escape(value);
+    }
+    return String(value).replaceAll('"', '\\"');
+}
+
+function sampleSources() {
+    const now = new Date().toISOString();
+    return [
+        normalizeSource({ id: "source-1", type: "pdf", title: "Topological Insulators and Berry Phase", status: "deposited", depositedKnowledgeCount: 8, totalChunks: 24, updatedAt: now }),
+        normalizeSource({ id: "source-2", type: "pdf", title: "Spin-Momentum Locking in Bi2Se3", status: "indexing", depositedKnowledgeCount: 0, totalChunks: 0, updatedAt: now }),
+        normalizeSource({ id: "source-3", type: "note", title: "Quantum Hall Effect Notes", status: "deposited", depositedKnowledgeCount: 3, totalChunks: 12, updatedAt: now }),
+        normalizeSource({ id: "source-4", type: "web_page", title: "Nature: Topological Physics Review", status: "failed", failureStage: "fetching", errorMessage: "网页抓取超时，可重试。", updatedAt: now })
+    ];
+}
+
+function sampleKnowledgeBoard() {
+    return createWorkbenchState({
+        knowledgeBoard: [
+            {
+                section: "core_concept",
+                entries: [
+                    { id: "k-1", section: "core_concept", title: "拓扑绝缘体中的贝里相位", content: "贝里相位可作为能带拓扑性质的可观测线索。", evidenceStatus: "confirmed", evidenceSourceIds: ["e-1"], updatedAt: new Date().toISOString() }
+                ]
+            },
+            {
+                section: "method_route",
+                entries: [
+                    { id: "k-2", section: "method_route", title: "从边缘态验证体拓扑", content: "先定位边缘导电态，再回到体能带结构解释。", evidenceStatus: "confirmed", evidenceSourceIds: ["e-2"], updatedAt: new Date().toISOString() }
+                ]
+            },
+            {
+                section: "open_question",
+                entries: [
+                    { id: "k-3", section: "open_question", title: "马约拉纳零模证据强度", content: "当前证据仍需排除非拓扑平庸态解释。", evidenceStatus: "unverified", evidenceSourceIds: [], updatedAt: new Date().toISOString() }
+                ]
+            }
+        ]
+    }).knowledgeBoard;
+}
+
+function sampleCandidates() {
+    return [
+        {
+            id: "c-1",
+            status: "pending",
+            title: "马约拉纳费米子观测证据",
+            statement: "零偏压峰不能单独作为马约拉纳零模的充分证据。",
+            suggestedSection: "open_question",
+            evidenceSourceIds: ["e-3"]
+        },
+        {
+            id: "c-2",
+            status: "pending",
+            title: "自旋动量锁定实验路径",
+            statement: "ARPES 与输运测量可互补验证自旋动量锁定。",
+            suggestedSection: "method_route",
+            evidenceSourceIds: ["e-4"]
+        }
+    ];
 }

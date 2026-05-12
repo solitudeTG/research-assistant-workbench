@@ -8,6 +8,7 @@ const STATUS_TONE = {
 };
 
 const SIDEBAR_VIEWS = new Set(["knowledge-board", "evidence-sources", "candidate-confirmation"]);
+const WORKSPACES = new Set(["session", "sources", "knowledge", "project"]);
 const KNOWLEDGE_SECTIONS = [
     { section: "current_candidates", title: "本轮候选" },
     { section: "core_concept", title: "核心概念" },
@@ -34,6 +35,80 @@ export function selectSidebarView(state, view) {
     return {
         ...state,
         selectedSidebarView: nextView
+    };
+}
+
+export function selectWorkspace(state, workspace) {
+    const nextWorkspace = WORKSPACES.has(workspace) ? workspace : "session";
+    return {
+        ...state,
+        activeWorkspace: nextWorkspace
+    };
+}
+
+export function getWorkspaceVisibility(state) {
+    const activeWorkspace = WORKSPACES.has(state?.activeWorkspace) ? state.activeWorkspace : "session";
+    return {
+        session: activeWorkspace === "session",
+        sources: activeWorkspace === "sources",
+        knowledge: activeWorkspace === "knowledge",
+        project: activeWorkspace === "project",
+        showChatComposer: activeWorkspace === "session",
+        showSessionInspector: activeWorkspace === "session"
+    };
+}
+
+export function requireProjectChatContext(state) {
+    if (!state || state.sampleMode || !state.activeProjectId || !state.activeSessionId) {
+        throw new Error("Project session context is required for workbench chat.");
+    }
+    return {
+        projectId: String(state.activeProjectId),
+        sessionId: String(state.activeSessionId)
+    };
+}
+
+export function buildProjectMessageUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}/messages`;
+}
+
+export function buildProjectSessionMessagesUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}/messages`;
+}
+
+export function buildProjectSessionRenameUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}`;
+}
+
+export function renameSessionTitle(state, sessionId, title) {
+    const normalizedTitle = String(title || "").trim();
+    if (!normalizedTitle) {
+        return state;
+    }
+    return {
+        ...state,
+        sessions: (state.sessions || []).map((session) => {
+            if (session.id !== sessionId) {
+                return session;
+            }
+            return {
+                ...session,
+                title: normalizedTitle
+            };
+        })
+    };
+}
+
+export function normalizeProjectMessage(raw) {
+    const id = raw?.id ?? raw?.messageId ?? "";
+    const role = String(raw?.role || "assistant").toLowerCase();
+    return {
+        id: String(id),
+        sessionId: raw?.sessionId == null ? null : String(raw.sessionId),
+        role: role === "user" ? "user" : "assistant",
+        content: String(raw?.content || raw?.text || ""),
+        answerMode: raw?.answerMode || null,
+        createdAt: raw?.createdAt || raw?.updatedAt || ""
     };
 }
 
@@ -86,36 +161,38 @@ export function applySseEvent(state, event) {
     };
     const eventType = normalizeEventType(event.eventType || event.type || event.eventName);
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    const traced = applyAgentTraceEvent(next, event, eventType, payload);
 
     if (eventType === "source.status.changed") {
-        return applySourceStatusChanged(next, event, payload);
+        return applySourceStatusChanged(traced, event, payload);
     }
 
     if (eventType === "answer.delta") {
-        return applyAnswerDelta(next, event, payload);
+        return applyAnswerDelta(traced, event, traceDataOf(payload));
     }
 
     if (eventType === "answer.completed") {
-        return applyAnswerCompleted(next, event, payload);
+        return applyAnswerCompleted(traced, event, payload);
     }
 
     if (eventType === "evidence.evaluated") {
-        return applyEvidenceEvaluated(next, event, payload);
+        return applyEvidenceEvaluated(traced, event, traceDataOf(payload));
     }
 
     if (eventType === "candidate.created") {
-        return applyCandidateCreated(next, event, payload);
+        return applyCandidateCreated(traced, event, payload);
     }
 
     if (eventType === "knowledge.entry.created") {
-        return applyKnowledgeEntryCreated(next, event, payload);
+        return applyKnowledgeEntryCreated(traced, event, payload);
     }
 
-    return next;
+    return traced;
 }
 
 export function createWorkbenchState(seed = {}) {
     return {
+        activeWorkspace: WORKSPACES.has(seed.activeWorkspace) ? seed.activeWorkspace : "session",
         activeProjectId: seed.activeProjectId || null,
         activeSessionId: seed.activeSessionId || null,
         activeAnswerContext: seed.activeAnswerContext || null,
@@ -135,8 +212,85 @@ export function createWorkbenchState(seed = {}) {
         candidates: Array.isArray(seed.candidates) ? seed.candidates : [],
         editingCandidateId: seed.editingCandidateId || null,
         knowledgeBoard: normalizeKnowledgeBoard(seed.knowledgeBoard),
+        agentTraces: seed.agentTraces && typeof seed.agentTraces === "object" ? seed.agentTraces : {},
         processedEventIds: Array.isArray(seed.processedEventIds) ? seed.processedEventIds : []
     };
+}
+
+function applyAgentTraceEvent(state, event, eventType, payload) {
+    const runId = String(event.runId || payload.runId || payload.data?.runId || "");
+    if (!runId) {
+        return state;
+    }
+
+    const data = traceDataOf(payload);
+    const traceEntry = {
+        ...data,
+        eventId: event.eventId || event.id || null,
+        eventType,
+        runId,
+        answerId: event.answerId || data.answerId || payload.answerId || null,
+        sequence: event.sequence ?? data.sequence ?? payload.sequence ?? null,
+        createdAt: event.createdAt || data.createdAt || payload.createdAt || ""
+    };
+    const trace = ensureAgentTrace(state, runId);
+
+    if (eventType === "tool.called" || eventType === "tool.completed" || eventType === "tool.failed") {
+        trace.tools.push(traceEntry);
+        trace.timeline.push(traceEntry);
+        trace.summary.toolCount = trace.tools.length;
+    } else if (eventType === "retrieval.hit") {
+        trace.retrievalHits.push(traceEntry);
+        trace.summary.evidenceCount = trace.retrievalHits.length;
+    } else if (eventType === "memory.hit") {
+        trace.memoryHits.push(traceEntry);
+    } else if (eventType === "memory.completed") {
+        trace.timeline.push(traceEntry);
+        trace.memorySummary = traceEntry;
+    } else if (eventType === "evidence.evaluated" || eventType === "evidence.gap.detected") {
+        trace.evidenceEvents.push(traceEntry);
+        trace.summary.weakClaims += Number(data.weakClaims ?? 0);
+        trace.summary.requiresConfirmation = trace.summary.requiresConfirmation || Boolean(data.requiresUserConfirmation);
+    } else if (eventType === "answer.delta") {
+        trace.answerDeltas.push(traceEntry);
+    } else {
+        return state;
+    }
+
+    return {
+        ...state,
+        agentTraces: {
+            ...(state.agentTraces || {}),
+            [runId]: trace
+        }
+    };
+}
+
+function ensureAgentTrace(state, runId) {
+    const existing = state.agentTraces?.[runId] || {};
+    const existingSummary = existing.summary || {};
+    return {
+        ...existing,
+        tools: Array.isArray(existing.tools) ? [...existing.tools] : [],
+        timeline: Array.isArray(existing.timeline) ? [...existing.timeline] : [],
+        retrievalHits: Array.isArray(existing.retrievalHits) ? [...existing.retrievalHits] : [],
+        evidenceEvents: Array.isArray(existing.evidenceEvents) ? [...existing.evidenceEvents] : [],
+        memoryHits: Array.isArray(existing.memoryHits) ? [...existing.memoryHits] : [],
+        answerDeltas: Array.isArray(existing.answerDeltas) ? [...existing.answerDeltas] : [],
+        summary: {
+            toolCount: Number(existingSummary.toolCount ?? 0),
+            evidenceCount: Number(existingSummary.evidenceCount ?? 0),
+            weakClaims: Number(existingSummary.weakClaims ?? 0),
+            requiresConfirmation: Boolean(existingSummary.requiresConfirmation)
+        }
+    };
+}
+
+function traceDataOf(payload) {
+    if (payload?.data && typeof payload.data === "object") {
+        return payload.data;
+    }
+    return payload && typeof payload === "object" ? payload : {};
 }
 
 function applySourceStatusChanged(state, event, payload) {

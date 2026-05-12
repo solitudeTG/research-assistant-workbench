@@ -4,7 +4,16 @@ import assert from "node:assert/strict";
 import {
     applyCandidateAction,
     applySseEvent,
+    buildProjectMessageUrl,
+    buildProjectSessionRenameUrl,
+    buildProjectSessionMessagesUrl,
+    createWorkbenchState,
+    getWorkspaceVisibility,
+    renameSessionTitle,
+    normalizeProjectMessage,
+    requireProjectChatContext,
     selectSession,
+    selectWorkspace,
     startEditingCandidate
 } from "../js/workbench-model.js";
 
@@ -60,6 +69,110 @@ test("selecting a session updates activeSessionId and clears activeAnswerContext
         citationCount: 2,
         candidateCount: 1
     });
+});
+
+test("primary workspace selection is separate from session sidebar view", () => {
+    const state = createWorkbenchState({
+        selectedSidebarView: "evidence-sources"
+    });
+
+    assert.equal(state.activeWorkspace, "session");
+
+    const sources = selectWorkspace(state, "sources");
+    assert.equal(sources.activeWorkspace, "sources");
+    assert.equal(sources.selectedSidebarView, "evidence-sources");
+    assert.deepEqual(getWorkspaceVisibility(sources), {
+        session: false,
+        sources: true,
+        knowledge: false,
+        project: false,
+        showChatComposer: false,
+        showSessionInspector: false
+    });
+
+    const knowledge = selectWorkspace(sources, "knowledge");
+    assert.equal(knowledge.activeWorkspace, "knowledge");
+    assert.equal(knowledge.selectedSidebarView, "evidence-sources");
+    assert.equal(getWorkspaceVisibility(knowledge).showChatComposer, false);
+    assert.equal(getWorkspaceVisibility(knowledge).showSessionInspector, false);
+
+    const fallback = selectWorkspace(knowledge, "unknown");
+    assert.equal(fallback.activeWorkspace, "session");
+    assert.equal(fallback.selectedSidebarView, "evidence-sources");
+});
+
+test("workbench chat requires project session context instead of legacy chat fallback", () => {
+    const context = requireProjectChatContext({
+        activeProjectId: "project-1",
+        activeSessionId: "session-a",
+        sampleMode: false
+    });
+
+    assert.equal(
+            buildProjectMessageUrl(context),
+            "/api/projects/project-1/sessions/session-a/messages"
+    );
+    assert.throws(
+            () => requireProjectChatContext({ activeProjectId: null, activeSessionId: "sample-session", sampleMode: true }),
+            /project session/i
+    );
+});
+
+test("project session history uses project-scoped message contract", () => {
+    const context = requireProjectChatContext({
+        activeProjectId: "project-1",
+        activeSessionId: "session-a",
+        sampleMode: false
+    });
+
+    assert.equal(
+            buildProjectSessionMessagesUrl(context),
+            "/api/projects/project-1/sessions/session-a/messages"
+    );
+    assert.deepEqual(
+            normalizeProjectMessage({
+                id: 15,
+                sessionId: "session-a",
+                role: "ASSISTANT",
+                content: "Recovered answer",
+                answerMode: "LOCAL_EVIDENCE",
+                createdAt: "2026-05-11T10:00:00Z"
+            }),
+            {
+                id: "15",
+                sessionId: "session-a",
+                role: "assistant",
+                content: "Recovered answer",
+                answerMode: "LOCAL_EVIDENCE",
+                createdAt: "2026-05-11T10:00:00Z"
+            }
+    );
+});
+
+test("session rename helpers keep the project-scoped session contract", () => {
+    const context = requireProjectChatContext({
+        activeProjectId: "project-1",
+        activeSessionId: "session-a",
+        sampleMode: false
+    });
+    const state = {
+        ...baseState(),
+        sessions: [
+            { id: "session-a", title: "Old title", status: "continue" },
+            { id: "session-b", title: "Other title", status: "continue" }
+        ]
+    };
+
+    assert.equal(
+            buildProjectSessionRenameUrl(context),
+            "/api/projects/project-1/sessions/session-a"
+    );
+
+    const next = renameSessionTitle(state, "session-a", "Transformer literature review");
+
+    assert.equal(next.sessions[0].title, "Transformer literature review");
+    assert.equal(next.sessions[1].title, "Other title");
+    assert.equal(state.sessions[0].title, "Old title");
 });
 
 test("source.status.changed updates the matching source row", () => {
@@ -219,6 +332,173 @@ test("evidence.evaluated can hydrate evidence source rows from event payload", (
     assert.equal(next.currentAnswer.citationCount, 1);
     assert.equal(next.evidenceSources.length, 1);
     assert.equal(next.evidenceSources[0].id, "evidence-1");
+});
+
+test("agent trace events fold into research process summary", () => {
+    let state = createWorkbenchState({
+        activeProjectId: "project-1",
+        activeSessionId: "session-a",
+        agentTraces: {
+            "seed-run": {
+                tools: [{ toolName: "seed_tool" }],
+                timeline: [],
+                retrievalHits: [],
+                evidenceEvents: [],
+                memoryHits: [],
+                answerDeltas: [],
+                summary: {
+                    toolCount: 1,
+                    evidenceCount: 0,
+                    weakClaims: 0,
+                    requiresConfirmation: false
+                }
+            }
+        }
+    });
+
+    assert.deepEqual(createWorkbenchState().agentTraces, {});
+
+    state = applySseEvent(state, {
+        eventId: "trace-tool-called",
+        eventType: "tool.called",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            data: {
+                toolName: "paper_rag",
+                toolDisplayName: "Paper retrieval"
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-tool-completed",
+        eventType: "tool.completed",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            data: {
+                toolName: "paper_rag",
+                durationMs: 120
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-tool-failed",
+        eventType: "tool.failed",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            data: {
+                toolName: "web_search",
+                errorType: "TimeoutException",
+                recoverable: true
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-retrieval-hit",
+        eventType: "retrieval.hit",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            data: {
+                sourceType: "paper",
+                title: "Agent Paper",
+                score: 0.87
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-memory-hit",
+        eventType: "memory.hit",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            data: {
+                memoryLayer: "L3",
+                label: "长期记忆召回",
+                snippet: "Prior discussion",
+                score: 0.66
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-memory-completed",
+        eventType: "memory.completed",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            data: {
+                hitCount: 1
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-evidence-evaluated",
+        eventType: "evidence.evaluated",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            data: {
+                evidenceState: "WEAK",
+                citationCount: 1,
+                weakClaims: 1,
+                requiresUserConfirmation: true
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-evidence-gap",
+        eventType: "evidence.gap.detected",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            weakClaims: 2,
+            requiresUserConfirmation: false,
+            claim: "Needs stronger support"
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-answer-delta",
+        eventType: "answer.delta",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            delta: "Grounded answer",
+            index: 0
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "trace-answer-delta",
+        eventType: "answer.delta",
+        runId: "run-1",
+        answerId: "answer-1",
+        payload: {
+            delta: " duplicate",
+            index: 1
+        }
+    });
+
+    assert.equal(state.agentTraces["seed-run"].summary.toolCount, 1);
+
+    const trace = state.agentTraces["run-1"];
+    assert.equal(trace.tools.length, 3);
+    assert.deepEqual(trace.tools.map((tool) => tool.toolName), ["paper_rag", "paper_rag", "web_search"]);
+    assert.equal(trace.tools[2].eventType, "tool.failed");
+    assert.equal(trace.timeline.length, 4);
+    assert.equal(trace.retrievalHits.length, 1);
+    assert.equal(trace.retrievalHits[0].title, "Agent Paper");
+    assert.equal(trace.memoryHits.length, 1);
+    assert.equal(trace.memoryHits[0].snippet, "Prior discussion");
+    assert.equal(trace.memorySummary.hitCount, 1);
+    assert.equal(trace.evidenceEvents.length, 2);
+    assert.equal(trace.answerDeltas.length, 1);
+    assert.equal(trace.answerDeltas[0].delta, "Grounded answer");
+    assert.equal(trace.summary.toolCount, 3);
+    assert.equal(trace.summary.evidenceCount, 1);
+    assert.equal(trace.summary.weakClaims, 3);
+    assert.equal(trace.summary.requiresConfirmation, true);
+    assert.equal(state.currentAnswer.text, "Grounded answer");
 });
 
 test("candidate action helpers keep candidate edits local to candidate state", () => {
