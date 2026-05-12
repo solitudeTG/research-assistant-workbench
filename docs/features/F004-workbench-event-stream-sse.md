@@ -1,5 +1,6 @@
 ---
 id: F004
+doc_kind: feature
 status: completed
 owner: codex
 updated: 2026-05-10

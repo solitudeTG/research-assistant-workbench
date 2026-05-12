@@ -1,3 +1,10 @@
+---
+id: ARCHIVE-PLAN-2026-05-09-HARNESS-ENGINEERING-LOOP
+doc_kind: plan
+status: archived
+archived: 2026-05-10
+feature_ids: [F001]
+---
 # Harness 工程闭环实施计划
 
 > **给 Agent 工作者：**执行本计划时必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，逐项执行复选框步骤。

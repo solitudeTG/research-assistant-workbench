@@ -1,5 +1,6 @@
 ---
 id: EV-000
+doc_kind: template
 status: draft
 date: 2026-05-09
 feature_ids: []

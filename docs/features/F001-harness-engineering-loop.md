@@ -1,5 +1,6 @@
 ---
 id: F001
+doc_kind: feature
 status: completed
 owner: codex
 updated: 2026-05-09
@@ -33,7 +34,7 @@ updated: 2026-05-09
 
 ## 链接
 
-- 计划：[2026-05-09-harness-engineering-loop.md](../superpowers/plans/2026-05-09-harness-engineering-loop.md)
+- 计划：[2026-05-09-harness-engineering-loop.md](../archive/2026-05/superpowers/plans/2026-05-09-harness-engineering-loop.md)
 - ADR：[ADR-001-markdown-harness-source-of-truth.md](../decisions/ADR-001-markdown-harness-source-of-truth.md)
 - Evidence：[EV-001-harness-bootstrap.md](../evidence/EV-001-harness-bootstrap.md)
 

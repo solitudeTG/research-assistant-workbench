@@ -1,5 +1,6 @@
 ---
 id: F011
+doc_kind: feature
 status: completed
 owner: codex
 updated: 2026-05-10
@@ -47,6 +48,8 @@ F011 uses [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-imp
 ## Evidence
 
 - Final Evidence: [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-implementation-validation.md)
+- Closeout Readiness: [RD-001-f002-closeout-readiness.md](../reviews/RD-001-f002-closeout-readiness.md)
+- Validation Lesson: [LL-001-explicit-validation-fixtures.md](../lessons/LL-001-explicit-validation-fixtures.md)
 
 ## Links
 
@@ -54,6 +57,8 @@ F011 uses [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-imp
 - Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
 - Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
 - Browser Evidence: [EV-009-f010-three-column-workbench-ui.md](../evidence/EV-009-f010-three-column-workbench-ui.md)
+- Readiness Dashboard: [RD-001-f002-closeout-readiness.md](../reviews/RD-001-f002-closeout-readiness.md)
+- Lesson: [LL-001 Explicit Validation Fixtures](../lessons/LL-001-explicit-validation-fixtures.md)
 
 ## Next Step
 

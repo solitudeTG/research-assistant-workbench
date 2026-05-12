@@ -1,3 +1,10 @@
+---
+id: SPEC-F002-UI
+doc_kind: spec
+status: accepted
+updated: 2026-05-10
+feature_ids: [F002, F010]
+---
 # Research Workbench UI Interaction Spec
 
 ## Purpose

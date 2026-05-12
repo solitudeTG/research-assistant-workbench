@@ -1,8 +1,35 @@
+---
+id: BACKLOG
+doc_kind: backlog
+status: active
+updated: 2026-05-12
+---
 # Work Backlog
 
 This file records active engineering state that future sessions must be able to recover. It is not an unlimited wishlist.
 
 ## Active Work
+
+### F016 Retrieval Observability
+
+- Status: active
+- Feature page: [F016-retrieval-observability.md](features/F016-retrieval-observability.md)
+- Spec: [F016-retrieval-observability-spec.md](specs/F016-retrieval-observability-spec.md)
+- Plan: [F016-retrieval-observability-plan.md](plans/F016-retrieval-observability-plan.md)
+- Current intent: turn Paper RAG retrieval into a long-lived observable capability that can explain query rewrite, hybrid retrieval hit counts, scope filtering, rerank output, zero-hit reasons, and final citation linkage. This is intentionally a backend observability feature first, not another UI patch.
+- Product reason: recent research-process UI exposed many `paper_rag returned 0 scoped chunk(s)` events. The durable fix is to make the backend explain whether the cause is Agent over-calling, weak query rewrite, no backend hits, scope-filtered vector candidates, rerank empty output, or missing scoped evidence.
+- Current slice: minimum observation model, query rewrite strategy, `NO_BACKEND_HITS` classification, `retrieval.query.rewritten`, `retrieval.completed`, and `tool.completed.data.retrievalObservationSummary` are implemented and covered by focused tests. Live observation also exposed that local restart recovery was broken for `LocalVectorSearchPort`; startup warmup now rehydrates indexed chunks into the in-memory vector index.
+- Evidence: [EV-015-f016-retrieval-observability-slice.md](evidence/EV-015-f016-retrieval-observability-slice.md)
+- Next step: rebuild/restart the backend and rerun the same manual query. If `vector_hits` becomes non-zero, continue with Agent query-budget and zero-hit suppression work; if not, inspect local embedding/index scoring before changing UI.
+
+### F014 Primary Workspace Navigation UI
+
+- Status: active
+- Feature page: [F014-primary-workspace-navigation-ui.md](features/F014-primary-workspace-navigation-ui.md)
+- Spec: [F014-primary-workspace-navigation-ui-spec.md](specs/F014-primary-workspace-navigation-ui-spec.md)
+- Current intent: refactor the static UI information architecture so the left rail becomes a first-level workspace switcher. Session keeps the chat/evidence/candidate working surface; sources and knowledge become complete workspaces that replace the main area instead of living as side panels inside the chat shell.
+- Design anchors: PRODUCT.md, DESIGN.md, Stitch project `6874803135901272290`, sources screen `5379df1c6dcb4012aadb1420d7117fc7`, knowledge screen `e220ee0bd7474bb48ef9a3bd507b2138`.
+- Next step: write the implementation plan, then change frontend state/layout before CSS polish.
 
 ### No active F002 implementation
 
@@ -10,10 +37,36 @@ This file records active engineering state that future sessions must be able to 
 - Parent Feature: [F002-next-generation-research-workbench.md](features/F002-next-generation-research-workbench.md)
 - Validation Feature: [F011-f002-end-to-end-validation.md](features/F011-f002-end-to-end-validation.md)
 - Evidence: [EV-010-f002-implementation-validation.md](evidence/EV-010-f002-implementation-validation.md)
+- Readiness: [RD-001-f002-closeout-readiness.md](reviews/RD-001-f002-closeout-readiness.md)
+- Lesson: [LL-001-explicit-validation-fixtures.md](lessons/LL-001-explicit-validation-fixtures.md)
 - Current intent: no active F002 implementation remains. Future work should be opened as separate Features from known limitations, not by expanding F011.
 - Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ## Recently Completed
+
+### F015 Agent Trace Event Contract and Live SSE
+
+- Status: completed
+- Feature page: [F015-agent-trace-live-sse.md](features/F015-agent-trace-live-sse.md)
+- Evidence: [EV-013-f015-agent-trace-live-sse.md](evidence/EV-013-f015-agent-trace-live-sse.md)
+- Result: project run SSE now replays and live-tails until terminal run events; event publishers expose a bounded wait seam for in-memory and Redis backends; the main Agent tool loop emits real `tool.*`, `retrieval.hit`, `memory.*`, conservative `evidence.gap.detected`, and paragraph `answer.delta` events; the frontend model folds these into `agentTraces[runId]`; and the session UI renders that projection as a research process module under assistant answers.
+- Known limitation: F015 Phase 1 still uses logical step labels over the current main-Agent runtime, not a true parallel Supervisor-Worker system. The UI must not claim parallel subagents until that runtime exists.
+
+### F013 Main Agent Tool-Calling Loop
+
+- Status: completed
+- Feature page: [F013-main-agent-tool-calling-loop.md](features/F013-main-agent-tool-calling-loop.md)
+- Evidence: [EV-012-f013-main-agent-tool-calling-loop.md](evidence/EV-012-f013-main-agent-tool-calling-loop.md)
+- Result: project chat now uses `ProjectAgentToolLoop` instead of rule-first project routing. The main Agent sees `web_search`, `paper_rag`, and `memory_recall` tools through Spring AI native tool calling; `retrieval.completed.toolsUsed` reflects actual tool use; web and paper evidence remain separated; memory recall remains context only.
+- Known limitation: F013 validates native tool exposure and focused backend behavior, but does not run a live provider/Tavily weather smoke test because that depends on local API keys and provider behavior. If a configured provider cannot emit native tool calls reliably, open a follow-up Feature for bounded JSON action-loop fallback behind the same interface.
+
+### F012 Agentic Routing and Tavily Web Search
+
+- Status: completed
+- Feature page: [F012-agentic-routing-and-tavily-web-search.md](features/F012-agentic-routing-and-tavily-web-search.md)
+- Evidence: [EV-011-f012-agentic-routing-web-search.md](evidence/EV-011-f012-agentic-routing-web-search.md)
+- Result: project chat now uses a main-Agent routing step over default L1/L2 context. Simple chat bypasses Paper RAG and Tavily; local research calls Paper RAG; explicit or inferred web needs can call Tavily; mixed freshness questions can call both; web evidence is persisted as `source_type=web`; and run events report actual tools used plus source types.
+- Known limitation: routing is deterministic/rule-first rather than LLM-based; Tavily requires `TAVILY_API_KEY`; web results are answer evidence only, not durable ingested sources; richer tool timelines and multi-agent delegation should be separate Features.
 
 ### F011 F002 End-to-End Validation
 

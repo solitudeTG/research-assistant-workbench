@@ -1,3 +1,10 @@
+---
+id: ARCHIVE-PLAN-2026-04-17-DOCKER-COMPOSE-STARTUP
+doc_kind: plan
+status: archived
+archived: 2026-05-10
+feature_ids: []
+---
 # Docker Compose Startup Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

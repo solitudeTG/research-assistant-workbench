@@ -1,8 +1,9 @@
 ---
 id: SPEC-F002
-status: completed
-feature_ids: [F002]
+doc_kind: spec
+status: accepted
 updated: 2026-05-10
+feature_ids: [F002]
 ---
 # F002 下一代研究工作台正式规格
 

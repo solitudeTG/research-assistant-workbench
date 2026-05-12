@@ -1,3 +1,10 @@
+---
+id: ARCHIVE-SPEC-2026-04-17-DOCKER-COMPOSE-STARTUP-DESIGN
+doc_kind: spec
+status: archived
+archived: 2026-05-10
+feature_ids: []
+---
 # Docker Compose Startup Design
 
 **Goal**

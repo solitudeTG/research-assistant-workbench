@@ -1,8 +1,9 @@
 ---
 id: EV-009
-feature: F010
+doc_kind: evidence
 status: completed
 created: 2026-05-10
+feature_ids: [F010]
 ---
 # EV-009 F010 Three-Column Workbench UI
 

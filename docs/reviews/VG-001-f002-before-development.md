@@ -1,7 +1,10 @@
 ---
 id: VG-001
-status: captured
+doc_kind: review
+status: completed
 date: 2026-05-09
+review_type: vision_gate
+mode: entry
 feature_ids: [F002]
 ---
 # F002 开发前 Vision Gate

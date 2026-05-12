@@ -1,3 +1,10 @@
+---
+id: PLAN-F002
+doc_kind: plan
+status: completed
+updated: 2026-05-10
+feature_ids: [F002]
+---
 # F002 下一代研究工作台 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

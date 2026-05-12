@@ -1,5 +1,6 @@
 ---
 id: EV-002
+doc_kind: evidence
 status: captured
 date: 2026-05-09
 feature_ids: [F003]

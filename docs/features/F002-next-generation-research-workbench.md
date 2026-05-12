@@ -1,5 +1,6 @@
 ---
 id: F002
+doc_kind: feature
 status: completed
 owner: codex
 updated: 2026-05-10
@@ -45,6 +46,8 @@ F003-F010 delivered the implementation slices. F011 completed validation and Har
 
 - Final validation: [EV-010-f002-implementation-validation.md](../evidence/EV-010-f002-implementation-validation.md)
 - UI/browser validation: [EV-009-f010-three-column-workbench-ui.md](../evidence/EV-009-f010-three-column-workbench-ui.md)
+- Closeout readiness: [RD-001-f002-closeout-readiness.md](../reviews/RD-001-f002-closeout-readiness.md)
+- Validation lesson: [LL-001-explicit-validation-fixtures.md](../lessons/LL-001-explicit-validation-fixtures.md)
 
 ## Known Limitations
 
@@ -57,6 +60,8 @@ F003-F010 delivered the implementation slices. F011 completed validation and Har
 - Spec: [F002-next-generation-research-workbench-spec.md](../specs/F002-next-generation-research-workbench-spec.md)
 - Plan: [F002-next-generation-research-workbench-plan.md](../plans/F002-next-generation-research-workbench-plan.md)
 - Vision Gate: [VG-001-f002-before-development.md](../reviews/VG-001-f002-before-development.md)
+- Readiness Dashboard: [RD-001-f002-closeout-readiness.md](../reviews/RD-001-f002-closeout-readiness.md)
+- Lesson: [LL-001 Explicit Validation Fixtures](../lessons/LL-001-explicit-validation-fixtures.md)
 - Child Feature: [F003 Project Workbench Model API](F003-project-workbench-model-api.md)
 - Child Feature: [F004 Workbench Event Stream SSE](F004-workbench-event-stream-sse.md)
 - Child Feature: [F005 Project Source Status Machine](F005-project-source-status-machine.md)

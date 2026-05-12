@@ -1,3 +1,10 @@
+---
+id: ARCHIVE-SPEC-2026-04-16-PHASE1-RESEARCH-ASSISTANT-DESIGN
+doc_kind: spec
+status: archived
+archived: 2026-05-10
+feature_ids: []
+---
 # 智能研究助手 Phase 1 设计规格说明
 
 ## 1. 文档目的

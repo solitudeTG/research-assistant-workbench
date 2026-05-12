@@ -1,3 +1,9 @@
+---
+id: HARNESS-README
+doc_kind: harness_guide
+status: active
+updated: 2026-05-10
+---
 # Harness 工作流
 
 项目 Harness 用来让大规模 Agent 写入保持可评审、可恢复、可验证。
@@ -8,6 +14,9 @@
 - `docs/features/`：交付边界和验收标准。
 - `docs/decisions/`：长期决策 ADR。
 - `docs/evidence/`：完成或验证证据。
+- `docs/reviews/`：Vision Gate、Readiness Dashboard 等评审门禁记录。
+- `docs/lessons/`：可复发失败模式和保护机制。
+- `docs/archive/`：已完成、历史化或不再作为活跃入口的旧文档。
 - `docs/harness/templates/`：可复制的文档骨架。
 - `scripts/knowledge_check.py`：轻量结构校验门。
 
@@ -18,7 +27,9 @@
 3. 派发 Agent 前，先写清实现切片和写入边界。
 4. 每个切片完成后，用测试、API 调用、SSE 轨迹、截图或数据库检查验证。
 5. 声称完成前，把验证结果写入 Evidence。
-6. 交接前运行 `python scripts/knowledge_check.py`。
+6. 完成、交接或 release 前，补齐 Readiness Dashboard 或说明为什么不需要。
+7. 如果验证暴露可复发的失败模式，写 Lesson 并连接到 Feature/Evidence。
+8. 交接前运行 `python scripts/knowledge_check.py`。
 
 ## Agent 写入边界
 

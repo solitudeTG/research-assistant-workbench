@@ -1,5 +1,6 @@
 ---
 id: F000
+doc_kind: template
 status: draft
 owner: unassigned
 updated: 2026-05-09
