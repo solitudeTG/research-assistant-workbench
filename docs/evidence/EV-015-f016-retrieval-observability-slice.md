@@ -34,12 +34,21 @@ Live diagnosis after a user rerun showed the observation data was useful enough 
 - Root cause: after backend restart, existing `document_chunk` rows remained in the database, but the local in-memory vector index was empty until a document was reprocessed.
 - Fix slice: `LocalVectorIndexWarmup` rehydrates indexed documents into `LocalVectorSearchPort` on startup.
 
+Follow-up live diagnosis after warmup showed the retrieval layer had recovered:
+
+- Latest inspected session `9` had `8` retrieval calls, `0` zero-hit calls, `90` vector hits, and `70` returned chunks.
+- Previous inspected session `8` had `25` retrieval calls, `16` zero-hit calls, `0` vector hits, and `29` returned chunks.
+- Remaining mismatch was no longer retrieval: the latest answer had persisted paper evidence but was stored as `REFUSAL/NONE` because `EvidenceBoundaryService` treated local chunks below score `0.35` as no evidence.
+- Fix slice: evidence boundary now treats empty scoped paper results as `NONE`, but any non-empty scoped paper result below the sufficient threshold as `WEAK`.
+- Startup warmup was also hardened to skip safely when no `LocalVectorSearchPort` bean exists, which keeps pgvector/test contexts from failing application startup.
+
 ## Verification Commands
 
 Focused backend verification:
 
 ```powershell
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=LocalVectorIndexWarmupTest,QueryRewriteServiceTest,PaperRagServiceTest,ProjectAgentToolsTest' test
+& 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=ProjectEvidenceBoundaryTest,LocalVectorIndexWarmupTest' test
 ```
 
 Result:
@@ -47,6 +56,8 @@ Result:
 ```text
 BUILD SUCCESS
 Tests run: 12, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+Tests run: 16, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 Harness validation:

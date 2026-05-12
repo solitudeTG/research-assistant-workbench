@@ -340,6 +340,34 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void lowScoredScopedPaperEvidenceStillProducesWeakLocalEvidenceInsteadOfRefusal() {
+        ResearchSessionRecord session = createSession();
+        insertIndexedProjectSource(session.projectId(), 141L);
+        String question = "How does the paper distinguish colocated users?";
+        RagResult ragResult = new RagResult(
+                question,
+                List.of(141L),
+                List.of(new RagChunk(1411L, 141L, 13, "Doppler frequency diversity can separate colocated users.", 0.21))
+        );
+        when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of(141L)), eq(5))).thenReturn(ragResult);
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("Doppler frequency diversity separates colocated users.");
+
+        ProjectMessageResponse response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), false, false, "local_first")
+        );
+        String answerId = response.answerId();
+
+        assertThat(answerRow(answerId))
+                .containsEntry("evidence_state", "WEAK")
+                .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE");
+        assertThat(evidenceRows(answerId)).hasSize(1);
+        assertEvidenceEvent(response.streamRunId(), answerId, "WEAK", "LOCAL_WEAK_EVIDENCE", 1, List.of("paper"));
+    }
+
+    @Test
     void projectAnswerWithoutScopedPaperMappingDoesNotSearchGlobalLegacyRag() {
         ResearchSessionRecord session = createSession();
         when(memoryRecallPort.recall(anyLong(), eq("Could an unrelated global paper answer this?"), anyInt()))

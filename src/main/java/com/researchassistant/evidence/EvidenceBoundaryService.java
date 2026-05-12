@@ -17,10 +17,7 @@ public class EvidenceBoundaryService {
         if (topScore >= 0.75) {
             return EvidenceLevel.SUFFICIENT;
         }
-        if (topScore >= 0.35) {
-            return EvidenceLevel.WEAK;
-        }
-        return EvidenceLevel.NONE;
+        return EvidenceLevel.WEAK;
     }
 
     public AnswerMode toAnswerMode(EvidenceLevel evidenceLevel) {

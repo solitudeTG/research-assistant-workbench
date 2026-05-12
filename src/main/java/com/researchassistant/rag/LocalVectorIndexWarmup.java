@@ -8,32 +8,35 @@ import com.researchassistant.ingest.model.ResearchDocument;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnBean(LocalVectorSearchPort.class)
 public class LocalVectorIndexWarmup implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(LocalVectorIndexWarmup.class);
 
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository chunkRepository;
-    private final LocalVectorSearchPort vectorSearchPort;
+    private final ObjectProvider<LocalVectorSearchPort> vectorSearchPortProvider;
 
     public LocalVectorIndexWarmup(
             DocumentRepository documentRepository,
             DocumentChunkRepository chunkRepository,
-            LocalVectorSearchPort vectorSearchPort) {
+            ObjectProvider<LocalVectorSearchPort> vectorSearchPortProvider) {
         this.documentRepository = documentRepository;
         this.chunkRepository = chunkRepository;
-        this.vectorSearchPort = vectorSearchPort;
+        this.vectorSearchPortProvider = vectorSearchPortProvider;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        LocalVectorSearchPort vectorSearchPort = vectorSearchPortProvider.getIfAvailable();
+        if (vectorSearchPort == null) {
+            return;
+        }
         int documents = 0;
         int chunks = 0;
         for (ResearchDocument document : documentRepository.findAll()) {

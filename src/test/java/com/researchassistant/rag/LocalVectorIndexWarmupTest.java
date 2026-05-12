@@ -8,6 +8,7 @@ import com.researchassistant.ingest.model.ResearchDocument;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 
 import static org.mockito.ArgumentMatchers.argThat;
@@ -21,6 +22,8 @@ class LocalVectorIndexWarmupTest {
     private final DocumentRepository documentRepository = mock(DocumentRepository.class);
     private final DocumentChunkRepository chunkRepository = mock(DocumentChunkRepository.class);
     private final LocalVectorSearchPort vectorSearchPort = mock(LocalVectorSearchPort.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<LocalVectorSearchPort> vectorSearchPortProvider = mock(ObjectProvider.class);
     private final ApplicationArguments arguments = mock(ApplicationArguments.class);
 
     @Test
@@ -33,8 +36,9 @@ class LocalVectorIndexWarmupTest {
                 new ChunkRecord(10L, 1L, 0, "space time beamforming", 12, "{}"),
                 new ChunkRecord(11L, 1L, 1, "doppler shift", 8, "{}")
         ));
+        when(vectorSearchPortProvider.getIfAvailable()).thenReturn(vectorSearchPort);
 
-        new LocalVectorIndexWarmup(documentRepository, chunkRepository, vectorSearchPort).run(arguments);
+        new LocalVectorIndexWarmup(documentRepository, chunkRepository, vectorSearchPortProvider).run(arguments);
 
         verify(vectorSearchPort).reindexDocument(
                 org.mockito.ArgumentMatchers.eq(1L),
