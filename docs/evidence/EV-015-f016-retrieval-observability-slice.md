@@ -42,6 +42,13 @@ Follow-up live diagnosis after warmup showed the retrieval layer had recovered:
 - Fix slice: evidence boundary now treats empty scoped paper results as `NONE`, but any non-empty scoped paper result below the sufficient threshold as `WEAK`.
 - Startup warmup was also hardened to skip safely when no `LocalVectorSearchPort` bean exists, which keeps pgvector/test contexts from failing application startup.
 
+Agent tool-call control follow-up:
+
+- Live session `10` showed retrieval quality had recovered, but future runs still needed a guardrail against repeated or overly broad `paper_rag` calling.
+- `ProjectAgentTools.paperRag(...)` now deduplicates identical normalized queries within one answer run.
+- `ProjectAgentTools.paperRag(...)` now enforces a conservative budget of 3 backend `paper_rag` calls per answer run and returns structured `skipped=true, reason=paper_rag_budget_exhausted` metadata after the budget is exhausted.
+- This is intentionally enforced at the tool boundary rather than in the prompt so the constraint is deterministic and testable.
+
 ## Verification Commands
 
 Focused backend verification:
@@ -49,6 +56,7 @@ Focused backend verification:
 ```powershell
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=LocalVectorIndexWarmupTest,QueryRewriteServiceTest,PaperRagServiceTest,ProjectAgentToolsTest' test
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=ProjectEvidenceBoundaryTest,LocalVectorIndexWarmupTest' test
+& 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=ProjectAgentToolsTest' test
 ```
 
 Result:
@@ -58,6 +66,8 @@ BUILD SUCCESS
 Tests run: 12, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 Tests run: 16, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 Harness validation:

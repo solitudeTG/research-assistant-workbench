@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -121,6 +122,48 @@ class ProjectAgentToolsTest {
         JsonNode json = objectMapper.readTree(payload);
         assertThat(json.get("chunks")).hasSize(1);
         assertThat(json.get("chunks").get(0).get("documentId").asLong()).isEqualTo(10L);
+    }
+
+    @Test
+    void paperRagToolReusesDuplicateQueryWithinOneAgentRun() throws Exception {
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
+        when(paperRagService.retrieve(42L, "same query", List.of(10L), 5))
+                .thenReturn(ragResult(
+                        "same query",
+                        List.of(10L),
+                        List.of(new RagChunk(1L, 10L, 0, "Scoped project evidence.", 0.91))
+                ));
+        ProjectAgentTools tools = tools(scope);
+
+        String firstPayload = tools.paperRag("same query", 5);
+        String secondPayload = tools.paperRag("  same   query  ", 5);
+
+        verify(paperRagService, times(1)).retrieve(42L, "same query", List.of(10L), 5);
+        assertThat(objectMapper.readTree(secondPayload).get("deduplicated").asBoolean()).isTrue();
+        assertThat(objectMapper.readTree(secondPayload).get("chunks")).hasSize(1);
+        assertThat(objectMapper.readTree(firstPayload).get("chunks")).hasSize(1);
+    }
+
+    @Test
+    void paperRagToolStopsCallingBackendAfterRunBudgetIsExhausted() throws Exception {
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
+        when(paperRagService.retrieve(org.mockito.ArgumentMatchers.eq(42L), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(List.of(10L)), org.mockito.ArgumentMatchers.eq(5)))
+                .thenAnswer(invocation -> ragResult(
+                        invocation.getArgument(1),
+                        List.of(10L),
+                        List.of(new RagChunk(1L, 10L, 0, "Scoped project evidence.", 0.91))
+                ));
+        ProjectAgentTools tools = tools(scope);
+
+        tools.paperRag("query one", 5);
+        tools.paperRag("query two", 5);
+        tools.paperRag("query three", 5);
+        String fourthPayload = tools.paperRag("query four", 5);
+
+        verify(paperRagService, times(3)).retrieve(org.mockito.ArgumentMatchers.eq(42L), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(List.of(10L)), org.mockito.ArgumentMatchers.eq(5));
+        JsonNode json = objectMapper.readTree(fourthPayload);
+        assertThat(json.get("skipped").asBoolean()).isTrue();
+        assertThat(json.get("reason").asText()).isEqualTo("paper_rag_budget_exhausted");
     }
 
     @Test

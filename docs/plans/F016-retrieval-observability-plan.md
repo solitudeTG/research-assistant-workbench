@@ -151,6 +151,19 @@ Verification:
 mvn -Dtest=ProjectEvidenceBoundaryTest test
 ```
 
+## Task 7A: Bound Agent Paper RAG Tool Calls
+
+- [x] Deduplicate identical `paper_rag` queries within one Agent answer run.
+- [x] Add a conservative per-answer `paper_rag` backend call budget of 3.
+- [x] Return structured skip metadata instead of calling the backend after the budget is exhausted.
+- [ ] Make the budget configurable only if live data shows 3 is too low.
+
+Verification:
+
+```powershell
+mvn -Dtest=ProjectAgentToolsTest test
+```
+
 ## Task 8: Add Safe Diagnostics Endpoint Only If Needed
 
 - [ ] If the frontend or manual diagnosis needs read access, add a project-scoped read-only endpoint.

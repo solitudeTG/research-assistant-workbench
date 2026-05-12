@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -28,6 +29,7 @@ public class ProjectAgentTools {
     private static final String PAPER_RAG_DISPLAY_NAME = "\u8d44\u6599\u68c0\u7d22\u6b65\u9aa4";
     private static final String WEB_SEARCH_DISPLAY_NAME = "\u8054\u7f51\u68c0\u7d22\u6b65\u9aa4";
     private static final String MEMORY_RECALL_DISPLAY_NAME = "\u8bb0\u5fc6\u53ec\u56de\u6b65\u9aa4";
+    private static final int PAPER_RAG_CALL_BUDGET = 3;
 
     private final long sessionId;
     private final ProjectEvidenceScope evidenceScope;
@@ -38,6 +40,8 @@ public class ProjectAgentTools {
     private final AgentTracePublisher tracePublisher;
     private final AgentTraceContext traceContext;
     private final List<String> toolsUsed = new ArrayList<>();
+    private final Map<String, String> paperRagPayloadByNormalizedQuery = new LinkedHashMap<>();
+    private int paperRagBackendCalls;
     private RagResult ragResult;
     private WebSearchResult webSearchResult;
     private MemoryRecallResult memoryRecallResult;
@@ -137,6 +141,39 @@ public class ProjectAgentTools {
         int boundedMaxResults = boundedMaxResults(maxResults, 5);
         publishCalled("retrieval_worker", PAPER_RAG_DISPLAY_NAME, "step_retrieval", "paper_rag", query, boundedMaxResults);
         try {
+            String normalizedQuery = normalizeQuery(query);
+            if (paperRagPayloadByNormalizedQuery.containsKey(normalizedQuery)) {
+                String payload = withToolControlFlag(
+                        paperRagPayloadByNormalizedQuery.get(normalizedQuery),
+                        "deduplicated",
+                        true
+                );
+                publishCompleted(
+                        "retrieval_worker",
+                        PAPER_RAG_DISPLAY_NAME,
+                        "step_retrieval",
+                        "paper_rag",
+                        "paper_rag reused an earlier identical query"
+                );
+                return payload;
+            }
+            if (paperRagBackendCalls >= PAPER_RAG_CALL_BUDGET) {
+                String payload = toJson(Map.of(
+                        "query", safe(query),
+                        "skipped", true,
+                        "reason", "paper_rag_budget_exhausted",
+                        "message", "paper_rag call budget for this answer has already been used.",
+                        "chunks", List.of()
+                ));
+                publishCompleted(
+                        "retrieval_worker",
+                        PAPER_RAG_DISPLAY_NAME,
+                        "step_retrieval",
+                        "paper_rag",
+                        "paper_rag skipped because the per-answer query budget was exhausted"
+                );
+                return payload;
+            }
             if (evidenceScope == null || !evidenceScope.hasScopedPaperEvidence()) {
                 RetrievalObservation observation = RetrievalObservation.builder(query, List.of(), boundedMaxResults)
                         .returnedScopedChunkCount(0)
@@ -157,8 +194,10 @@ public class ProjectAgentTools {
                         "paper_rag completed with no scoped paper evidence",
                         observation.summary()
                 );
+                paperRagPayloadByNormalizedQuery.put(normalizedQuery, payload);
                 return payload;
             }
+            paperRagBackendCalls++;
             RagResult retrieved = paperRagService.retrieve(
                     sessionId,
                     query,
@@ -190,6 +229,7 @@ public class ProjectAgentTools {
                     "paper_rag returned " + scopedChunks.size() + " scoped chunk(s)",
                     retrievalObservationSummary(this.ragResult.observation(), scopedChunks.size())
             );
+            paperRagPayloadByNormalizedQuery.put(normalizedQuery, payload);
             return payload;
         } catch (RuntimeException exception) {
             publishFailed("retrieval_worker", PAPER_RAG_DISPLAY_NAME, "step_retrieval", "paper_rag", exception);
@@ -383,6 +423,24 @@ public class ProjectAgentTools {
     private int boundedMaxResults(int requested, int defaultValue) {
         int normalized = requested <= 0 ? defaultValue : requested;
         return Math.min(normalized, 10);
+    }
+
+    private String normalizeQuery(String query) {
+        return safe(query)
+                .trim()
+                .replaceAll("\\s+", " ")
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private String withToolControlFlag(String payload, String key, boolean value) {
+        try {
+            Map<String, Object> data = objectMapper.readValue(payload, new com.fasterxml.jackson.core.type.TypeReference<>() {
+            });
+            data.put(key, value);
+            return toJson(data);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to serialize project agent tool result", exception);
+        }
     }
 
     private String toJson(Object value) {
