@@ -1,8 +1,14 @@
 package com.researchassistant.events;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -52,17 +58,27 @@ class StreamEventEnvelopeTest {
                         "run.started",
                         "run.completed",
                         "run.failed",
+                        "run.cancelled",
                         "agent.plan.created",
                         "agent.step.started",
                         "agent.step.completed",
+                        "agent.step.failed",
                         "retrieval.started",
                         "retrieval.completed",
+                        "retrieval.query.rewritten",
+                        "retrieval.hit",
                         "evidence.evaluated",
+                        "evidence.gap.detected",
                         "answer.delta",
                         "answer.completed",
+                        "tool.called",
+                        "tool.completed",
+                        "tool.failed",
                         "candidate.created",
                         "knowledge.entry.created",
                         "source.status.changed",
+                        "memory.hit",
+                        "memory.completed",
                         "memory.flush.started",
                         "memory.flush.completed",
                         "feedback.applied"
@@ -75,6 +91,19 @@ class StreamEventEnvelopeTest {
                 .isEqualTo(WorkbenchEventType.RUN_STARTED);
         assertThat(WorkbenchEventType.fromWireName("answer.delta"))
                 .isEqualTo(WorkbenchEventType.ANSWER_DELTA);
+        assertThat(WorkbenchEventType.fromWireName("tool.called"))
+                .isEqualTo(WorkbenchEventType.TOOL_CALLED);
+        assertThat(WorkbenchEventType.fromWireName("retrieval.hit"))
+                .isEqualTo(WorkbenchEventType.RETRIEVAL_HIT);
+    }
+
+    @Test
+    void terminalRunEventsAreExplicit() {
+        assertThat(WorkbenchRunEventStream.isTerminal(WorkbenchEventType.RUN_COMPLETED)).isTrue();
+        assertThat(WorkbenchRunEventStream.isTerminal(WorkbenchEventType.RUN_FAILED)).isTrue();
+        assertThat(WorkbenchRunEventStream.isTerminal(WorkbenchEventType.RUN_CANCELLED)).isTrue();
+        assertThat(WorkbenchRunEventStream.isTerminal(WorkbenchEventType.ANSWER_COMPLETED)).isFalse();
+        assertThat(WorkbenchRunEventStream.isTerminal(WorkbenchEventType.RETRIEVAL_COMPLETED)).isFalse();
     }
 
     @Test
@@ -157,6 +186,43 @@ class StreamEventEnvelopeTest {
         assertThat(fromBeginning).extracting(WorkbenchEvent::eventId)
                 .containsExactly(first.eventId(), second.eventId(), third.eventId());
         assertThat(second.payload()).containsEntry("delta", "hello");
+    }
+
+    @Test
+    void inMemoryPublisherWaitsForRunEventsPublishedAfterTheReadStarts() throws Exception {
+        CountDownLatch readStarted = new CountDownLatch(1);
+        InMemoryWorkbenchEventPublisher publisher = new InMemoryWorkbenchEventPublisher() {
+            @Override
+            public synchronized List<WorkbenchEvent> readRunEventsAfter(
+                    String runId,
+                    String lastEventId,
+                    Duration wait) {
+                readStarted.countDown();
+                return super.readRunEventsAfter(runId, lastEventId, wait);
+            }
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<List<WorkbenchEvent>> future = executor.submit(() ->
+                    publisher.readRunEventsAfter("run-live", null, Duration.ofSeconds(1))
+            );
+
+            assertThat(readStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            WorkbenchEvent published = publisher.publish(WorkbenchEvent.pending(
+                    WorkbenchEventType.RUN_STARTED,
+                    "project-1",
+                    "session-1",
+                    "run-live",
+                    "supervisor",
+                    Map.of("question", "why?")
+            ));
+
+            assertThat(future.get(2, TimeUnit.SECONDS))
+                    .extracting(WorkbenchEvent::eventId)
+                    .containsExactly(published.eventId());
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

@@ -12,6 +12,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.isA;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -77,6 +78,29 @@ class ProjectControllerTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$[?(@.id == '" + sessionA + "')].title", hasItem("Evidence boundary design")))
                 .andExpect(jsonPath("$[?(@.id == '" + sessionA + "')].status", hasItem("continue")))
                 .andExpect(jsonPath("$[?(@.id == '" + sessionA + "')].lastMessageAt", hasItem(nullValue())));
+    }
+
+    @Test
+    void renamesSessionUnderProject() throws Exception {
+        String projectId = createProject("Project");
+        String sessionId = createSession(projectId, "Initial title");
+
+        mockMvc.perform(patch("/api/projects/{projectId}/sessions/{sessionId}", projectId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Transformer literature review"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(sessionId))
+                .andExpect(jsonPath("$.projectId").value(projectId))
+                .andExpect(jsonPath("$.title").value("Transformer literature review"))
+                .andExpect(jsonPath("$.status").value("continue"));
+
+        mockMvc.perform(get("/api/projects/{projectId}/sessions", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == '" + sessionId + "')].title", hasItem("Transformer literature review")));
     }
 
     private String createProject(String topic) throws Exception {

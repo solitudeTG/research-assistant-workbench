@@ -8,6 +8,7 @@ import com.researchassistant.chat.dto.ProjectMessageResponse;
 import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.EvidenceAssessment;
 import com.researchassistant.evidence.EvidenceBoundaryService;
+import com.researchassistant.evidence.EvidenceLevel;
 import com.researchassistant.evidence.EvidenceSourceRepository;
 import com.researchassistant.evidence.ProjectEvidenceScope;
 import com.researchassistant.evidence.ProjectEvidenceScopeRepository;
@@ -17,14 +18,21 @@ import com.researchassistant.events.WorkbenchEventType;
 import com.researchassistant.ingest.model.ResearchDocument;
 import com.researchassistant.memory.ExplicitMemoryService;
 import com.researchassistant.memory.GlobalKnowledgeService;
+import com.researchassistant.memory.MemoryEntry;
+import com.researchassistant.memory.MemoryRecallHit;
 import com.researchassistant.memory.MemoryRecallResult;
 import com.researchassistant.memory.WorkingMemory;
 import com.researchassistant.memory.WorkingMemoryService;
 import com.researchassistant.orchestrator.support.DocumentMetadataService;
 import com.researchassistant.project.AssistantAnswerRepository;
+import com.researchassistant.project.ProjectRepository;
 import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagChunk;
 import com.researchassistant.rag.RagResult;
+import com.researchassistant.websearch.WebSearchHit;
+import com.researchassistant.websearch.WebSearchPort;
+import com.researchassistant.websearch.WebSearchResult;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +44,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class SupervisorService {
+
+    private static final int MAX_TRACE_HITS = 5;
 
     private final TaskRouter taskRouter;
     private final PaperRagService paperRagService;
@@ -49,9 +59,13 @@ public class SupervisorService {
     private final ChatClient chatClient;
     private final WorkbenchEventPublisher eventPublisher;
     private final AssistantAnswerRepository assistantAnswerRepository;
+    private final ProjectRepository projectRepository;
     private final EvidenceSourceRepository evidenceSourceRepository;
     private final ProjectEvidenceScopeRepository projectEvidenceScopeRepository;
     private final TransactionTemplate transactionTemplate;
+    private final AgentIntentRouter agentIntentRouter;
+    private final WebSearchPort webSearchPort;
+    private final ProjectAgentToolLoop projectAgentToolLoop;
 
     public SupervisorService(
             TaskRouter taskRouter,
@@ -66,9 +80,13 @@ public class SupervisorService {
             ChatClient chatClient,
             WorkbenchEventPublisher eventPublisher,
             AssistantAnswerRepository assistantAnswerRepository,
+            ProjectRepository projectRepository,
             EvidenceSourceRepository evidenceSourceRepository,
             ProjectEvidenceScopeRepository projectEvidenceScopeRepository,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            AgentIntentRouter agentIntentRouter,
+            WebSearchPort webSearchPort,
+            ProjectAgentToolLoop projectAgentToolLoop) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
         this.evidenceBoundaryService = evidenceBoundaryService;
@@ -81,9 +99,13 @@ public class SupervisorService {
         this.chatClient = chatClient;
         this.eventPublisher = eventPublisher;
         this.assistantAnswerRepository = assistantAnswerRepository;
+        this.projectRepository = projectRepository;
         this.evidenceSourceRepository = evidenceSourceRepository;
         this.projectEvidenceScopeRepository = projectEvidenceScopeRepository;
         this.transactionTemplate = transactionTemplate;
+        this.agentIntentRouter = agentIntentRouter;
+        this.webSearchPort = webSearchPort;
+        this.projectAgentToolLoop = projectAgentToolLoop;
     }
 
     public ProjectMessageResponse answerProject(String projectId, String sessionId, ProjectMessageRequest request) {
@@ -150,17 +172,37 @@ public class SupervisorService {
 
         try {
             WorkingMemory memory = workingMemoryService.load(sessionId);
-            MemoryRecallResult memoryRecallResult = memoryRecallPort.recall(memory.sessionId(), request.question(), 4);
-            String ragQuery = queryWithMemoryContext(request.question(), memoryRecallResult);
-            RagResult ragResult = evidenceScope.hasScopedPaperEvidence()
-                    ? scopedRagResult(paperRagService.retrieve(memory.sessionId(), ragQuery, documentIds, 5), evidenceScope)
-                    : new RagResult(ragQuery, documentIds, List.of());
-            EvidenceAssessment assessment = evidenceBoundaryService.assessProjectEvidence(
+            boolean allowWebSupplement = Boolean.TRUE.equals(request.allowWebSupplement());
+            ProjectAgentRun agentRun = projectAgentToolLoop.run(new ProjectAgentRequest(
+                    projectId,
+                    sessionId,
+                    runId,
+                    messageId,
+                    answerId,
+                    request.question(),
+                    memory,
+                    globalKnowledgeService.snapshot(),
+                    evidenceScope,
+                    allowWebSupplement
+            ));
+            RagResult ragResult = agentRun.ragResult() == null
+                    ? new RagResult(request.question(), documentIds, List.of())
+                    : scopedRagResult(agentRun.ragResult(), evidenceScope);
+            WebSearchResult webSearchResult = agentRun.webSearchResult();
+            MemoryRecallResult memoryRecallResult = agentRun.memoryRecallResult();
+            EvidenceAssessment assessment = projectAgentEvidenceAssessment(
+                    agentRun,
                     ragResult,
-                    Boolean.TRUE.equals(request.allowWebSupplement())
+                    webSearchResult,
+                    allowWebSupplement
             );
-            RetrievalMode retrievalMode = projectRetrievalMode(evidenceScope, memoryRecallResult, assessment);
-            String answer = draftProjectAnswer(request, memory, memoryRecallResult, ragResult, assessment);
+            RetrievalMode retrievalMode = projectAgentRetrievalMode(
+                    agentRun,
+                    evidenceScope,
+                    memoryRecallResult,
+                    assessment
+            );
+            String answer = agentRun.answer() == null ? "" : agentRun.answer();
 
             persistProjectAnswerAndEvidence(
                     answerId,
@@ -170,9 +212,12 @@ public class SupervisorService {
                     answer,
                     assessment,
                     ragResult,
+                    webSearchResult,
                     evidenceScope
             );
 
+            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memoryRecallResult, agentRun);
+            publishRetrievalHitEvents(projectId, sessionId, runId, answerId, ragResult, webSearchResult, evidenceScope);
             publishRunEvent(
                     WorkbenchEventType.RETRIEVAL_COMPLETED,
                     projectId,
@@ -185,7 +230,11 @@ public class SupervisorService {
                             "sourceFilterCount", request.sourceFilters() == null ? 0 : request.sourceFilters().size(),
                             "paperEvidenceCount", chunkCount(ragResult),
                             "memoryRecallCount", memoryHitCount(memoryRecallResult),
-                            "webSupplementAllowed", Boolean.TRUE.equals(request.allowWebSupplement()),
+                            "webSupplementAllowed", allowWebSupplement,
+                            "intent", "MAIN_AGENT_TOOL_LOOP",
+                            "toolsUsed", agentRun.toolsUsed() == null ? List.of() : agentRun.toolsUsed(),
+                            "webEvidenceCount", webHitCount(webSearchResult),
+                            "webSearchStatus", webSearchStatus(webSearchResult),
                             "topPaperScore", topPaperScore(ragResult),
                             "citationCount", assessment.citationCount(),
                             "summary", retrievalSummary(ragResult, memoryRecallResult)
@@ -201,18 +250,28 @@ public class SupervisorService {
                     payload(
                             "evidenceState", assessment.evidenceLevel().name(),
                             "outputMode", assessment.answerMode().name(),
-                            "citationCount", assessment.citationCount()
+                            "citationCount", assessment.citationCount(),
+                            "sourceTypes", sourceTypes(ragResult, webSearchResult)
                     )
             );
-            publishRunEvent(
-                    WorkbenchEventType.ANSWER_DELTA,
-                    projectId,
-                    sessionId,
-                    runId,
-                    "writing-agent",
-                    answerId,
-                    payload("text", bounded(answer))
-            );
+            publishEvidenceGapIfNeeded(projectId, sessionId, runId, answerId, assessment, agentRun, ragResult, webSearchResult);
+            List<String> deltas = answerDeltas(answer);
+            for (int index = 0; index < deltas.size(); index++) {
+                String delta = deltas.get(index);
+                publishRunEvent(
+                        WorkbenchEventType.ANSWER_DELTA,
+                        projectId,
+                        sessionId,
+                        runId,
+                        "writing-agent",
+                        answerId,
+                        payload(
+                                "delta", bounded(delta),
+                                "text", bounded(delta),
+                                "index", index
+                        )
+                );
+            }
             publishRunEvent(
                     WorkbenchEventType.ANSWER_COMPLETED,
                     projectId,
@@ -368,6 +427,7 @@ public class SupervisorService {
                                                  String answer,
                                                  EvidenceAssessment assessment,
                                                  RagResult ragResult,
+                                                 WebSearchResult webSearchResult,
                                                  ProjectEvidenceScope evidenceScope) {
         transactionTemplate.executeWithoutResult(status -> {
             assistantAnswerRepository.insert(
@@ -385,7 +445,9 @@ public class SupervisorService {
                     chunksOf(ragResult),
                     evidenceScope.sourceIdByIndexedDocumentId()
             );
+            evidenceSourceRepository.insertWebSources(projectId, answerId, webSearchResult);
             workingMemoryService.appendExchange(sessionId, question, answer, assessment.answerMode().name());
+            projectRepository.markSessionMessaged(projectId, sessionId);
         });
     }
 
@@ -406,11 +468,152 @@ public class SupervisorService {
         return RetrievalMode.PAPER_RAG_ONLY;
     }
 
+    private RetrievalMode projectAgentRetrievalMode(ProjectAgentRun agentRun,
+                                                    ProjectEvidenceScope evidenceScope,
+                                                    MemoryRecallResult memoryRecallResult,
+                                                    EvidenceAssessment assessment) {
+        if (agentRun != null && agentRun.webSearchResult() != null) {
+            return RetrievalMode.WEB_SUPPLEMENT;
+        }
+        if (assessment.answerMode() == AnswerMode.WEB_SUPPLEMENT) {
+            return RetrievalMode.WEB_SUPPLEMENT;
+        }
+        if (agentRun != null && agentRun.toolsUsed() != null) {
+            boolean memoryRecallCalled = agentRun.toolsUsed().contains("memory_recall");
+            boolean paperRagCalled = agentRun.toolsUsed().contains("paper_rag");
+            if (memoryRecallCalled && paperRagCalled) {
+                return RetrievalMode.MEMORY_THEN_PAPER;
+            }
+            if (memoryRecallCalled) {
+                return RetrievalMode.MEMORY_RECALL_ONLY;
+            }
+            if (paperRagCalled) {
+                if (!evidenceScope.hasScopedPaperEvidence()) {
+                    return RetrievalMode.NO_RETRIEVAL;
+                }
+                return RetrievalMode.PAPER_RAG_ONLY;
+            }
+            return RetrievalMode.NO_RETRIEVAL;
+        }
+        return projectRetrievalMode(evidenceScope, memoryRecallResult, assessment);
+    }
+
+    private RetrievalMode projectRetrievalMode(AgentRoutingDecision routingDecision,
+                                               ProjectEvidenceScope evidenceScope,
+                                               MemoryRecallResult memoryRecallResult,
+                                               EvidenceAssessment assessment) {
+        if (routingDecision.intent() == AgentIntent.SIMPLE_CHAT) {
+            return RetrievalMode.NO_RETRIEVAL;
+        }
+        if (routingDecision.intent() == AgentIntent.MEMORY_RECALL) {
+            return RetrievalMode.MEMORY_RECALL_ONLY;
+        }
+        if (routingDecision.needsWebSearch()) {
+            return RetrievalMode.WEB_SUPPLEMENT;
+        }
+        return projectRetrievalMode(evidenceScope, memoryRecallResult, assessment);
+    }
+
+    private EvidenceAssessment projectEvidenceAssessment(AgentRoutingDecision routingDecision,
+                                                         RagResult ragResult,
+                                                         WebSearchResult webSearchResult,
+                                                         boolean allowWebSupplement) {
+        if (routingDecision.intent() == AgentIntent.SIMPLE_CHAT) {
+            return new EvidenceAssessment(EvidenceLevel.NONE, AnswerMode.LOCAL_WEAK_EVIDENCE, 0);
+        }
+        if (routingDecision.intent() == AgentIntent.MEMORY_RECALL) {
+            return new EvidenceAssessment(EvidenceLevel.WEAK, AnswerMode.LOCAL_WEAK_EVIDENCE, 0);
+        }
+        if (hasWebHits(webSearchResult)) {
+            return new EvidenceAssessment(
+                    EvidenceLevel.WEAK,
+                    AnswerMode.WEB_SUPPLEMENT,
+                    chunkCount(ragResult) + webHitCount(webSearchResult)
+            );
+        }
+        if (routingDecision.intent() == AgentIntent.WEB_SEARCH && webSearchResult != null) {
+            return new EvidenceAssessment(EvidenceLevel.WEAK, AnswerMode.WEB_SUPPLEMENT, 0);
+        }
+        return evidenceBoundaryService.assessProjectEvidence(ragResult, allowWebSupplement);
+    }
+
+    private EvidenceAssessment projectAgentEvidenceAssessment(ProjectAgentRun agentRun,
+                                                              RagResult ragResult,
+                                                              WebSearchResult webSearchResult,
+                                                              boolean allowWebSupplement) {
+        if (hasWebHits(webSearchResult)) {
+            return new EvidenceAssessment(
+                    EvidenceLevel.WEAK,
+                    AnswerMode.WEB_SUPPLEMENT,
+                    chunkCount(ragResult) + webHitCount(webSearchResult)
+            );
+        }
+        if (webSearchResult != null) {
+            return new EvidenceAssessment(EvidenceLevel.WEAK, AnswerMode.WEB_SUPPLEMENT, chunkCount(ragResult));
+        }
+        if (chunkCount(ragResult) > 0) {
+            return evidenceBoundaryService.assessProjectEvidence(ragResult, allowWebSupplement);
+        }
+        if (agentRun != null && agentRun.toolsUsed() != null && agentRun.toolsUsed().contains("paper_rag")) {
+            return evidenceBoundaryService.assessProjectEvidence(ragResult, allowWebSupplement);
+        }
+        if (agentRun != null && agentRun.memoryRecallResult() != null && !agentRun.memoryRecallResult().isEmpty()) {
+            return new EvidenceAssessment(EvidenceLevel.WEAK, AnswerMode.LOCAL_WEAK_EVIDENCE, 0);
+        }
+        if (agentRun != null && agentRun.toolsUsed() != null && agentRun.toolsUsed().contains("memory_recall")) {
+            return new EvidenceAssessment(EvidenceLevel.WEAK, AnswerMode.LOCAL_WEAK_EVIDENCE, 0);
+        }
+        return new EvidenceAssessment(EvidenceLevel.NONE, AnswerMode.LOCAL_WEAK_EVIDENCE, 0);
+    }
+
+    private EvidenceAssessment projectPlanningAssessment(RagResult ragResult) {
+        if (chunkCount(ragResult) == 0) {
+            return new EvidenceAssessment(EvidenceLevel.WEAK, AnswerMode.LOCAL_WEAK_EVIDENCE, 0);
+        }
+        return new EvidenceAssessment(EvidenceLevel.SUFFICIENT, AnswerMode.LOCAL_EVIDENCE, chunkCount(ragResult));
+    }
+
     private String draftProjectAnswer(ProjectMessageRequest request,
                                       WorkingMemory memory,
                                       MemoryRecallResult memoryRecallResult,
                                       RagResult ragResult,
+                                      WebSearchResult webSearchResult,
+                                      AgentRoutingDecision routingDecision,
                                       EvidenceAssessment assessment) {
+        if (routingDecision.intent() == AgentIntent.SIMPLE_CHAT) {
+            String content = chatClient.prompt()
+                    .system("Answer naturally as the main research assistant. Explain that you can help with project research and optional web search. Do not mention missing paper evidence for greetings or simple interaction.")
+                    .user("User message: " + request.question()
+                            + "\n\nWorking memory:\n" + safe(memory.rollingSummary())
+                            + "\n\nGlobal knowledge:\n" + globalKnowledgeBlock())
+                    .call()
+                    .content();
+            return content == null || content.isBlank()
+                    ? "你好，我在。你可以问项目资料，也可以让我联网补充。"
+                    : content;
+        }
+        if (routingDecision.intent() == AgentIntent.MEMORY_RECALL) {
+            if (memoryRecallResult == null || memoryRecallResult.isEmpty()) {
+                return "I do not have enough prior discussion in memory for this project yet.";
+            }
+            String content = chatClient.prompt()
+                    .system("Answer from prior project memory. Be clear that this is historical conversation context, not paper evidence.")
+                    .user("Question: " + request.question()
+                            + "\n\nWorking memory:\n" + safe(memory.rollingSummary())
+                            + "\n\nGlobal knowledge:\n" + globalKnowledgeBlock()
+                            + "\n\nMemory context:\n" + memoryRecallResult.contextBlock())
+                    .call()
+                    .content();
+            return content == null || content.isBlank()
+                    ? memoryRecallResult.contextBlock()
+                    : content;
+        }
+        if (routingDecision.intent() == AgentIntent.WEB_SEARCH && webSearchResult != null && !hasWebHits(webSearchResult)) {
+            String status = webSearchResult.degraded() ? "degraded" : "unavailable";
+            String message = safe(webSearchResult.message());
+            return "The web search is currently " + status + ". " + message
+                    + " I do not have web results to cite for this request.";
+        }
         if (assessment.answerMode() == AnswerMode.REFUSAL) {
             return "当前项目资料中没有足够的论文证据支撑回答。请补充或重新索引相关资料后再提问。";
         }
@@ -419,7 +622,7 @@ public class SupervisorService {
                 .reduce((left, right) -> left + "\n" + right)
                 .orElse("");
         String systemPrompt = assessment.answerMode() == AnswerMode.WEB_SUPPLEMENT
-                ? "Answer conservatively. Local paper evidence is weak; label the answer as requiring web supplement and do not present web claims as local paper evidence."
+                ? "Answer conservatively. Separate local paper evidence from web supplement. Do not present web claims as local paper evidence."
                 : "Answer conservatively. Memory context is background only. Paper context is the current evidence source.";
         String content = chatClient.prompt()
                 .system(systemPrompt)
@@ -427,7 +630,8 @@ public class SupervisorService {
                         + "\n\nWorking memory:\n" + safe(memory.rollingSummary())
                         + "\n\nGlobal knowledge:\n" + globalKnowledgeBlock()
                         + "\n\nMemory context:\n" + (memoryRecallResult == null ? "" : memoryRecallResult.contextBlock())
-                        + "\n\nPaper evidence:\n" + evidenceContext)
+                        + "\n\nPaper evidence:\n" + evidenceContext
+                        + "\n\nWeb evidence:\n" + webEvidenceBlock(webSearchResult))
                 .call()
                 .content();
         if (content == null || content.isBlank()) {
@@ -436,6 +640,221 @@ public class SupervisorService {
                     : "已基于当前论文证据生成回答。";
         }
         return content;
+    }
+
+    private String webEvidenceBlock(WebSearchResult webSearchResult) {
+        if (!hasWebHits(webSearchResult)) {
+            return webSearchResult != null && webSearchResult.degraded()
+                    ? "(web search degraded: " + safe(webSearchResult.message()) + ")"
+                    : "(none)";
+        }
+        return webSearchResult.hits().stream()
+                .map(hit -> "- " + hit.title() + " (" + hit.url() + "): " + hit.snippet())
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("(none)");
+    }
+
+    private boolean hasWebHits(WebSearchResult webSearchResult) {
+        return webSearchResult != null
+                && webSearchResult.hits() != null
+                && !webSearchResult.hits().isEmpty();
+    }
+
+    private int webHitCount(WebSearchResult webSearchResult) {
+        return webSearchResult == null || webSearchResult.hits() == null
+                ? 0
+                : webSearchResult.hits().size();
+    }
+
+    private String webSearchStatus(WebSearchResult webSearchResult) {
+        if (webSearchResult == null) {
+            return "not_requested";
+        }
+        return webSearchResult.degraded() ? "degraded" : "completed";
+    }
+
+    private void publishMemoryTraceEvents(String projectId,
+                                          String sessionId,
+                                          String runId,
+                                          String answerId,
+                                          MemoryRecallResult memoryRecallResult,
+                                          ProjectAgentRun agentRun) {
+        List<MemoryRecallHit> hits = memoryRecallResult == null || memoryRecallResult.hits() == null
+                ? List.of()
+                : memoryRecallResult.hits();
+        for (MemoryRecallHit hit : hits) {
+            Map<String, Object> data = payload(
+                    "memoryLayer", "L3",
+                    "label", "\u957f\u671f\u8bb0\u5fc6\u53ec\u56de",
+                    "snippet", bounded(memorySnippet(hit)),
+                    "score", hit.finalScore()
+            );
+            publishRunEvent(
+                    WorkbenchEventType.MEMORY_HIT,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "memory_worker",
+                    answerId,
+                    payload("data", data)
+            );
+        }
+        if (!hits.isEmpty() || toolWasUsed(agentRun, "memory_recall")) {
+            publishRunEvent(
+                    WorkbenchEventType.MEMORY_COMPLETED,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "memory_worker",
+                    answerId,
+                    payload("data", payload("hitCount", hits.size()))
+            );
+        }
+    }
+
+    private void publishRetrievalHitEvents(String projectId,
+                                           String sessionId,
+                                           String runId,
+                                           String answerId,
+                                           RagResult ragResult,
+                                           WebSearchResult webSearchResult,
+                                           ProjectEvidenceScope evidenceScope) {
+        List<RagChunk> chunks = chunksOf(ragResult).stream().limit(MAX_TRACE_HITS).toList();
+        for (int index = 0; index < chunks.size(); index++) {
+            RagChunk chunk = chunks.get(index);
+            String sourceId = evidenceScope.sourceIdByIndexedDocumentId().get(chunk.documentId());
+            publishRunEvent(
+                    WorkbenchEventType.RETRIEVAL_HIT,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "retrieval-agent",
+                    answerId,
+                    payload("data", payload(
+                            "sourceType", "paper",
+                            "sourceId", sourceId == null ? String.valueOf(chunk.documentId()) : sourceId,
+                            "title", "Paper chunk " + chunk.documentId() + "#" + chunk.chunkIndex(),
+                            "snippet", bounded(chunk.content()),
+                            "score", chunk.finalScore(),
+                            "rank", index + 1,
+                            "retrievalMode", "vector"
+                    ))
+            );
+        }
+
+        List<WebSearchHit> webHits = webSearchResult == null || webSearchResult.hits() == null
+                ? List.of()
+                : webSearchResult.hits().stream().limit(MAX_TRACE_HITS).toList();
+        for (int index = 0; index < webHits.size(); index++) {
+            WebSearchHit hit = webHits.get(index);
+            publishRunEvent(
+                    WorkbenchEventType.RETRIEVAL_HIT,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "retrieval-agent",
+                    answerId,
+                    payload("data", payload(
+                            "sourceType", "web",
+                            "url", safe(hit.url()),
+                            "title", safe(hit.title()),
+                            "provider", safe(webSearchResult.provider()),
+                            "snippet", bounded(hit.snippet()),
+                            "score", hit.score(),
+                            "rank", index + 1,
+                            "retrievalMode", "web"
+                    ))
+            );
+        }
+    }
+
+    private void publishEvidenceGapIfNeeded(String projectId,
+                                            String sessionId,
+                                            String runId,
+                                            String answerId,
+                                            EvidenceAssessment assessment,
+                                            ProjectAgentRun agentRun,
+                                            RagResult ragResult,
+                                            WebSearchResult webSearchResult) {
+        if (!hasResearchEvidencePath(agentRun, ragResult, webSearchResult)) {
+            return;
+        }
+        if (assessment.evidenceLevel() == EvidenceLevel.SUFFICIENT && assessment.citationCount() > 0) {
+            return;
+        }
+        publishRunEvent(
+                WorkbenchEventType.EVIDENCE_GAP_DETECTED,
+                projectId,
+                sessionId,
+                runId,
+                "evidence-boundary",
+                answerId,
+                payload("data", payload(
+                        "claim", "Current answer has an evidence boundary.",
+                        "reason", "This run lacks sufficient local paper evidence or only has weak evidence.",
+                        "severity", "medium"
+                ))
+        );
+    }
+
+    private List<String> answerDeltas(String answer) {
+        if (answer == null || answer.isBlank()) {
+            return List.of("");
+        }
+        List<String> deltas = Arrays.stream(answer.split("\\n\\s*\\n"))
+                .map(String::trim)
+                .filter(part -> !part.isBlank())
+                .toList();
+        return deltas.isEmpty() ? List.of("") : deltas;
+    }
+
+    private String memorySnippet(MemoryRecallHit hit) {
+        if (hit == null || hit.entry() == null) {
+            return "";
+        }
+        MemoryEntry entry = hit.entry();
+        String keyFindings = entry.keyFindings() == null || entry.keyFindings().isEmpty()
+                ? ""
+                : "\nFindings: " + String.join("; ", entry.keyFindings());
+        return safe(entry.topic()) + "\n" + safe(entry.summary()) + keyFindings;
+    }
+
+    private boolean toolWasUsed(ProjectAgentRun agentRun, String toolName) {
+        return agentRun != null
+                && agentRun.toolsUsed() != null
+                && agentRun.toolsUsed().contains(toolName);
+    }
+
+    private boolean hasResearchEvidencePath(ProjectAgentRun agentRun, RagResult ragResult, WebSearchResult webSearchResult) {
+        return chunkCount(ragResult) > 0
+                || webSearchResult != null
+                || toolWasUsed(agentRun, "paper_rag")
+                || toolWasUsed(agentRun, "tavily_web_search");
+    }
+
+    private List<String> sourceTypes(RagResult ragResult, WebSearchResult webSearchResult) {
+        List<String> sourceTypes = new java.util.ArrayList<>();
+        if (chunkCount(ragResult) > 0) {
+            sourceTypes.add("paper");
+        }
+        if (hasWebHits(webSearchResult)) {
+            sourceTypes.add("web");
+        }
+        return sourceTypes;
+    }
+
+    private List<String> toolsUsed(boolean memoryRecallCalled, boolean paperRagCalled, boolean webSearchCalled) {
+        List<String> tools = new java.util.ArrayList<>();
+        if (memoryRecallCalled) {
+            tools.add("memory_recall");
+        }
+        if (paperRagCalled) {
+            tools.add("paper_rag");
+        }
+        if (webSearchCalled) {
+            tools.add("tavily_web_search");
+        }
+        return tools;
     }
 
     private double topPaperScore(RagResult ragResult) {

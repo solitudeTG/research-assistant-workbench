@@ -1,5 +1,6 @@
 package com.researchassistant.events;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,6 +31,7 @@ public class InMemoryWorkbenchEventPublisher implements WorkbenchEventPublisher 
                 OffsetDateTime.now()
         );
         eventsByRun.computeIfAbsent(streamKey, ignored -> new ArrayList<>()).add(published);
+        notifyAll();
         return published;
     }
 
@@ -53,6 +55,29 @@ public class InMemoryWorkbenchEventPublisher implements WorkbenchEventPublisher 
             return runEvents;
         }
         return runEvents.subList(lastSeenIndex + 1, runEvents.size());
+    }
+
+    @Override
+    public synchronized List<WorkbenchEvent> readRunEventsAfter(String runId, String lastEventId, Duration wait) {
+        List<WorkbenchEvent> current = readRunEventsAfter(runId, lastEventId);
+        if (!current.isEmpty() || wait == null || wait.isZero() || wait.isNegative()) {
+            return current;
+        }
+        long deadline = System.currentTimeMillis() + wait.toMillis();
+        while (current.isEmpty()) {
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) {
+                return List.of();
+            }
+            try {
+                wait(remaining);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return List.of();
+            }
+            current = readRunEventsAfter(runId, lastEventId);
+        }
+        return current;
     }
 
     private String streamKey(WorkbenchEvent event) {

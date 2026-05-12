@@ -97,8 +97,28 @@ class PaperRagServiceTest {
         verify(retrievalTraceRepository).save(eq(8L), eq(query), eq(Map.of(
                 "documentIds", allowedDocumentIds,
                 "rewrittenQueries", rewritePlan.retrievalQueries(),
-                "keywords", rewritePlan.keywords()
+                "keywords", rewritePlan.keywords(),
+                "rewriteStrategy", rewritePlan.strategy()
         )), any(), any());
+    }
+
+    @Test
+    void observationClassifiesNoBackendHits() {
+        String query = "nonexistent technique";
+        List<Long> allowedDocumentIds = List.of(7L);
+        QueryRewritePlan rewritePlan = QueryRewritePlan.originalOnly(query);
+
+        when(queryRewriteService.rewrite(query)).thenReturn(rewritePlan);
+        when(keywordSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+        when(vectorSearchPort.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+        when(metadataSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+
+        RagResult result = paperRagService.retrieve(8L, query, allowedDocumentIds, 5);
+
+        assertThat(result.chunks()).isEmpty();
+        assertThat(result.observation().zeroHitReason()).isEqualTo(ZeroHitReason.NO_BACKEND_HITS);
+        assertThat(result.observation().backendStats().get("keyword").postScopeHits()).isZero();
+        assertThat(result.observation().returnedScopedChunkCount()).isZero();
     }
 
     @Test

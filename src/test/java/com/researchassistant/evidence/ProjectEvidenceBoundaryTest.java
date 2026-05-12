@@ -9,6 +9,9 @@ import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.memory.MemoryRecallHit;
 import com.researchassistant.memory.MemoryRecallResult;
 import com.researchassistant.orchestrator.MemoryRecallPort;
+import com.researchassistant.orchestrator.ProjectAgentRequest;
+import com.researchassistant.orchestrator.ProjectAgentRun;
+import com.researchassistant.orchestrator.ProjectAgentToolLoop;
 import com.researchassistant.orchestrator.SupervisorService;
 import com.researchassistant.project.ProjectRecord;
 import com.researchassistant.project.ProjectRepository;
@@ -17,10 +20,15 @@ import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagChunk;
 import com.researchassistant.rag.RagResult;
 import com.researchassistant.support.PostgresIntegrationTest;
+import com.researchassistant.websearch.WebSearchHit;
+import com.researchassistant.websearch.WebSearchPort;
+import com.researchassistant.websearch.WebSearchResult;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -79,8 +87,20 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
     @MockBean
     private MemoryRecallPort memoryRecallPort;
 
+    @MockBean
+    private WebSearchPort webSearchPort;
+
+    @MockBean
+    private ProjectAgentToolLoop projectAgentToolLoop;
+
     @MockBean(answer = org.mockito.Answers.RETURNS_DEEP_STUBS)
     private ChatClient chatClient;
+
+    @BeforeEach
+    void useDefaultProjectAgentToolLoopFixture() {
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> defaultAgentRun(invocation.getArgument(0)));
+    }
 
     @Test
     void strongPaperEvidenceProducesSufficientLocalEvidenceAndPersistsPaperSources() throws Exception {
@@ -117,7 +137,7 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
         assertThat(evidenceRows.get(0).get("snippet")).asString()
                 .contains("bounded retrieval drift");
 
-        assertEvidenceEvent(response.streamRunId(), answerId, "SUFFICIENT", "LOCAL_EVIDENCE", 1);
+        assertEvidenceEvent(response.streamRunId(), answerId, "SUFFICIENT", "LOCAL_EVIDENCE", 1, List.of("paper"));
         assertRetrievalCompletedEvent(response.streamRunId(), answerId, "PAPER_RAG_ONLY", 1, 0, false);
     }
 
@@ -125,13 +145,12 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
     void weakLocalEvidenceWithWebAllowedProducesWeakWebSupplement() {
         ResearchSessionRecord session = createSession();
         insertIndexedProjectSource(session.projectId(), 12L);
+        String question = "What does the method imply?";
         RagResult ragResult = new RagResult(
-                "What does the method imply?",
+                question,
                 List.of(12L),
                 List.of(new RagChunk(102L, 12L, 1, "The method may reduce manual evidence review.", 0.42))
         );
-        when(memoryRecallPort.recall(anyLong(), eq("What does the method imply?"), anyInt()))
-                .thenReturn(new MemoryRecallResult("What does the method imply?", List.of()));
         when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of(12L)), eq(5))).thenReturn(ragResult);
         when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
                 .thenReturn("Local evidence is weak; web supplement is required.");
@@ -139,7 +158,7 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
         ProjectMessageResponse response = supervisorService.answerProject(
                 session.projectId(),
                 session.id(),
-                new ProjectMessageRequest("What does the method imply?", List.of(), true, false, "local_first")
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
         );
         String answerId = response.answerId();
 
@@ -147,23 +166,139 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
                 .containsEntry("evidence_state", "WEAK")
                 .containsEntry("answer_mode", "WEB_SUPPLEMENT");
         assertThat(evidenceRows(answerId)).hasSize(1);
-        assertEvidenceEvent(response.streamRunId(), answerId, "WEAK", "WEB_SUPPLEMENT", 1);
+        assertEvidenceEvent(response.streamRunId(), answerId, "WEAK", "WEB_SUPPLEMENT", 1, List.of("paper"));
         assertRetrievalCompletedEvent(response.streamRunId(), answerId, "WEB_SUPPLEMENT", 1, 0, true);
+    }
+
+    @Test
+    void explicitWebSearchPersistsWebEvidenceMetadata() throws Exception {
+        ResearchSessionRecord session = createSession();
+        String question = "search current Tavily API evidence";
+        when(webSearchPort.search(eq(question), eq(5)))
+                .thenReturn(new WebSearchResult(
+                        question,
+                        List.of(new WebSearchHit(
+                                "Tavily Search API",
+                                "https://docs.tavily.com/docs/rest-api/api-reference",
+                                "Tavily returns search results with titles, urls, and content snippets.",
+                                0.86
+                        )),
+                        "tavily",
+                        false,
+                        ""
+                ));
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("Tavily exposes a search API.");
+
+        ProjectMessageResponse response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        List<Map<String, Object>> evidenceRows = evidenceRows(response.answerId());
+        assertThat(evidenceRows).hasSize(1);
+        assertThat(evidenceRows.get(0))
+                .containsEntry("source_type", "web")
+                .containsEntry("source_id", null)
+                .containsEntry("snippet", "Tavily returns search results with titles, urls, and content snippets.")
+                .containsEntry("strength", "strong");
+        JsonNode metadata = citationMeta(evidenceRows.get(0));
+        assertThat(metadata.get("title").asText()).isEqualTo("Tavily Search API");
+        assertThat(metadata.get("url").asText()).isEqualTo("https://docs.tavily.com/docs/rest-api/api-reference");
+        assertThat(metadata.get("provider").asText()).isEqualTo("tavily");
+        assertThat(metadata.get("snippet").asText()).contains("content snippets");
+        assertEvidenceEvent(response.streamRunId(), response.answerId(), "WEAK", "WEB_SUPPLEMENT", 1, List.of("web"));
+    }
+
+    @Test
+    void mixedPaperAndWebAnswerPersistsSeparateEvidenceSourceTypes() {
+        ResearchSessionRecord session = createSession();
+        String sourceId = insertIndexedProjectSource(session.projectId(), 121L);
+        String question = "paper latest comparison search";
+        when(memoryRecallPort.recall(anyLong(), eq(question), anyInt()))
+                .thenReturn(new MemoryRecallResult(question, List.of()));
+        when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of(121L)), eq(5)))
+                .thenReturn(new RagResult(
+                        question,
+                        List.of(121L),
+                        List.of(new RagChunk(301L, 121L, 0, "Paper baseline evidence.", 0.9))
+                ));
+        when(webSearchPort.search(eq(question), eq(5)))
+                .thenReturn(new WebSearchResult(
+                        question,
+                        List.of(new WebSearchHit(
+                                "Recent benchmark",
+                                "https://example.test/recent-benchmark",
+                                "Recent web benchmark evidence.",
+                                0.72
+                        )),
+                        "tavily",
+                        false,
+                        ""
+                ));
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("Paper and web evidence are separated.");
+
+        ProjectMessageResponse response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        List<Map<String, Object>> evidenceRows = evidenceRows(response.answerId());
+        assertThat(evidenceRows).hasSize(2);
+        assertThat(evidenceRows)
+                .extracting(row -> row.get("source_type"))
+                .containsExactlyInAnyOrder("paper", "web");
+        Map<String, Object> paperRow = evidenceRows.stream()
+                .filter(row -> "paper".equals(row.get("source_type")))
+                .findFirst()
+                .orElseThrow();
+        Map<String, Object> webRow = evidenceRows.stream()
+                .filter(row -> "web".equals(row.get("source_type")))
+                .findFirst()
+                .orElseThrow();
+        assertThat(paperRow)
+                .containsEntry("source_id", sourceId)
+                .containsEntry("snippet", "Paper baseline evidence.");
+        assertThat(webRow)
+                .containsEntry("source_id", null)
+                .containsEntry("snippet", "Recent web benchmark evidence.");
+        assertEvidenceEvent(response.streamRunId(), response.answerId(), "WEAK", "WEB_SUPPLEMENT", 2, List.of("paper", "web"));
+    }
+
+    @Test
+    void degradedWebSearchDoesNotInsertFakeEvidenceRows() {
+        ResearchSessionRecord session = createSession();
+        String question = "search current unavailable web";
+        when(webSearchPort.search(eq(question), eq(5)))
+                .thenReturn(WebSearchResult.degraded(question, "tavily", "Tavily timeout"));
+
+        ProjectMessageResponse response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        assertThat(answerRow(response.answerId()))
+                .containsEntry("evidence_state", "WEAK")
+                .containsEntry("answer_mode", "WEB_SUPPLEMENT");
+        assertThat(evidenceRows(response.answerId())).isEmpty();
     }
 
     @Test
     void noEvidenceWithWebDisabledProducesNoneRefusal() {
         ResearchSessionRecord session = createSession();
         insertIndexedProjectSource(session.projectId(), 13L);
-        when(memoryRecallPort.recall(anyLong(), eq("What evidence supports the claim?"), anyInt()))
-                .thenReturn(new MemoryRecallResult("What evidence supports the claim?", List.of()));
+        String question = "What evidence supports the claim?";
         when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of(13L)), eq(5)))
-                .thenReturn(new RagResult("What evidence supports the claim?", List.of(13L), List.of()));
+                .thenReturn(new RagResult(question, List.of(13L), List.of()));
 
         ProjectMessageResponse response = supervisorService.answerProject(
                 session.projectId(),
                 session.id(),
-                new ProjectMessageRequest("What evidence supports the claim?", List.of(), false, false, "local_first")
+                new ProjectMessageRequest(question, List.of(), false, false, "local_first")
         );
         String answerId = response.answerId();
 
@@ -171,7 +306,7 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
                 .containsEntry("evidence_state", "NONE")
                 .containsEntry("answer_mode", "REFUSAL");
         assertThat(evidenceRows(answerId)).isEmpty();
-        assertEvidenceEvent(response.streamRunId(), answerId, "NONE", "REFUSAL", 0);
+        assertEvidenceEvent(response.streamRunId(), answerId, "NONE", "REFUSAL", 0, List.of());
         assertRetrievalCompletedEvent(response.streamRunId(), answerId, "PAPER_RAG_ONLY", 0, 0, false);
     }
 
@@ -179,13 +314,12 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
     void weakLocalEvidenceWithWebDisabledProducesWeakLocalWeakEvidence() {
         ResearchSessionRecord session = createSession();
         insertIndexedProjectSource(session.projectId(), 14L);
+        String question = "What does weak paper evidence support?";
         RagResult ragResult = new RagResult(
-                "What does weak local evidence support?",
+                question,
                 List.of(14L),
                 List.of(new RagChunk(104L, 14L, 0, "A weak but relevant paper chunk.", 0.48))
         );
-        when(memoryRecallPort.recall(anyLong(), eq("What does weak local evidence support?"), anyInt()))
-                .thenReturn(new MemoryRecallResult("What does weak local evidence support?", List.of()));
         when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of(14L)), eq(5))).thenReturn(ragResult);
         when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
                 .thenReturn("Weak local evidence answer.");
@@ -193,7 +327,7 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
         ProjectMessageResponse response = supervisorService.answerProject(
                 session.projectId(),
                 session.id(),
-                new ProjectMessageRequest("What does weak local evidence support?", List.of(), false, false, "local_first")
+                new ProjectMessageRequest(question, List.of(), false, false, "local_first")
         );
         String answerId = response.answerId();
 
@@ -201,7 +335,7 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
                 .containsEntry("evidence_state", "WEAK")
                 .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE");
         assertThat(evidenceRows(answerId)).hasSize(1);
-        assertEvidenceEvent(response.streamRunId(), answerId, "WEAK", "LOCAL_WEAK_EVIDENCE", 1);
+        assertEvidenceEvent(response.streamRunId(), answerId, "WEAK", "LOCAL_WEAK_EVIDENCE", 1, List.of("paper"));
         assertRetrievalCompletedEvent(response.streamRunId(), answerId, "PAPER_RAG_ONLY", 1, 0, false);
     }
 
@@ -249,9 +383,10 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
-        when(memoryRecallPort.recall(anyLong(), eq("Use prior context without mapped papers"), anyInt()))
+        String question = "what did we discuss before without mapped papers";
+        when(memoryRecallPort.recall(anyLong(), eq(question), anyInt()))
                 .thenReturn(new MemoryRecallResult(
-                        "Use prior context without mapped papers",
+                        question,
                         List.of(new MemoryRecallHit(memoryEntry, 0.91))
                 ));
         when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of()), eq(5)))
@@ -264,14 +399,14 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
         ProjectMessageResponse response = supervisorService.answerProject(
                 session.projectId(),
                 session.id(),
-                new ProjectMessageRequest("Use prior context without mapped papers", List.of(), false, false, "local_first")
+                new ProjectMessageRequest(question, List.of(), false, false, "local_first")
         );
         String answerId = response.answerId();
 
         verify(paperRagService, never()).retrieve(anyLong(), anyString(), eq(List.of()), eq(5));
         assertThat(answerRow(answerId))
-                .containsEntry("evidence_state", "NONE")
-                .containsEntry("answer_mode", "REFUSAL");
+                .containsEntry("evidence_state", "WEAK")
+                .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE");
         assertThat(evidenceRows(answerId)).isEmpty();
         assertRetrievalCompletedEvent(response.streamRunId(), answerId, "MEMORY_RECALL_ONLY", 0, 1, false);
     }
@@ -295,21 +430,23 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
                 OffsetDateTime.now()
         );
         MemoryRecallResult memory = new MemoryRecallResult(
-                "Continue the prior hypothesis using paper evidence",
+                "paper latest comparison with prior context",
                 List.of(new MemoryRecallHit(memoryEntry, 0.95))
         );
-        when(memoryRecallPort.recall(anyLong(), eq("Continue the prior hypothesis using paper evidence"), anyInt()))
+        when(memoryRecallPort.recall(anyLong(), eq("paper latest comparison with prior context"), anyInt()))
                 .thenReturn(memory);
+        when(webSearchPort.search(eq("paper latest comparison with prior context"), eq(5)))
+                .thenReturn(WebSearchResult.degraded("paper latest comparison with prior context", "tavily", "Tavily timeout"));
         when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of(15L)), eq(5)))
-                .thenReturn(new RagResult("Continue the prior hypothesis using paper evidence", List.of(15L), List.of()));
+                .thenReturn(new RagResult("paper latest comparison with prior context", List.of(15L), List.of()));
 
         ProjectMessageResponse response = supervisorService.answerProject(
                 session.projectId(),
                 session.id(),
                 new ProjectMessageRequest(
-                        "Continue the prior hypothesis using paper evidence",
+                        "paper latest comparison with prior context",
                         List.of(),
-                        false,
+                        true,
                         false,
                         "local_first")
         );
@@ -317,10 +454,10 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
 
         verify(paperRagService).retrieve(anyLong(), org.mockito.ArgumentMatchers.contains("Historical context"), eq(List.of(15L)), eq(5));
         assertThat(answerRow(answerId))
-                .containsEntry("evidence_state", "NONE")
-                .containsEntry("answer_mode", "REFUSAL");
+                .containsEntry("evidence_state", "WEAK")
+                .containsEntry("answer_mode", "WEB_SUPPLEMENT");
         assertThat(evidenceRows(answerId)).isEmpty();
-        assertRetrievalCompletedEvent(response.streamRunId(), answerId, "MEMORY_THEN_PAPER", 0, 1, false);
+        assertRetrievalCompletedEvent(response.streamRunId(), answerId, "WEB_SUPPLEMENT", 0, 1, true);
     }
 
     @Test
@@ -425,31 +562,89 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void projectAnswerHandlesNullMemoryRecallAndNullRagChunksAsNoEvidence() {
+    void memoryRecallRouteHandlesNullMemoryRecallAsWeakMemoryAnswer() {
         ResearchSessionRecord session = createSession();
         insertIndexedProjectSource(session.projectId(), 18L);
-        when(memoryRecallPort.recall(anyLong(), eq("Handle null retrieval values"), anyInt()))
+        String question = "what did we discuss before about null retrieval values";
+        when(memoryRecallPort.recall(anyLong(), eq(question), anyInt()))
                 .thenReturn(null);
-        when(paperRagService.retrieve(anyLong(), anyString(), eq(List.of(18L)), eq(5)))
-                .thenReturn(new RagResult("Handle null retrieval values", List.of(18L), null));
 
         ProjectMessageResponse response = supervisorService.answerProject(
                 session.projectId(),
                 session.id(),
-                new ProjectMessageRequest("Handle null retrieval values", List.of(), false, false, "local_first")
+                new ProjectMessageRequest(question, List.of(), false, false, "local_first")
         );
         String answerId = response.answerId();
 
         assertThat(answerRow(answerId))
-                .containsEntry("evidence_state", "NONE")
-                .containsEntry("answer_mode", "REFUSAL");
+                .containsEntry("evidence_state", "WEAK")
+                .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE");
         assertThat(evidenceRows(answerId)).isEmpty();
-        assertRetrievalCompletedEvent(response.streamRunId(), answerId, "PAPER_RAG_ONLY", 0, 0, false);
+        assertRetrievalCompletedEvent(response.streamRunId(), answerId, "MEMORY_RECALL_ONLY", 0, 0, false);
     }
 
     private ResearchSessionRecord createSession() {
         ProjectRecord project = projectRepository.createProject("F007 project", "evidence boundary");
         return projectRepository.createSession(project.id(), "F007 session");
+    }
+
+    private ProjectAgentRun defaultAgentRun(ProjectAgentRequest request) {
+        String question = request.question();
+        String normalized = question == null ? "" : question.toLowerCase(java.util.Locale.ROOT);
+        List<String> toolsUsed = new ArrayList<>();
+
+        MemoryRecallResult memoryRecallResult = null;
+        boolean memoryQuestion = normalized.contains("previous")
+                || normalized.contains("history")
+                || normalized.contains("prior context")
+                || normalized.contains("before")
+                || normalized.contains("discuss")
+                || normalized.contains("之前")
+                || normalized.contains("历史");
+        if (memoryQuestion) {
+            memoryRecallResult = memoryRecallPort.recall(request.memory().sessionId(), question, 4);
+            toolsUsed.add("memory_recall");
+        }
+
+        RagResult ragResult = new RagResult(question, request.evidenceScope().indexedDocumentIds(), List.of());
+        boolean paperQuestion = normalized.contains("paper")
+                || normalized.contains("evidence")
+                || normalized.contains("source")
+                || normalized.contains("claim")
+                || normalized.contains("论文")
+                || normalized.contains("证据");
+        if (request.evidenceScope().hasScopedPaperEvidence() && (!memoryQuestion || paperQuestion)) {
+            String ragQuery = memoryRecallResult == null || memoryRecallResult.isEmpty()
+                    ? question
+                    : question + "\nHistorical context:\n" + memoryRecallResult.contextBlock();
+            ragResult = paperRagService.retrieve(
+                    request.memory().sessionId(),
+                    ragQuery,
+                    request.evidenceScope().indexedDocumentIds(),
+                    5
+            );
+            toolsUsed.add("paper_rag");
+        } else if (paperQuestion && !memoryQuestion) {
+            toolsUsed.add("paper_rag");
+        }
+
+        WebSearchResult webSearchResult = null;
+        boolean explicitWeb = normalized.contains("search")
+                || normalized.contains("web")
+                || normalized.contains("latest")
+                || normalized.contains("current")
+                || normalized.contains("联网")
+                || normalized.contains("最新");
+        if (explicitWeb && request.allowWebSupplement()) {
+            webSearchResult = webSearchPort.search(question, 5);
+            toolsUsed.add("tavily_web_search");
+        }
+
+        String answer = "Project agent answer.";
+        if (webSearchResult != null && webSearchResult.degraded()) {
+            answer = "The web search is currently degraded. " + webSearchResult.message();
+        }
+        return new ProjectAgentRun(answer, ragResult, webSearchResult, memoryRecallResult, toolsUsed);
     }
 
     private Map<String, Object> answerRow(String answerId) {
@@ -467,6 +662,10 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
                 where answer_id = ?
                 order by created_at, id
                 """, answerId);
+    }
+
+    private JsonNode citationMeta(Map<String, Object> evidenceRow) throws Exception {
+        return objectMapper.readTree(String.valueOf(evidenceRow.get("citation_meta_json")));
     }
 
     private String insertIndexedProjectSource(String projectId, long indexedDocumentId) {
@@ -519,12 +718,22 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
         return count == null ? 0 : count;
     }
 
-    private void assertEvidenceEvent(String runId, String answerId, String evidenceState, String outputMode, int citationCount) {
+    private void assertEvidenceEvent(
+            String runId,
+            String answerId,
+            String evidenceState,
+            String outputMode,
+            int citationCount,
+            List<String> sourceTypes) {
         WorkbenchEvent event = publishedEvent(runId, answerId, "evidence.evaluated");
         assertThat(event.payload())
                 .containsEntry("evidenceState", evidenceState)
                 .containsEntry("outputMode", outputMode)
                 .containsEntry("citationCount", citationCount);
+        JsonNode payload = objectMapper.valueToTree(event.payload());
+        assertThat(payload.get("sourceTypes"))
+                .extracting(JsonNode::asText)
+                .containsExactlyElementsOf(sourceTypes);
     }
 
     private void assertRetrievalCompletedEvent(

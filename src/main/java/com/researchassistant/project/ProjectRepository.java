@@ -70,6 +70,26 @@ public class ProjectRepository {
         return sessions.stream().findFirst();
     }
 
+    public Optional<ResearchSessionRecord> renameSession(String projectId, String sessionId, String title) {
+        List<ResearchSessionRecord> sessions = jdbcTemplate.query("""
+                update research_session
+                set title = ?
+                where project_id = ?
+                  and id = ?
+                returning id, project_id, title, status, last_message_at
+                """, (resultSet, rowNum) -> mapSession(resultSet), title, projectId, sessionId);
+        return sessions.stream().findFirst();
+    }
+
+    public void markSessionMessaged(String projectId, String sessionId) {
+        jdbcTemplate.update("""
+                update research_session
+                set last_message_at = now()
+                where project_id = ?
+                  and id = ?
+                """, projectId, sessionId);
+    }
+
     private ProjectRecord mapProject(java.sql.ResultSet resultSet) throws java.sql.SQLException {
         String projectId = resultSet.getString("id");
         return new ProjectRecord(

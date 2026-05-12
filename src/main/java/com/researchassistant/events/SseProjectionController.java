@@ -1,7 +1,9 @@
 package com.researchassistant.events;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -16,6 +18,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RestController
 @RequestMapping("/api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events")
 public class SseProjectionController {
+
+    private static final long LIVE_TAIL_TIMEOUT_MS = 0L;
 
     private final WorkbenchEventPublisher eventPublisher;
     private final Executor streamingExecutor;
@@ -33,18 +37,46 @@ public class SseProjectionController {
             @PathVariable String sessionId,
             @PathVariable String runId,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId) {
-        SseEmitter emitter = new SseEmitter(120_000L);
+        SseEmitter emitter = new SseEmitter(LIVE_TAIL_TIMEOUT_MS);
 
         streamingExecutor.execute(() -> {
             try {
-                for (WorkbenchEvent event : eventPublisher.readRunEventsAfter(runId, lastEventId)) {
+                String cursor = lastEventId;
+                boolean terminal = false;
+
+                for (WorkbenchEvent event : eventPublisher.readRunEventsAfter(runId, cursor)) {
+                    cursor = event.eventId();
                     if (belongsToPath(event, projectId, sessionId, runId)) {
-                        emitter.send(SseEmitter.event()
-                                .id(event.eventId())
-                                .name(event.eventType().wireName())
-                                .data(sseData(event)));
+                        sendEvent(emitter, event);
+                        terminal = WorkbenchRunEventStream.isTerminal(event.eventType());
+                        if (terminal) {
+                            break;
+                        }
                     }
                 }
+
+                while (!terminal) {
+                    List<WorkbenchEvent> nextEvents = eventPublisher.readRunEventsAfter(
+                            runId,
+                            cursor,
+                            Duration.ofSeconds(15)
+                    );
+                    if (nextEvents.isEmpty()) {
+                        emitter.send(SseEmitter.event().comment("keepalive"));
+                        continue;
+                    }
+                    for (WorkbenchEvent event : nextEvents) {
+                        cursor = event.eventId();
+                        if (belongsToPath(event, projectId, sessionId, runId)) {
+                            sendEvent(emitter, event);
+                            terminal = WorkbenchRunEventStream.isTerminal(event.eventType());
+                            if (terminal) {
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 emitter.complete();
             } catch (IOException exception) {
                 emitter.completeWithError(exception);
@@ -60,6 +92,13 @@ public class SseProjectionController {
         return projectId.equals(event.projectId())
                 && sessionId.equals(event.sessionId())
                 && runId.equals(event.runId());
+    }
+
+    private void sendEvent(SseEmitter emitter, WorkbenchEvent event) throws IOException {
+        emitter.send(SseEmitter.event()
+                .id(event.eventId())
+                .name(event.eventType().wireName())
+                .data(sseData(event)));
     }
 
     private Map<String, Object> sseData(WorkbenchEvent event) {

@@ -3,12 +3,14 @@ package com.researchassistant.events;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -22,6 +24,7 @@ public class RedisStreamWorkbenchEventPublisher implements WorkbenchEventPublish
 
     private static final TypeReference<Map<String, Object>> PAYLOAD_TYPE = new TypeReference<>() {
     };
+    private static final long POLL_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -85,6 +88,35 @@ public class RedisStreamWorkbenchEventPublisher implements WorkbenchEventPublish
             return events;
         }
         return events.subList(lastSeenIndex + 1, events.size());
+    }
+
+    @Override
+    public List<WorkbenchEvent> readRunEventsAfter(String runId, String lastEventId, Duration wait) {
+        List<WorkbenchEvent> current = readRunEventsAfter(runId, lastEventId);
+        if (!current.isEmpty() || wait == null || wait.isZero() || wait.isNegative()) {
+            return current;
+        }
+        long deadline = System.nanoTime() + wait.toNanos();
+        while (true) {
+            long remainingNanos = deadline - System.nanoTime();
+            if (remainingNanos <= 0) {
+                return List.of();
+            }
+            long sleepNanos = Math.min(POLL_INTERVAL_NANOS, remainingNanos);
+            try {
+                Thread.sleep(
+                        TimeUnit.NANOSECONDS.toMillis(sleepNanos),
+                        (int) (sleepNanos % TimeUnit.MILLISECONDS.toNanos(1))
+                );
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return List.of();
+            }
+            current = readRunEventsAfter(runId, lastEventId);
+            if (!current.isEmpty()) {
+                return current;
+            }
+        }
     }
 
     private Map<String, String> fieldsFor(WorkbenchEvent event) {

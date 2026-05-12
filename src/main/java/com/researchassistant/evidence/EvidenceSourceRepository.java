@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.researchassistant.rag.RagChunk;
+import com.researchassistant.websearch.WebSearchHit;
+import com.researchassistant.websearch.WebSearchResult;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -46,6 +48,27 @@ public class EvidenceSourceRepository {
                         chunk,
                         sourceIdByIndexedDocumentId.get(chunk.documentId())))
                 .toList();
+    }
+
+    public List<EvidenceSourceRecord> insertWebSources(
+            String projectId,
+            String answerId,
+            WebSearchResult webSearchResult) {
+        if (webSearchResult == null
+                || webSearchResult.degraded()
+                || webSearchResult.hits() == null
+                || webSearchResult.hits().isEmpty()) {
+            return List.of();
+        }
+        List<EvidenceSourceRecord> records = new ArrayList<>();
+        int rank = 1;
+        for (WebSearchHit hit : webSearchResult.hits()) {
+            if (hit != null) {
+                records.add(insertWebSource(projectId, answerId, webSearchResult, hit, rank));
+                rank++;
+            }
+        }
+        return List.copyOf(records);
     }
 
     public List<EvidenceSourceRecord> findByAnswer(String projectId, String answerId) {
@@ -212,6 +235,46 @@ public class EvidenceSourceRepository {
         ), evidenceId, projectId, answerId, sourceId, snippet, snippet, strength, strength, chunk.finalScore(), toJson(citationMeta));
     }
 
+    private EvidenceSourceRecord insertWebSource(
+            String projectId,
+            String answerId,
+            WebSearchResult webSearchResult,
+            WebSearchHit hit,
+            int rank) {
+        String evidenceId = UUID.randomUUID().toString();
+        String snippet = snippet(hit.snippet());
+        String strength = strength(hit.score());
+        Map<String, Object> citationMeta = new LinkedHashMap<>();
+        citationMeta.put("title", safe(hit.title()));
+        citationMeta.put("url", safe(hit.url()));
+        citationMeta.put("provider", safe(webSearchResult.provider()));
+        citationMeta.put("snippet", snippet);
+        citationMeta.put("query", safe(webSearchResult.query()));
+        citationMeta.put("rank", rank);
+
+        return jdbcTemplate.queryForObject("""
+                insert into evidence_source(
+                    id, project_id, answer_id, source_type, source_id, quote, snippet,
+                    strength, confidence, relevance_score, feedback_score, citation_meta_json
+                )
+                values (?, ?, ?, 'web', null, ?, ?, ?, ?, ?, 0, ?::jsonb)
+                returning id, project_id, answer_id, source_type, source_id, snippet, strength,
+                          relevance_score, feedback_score, citation_meta_json, created_at
+                """, (resultSet, rowNum) -> new EvidenceSourceRecord(
+                resultSet.getString("id"),
+                resultSet.getString("project_id"),
+                resultSet.getString("answer_id"),
+                resultSet.getString("source_type"),
+                resultSet.getString("source_id"),
+                resultSet.getString("snippet"),
+                resultSet.getString("strength"),
+                resultSet.getDouble("relevance_score"),
+                resultSet.getDouble("feedback_score"),
+                fromJsonMap(resultSet.getString("citation_meta_json")),
+                resultSet.getObject("created_at", OffsetDateTime.class)
+        ), evidenceId, projectId, answerId, snippet, snippet, strength, strength, hit.score(), toJson(citationMeta));
+    }
+
     private String strength(double score) {
         if (score >= 0.75) {
             return "strong";
@@ -228,6 +291,10 @@ public class EvidenceSourceRepository {
         }
         String normalized = content.strip();
         return normalized.length() <= 500 ? normalized : normalized.substring(0, 500);
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private List<String> distinct(List<String> values) {

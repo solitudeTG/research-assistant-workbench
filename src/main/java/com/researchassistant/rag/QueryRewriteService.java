@@ -48,7 +48,7 @@ public class QueryRewriteService {
             List<String> keywords = listValue(node.get("keywords"));
             return QueryRewritePlan.from(question, englishQuestion, keywords);
         } catch (Exception ignored) {
-            return QueryRewritePlan.originalOnly(question);
+            return QueryRewritePlan.originalOnly(question, "rewrite_failed");
         }
     }
 
