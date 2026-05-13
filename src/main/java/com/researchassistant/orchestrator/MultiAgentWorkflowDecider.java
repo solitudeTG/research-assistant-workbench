@@ -9,15 +9,18 @@ public class MultiAgentWorkflowDecider {
     public MultiAgentWorkflowDecision decide(String question, boolean allowWebSupplement) {
         String normalized = normalize(question);
 
-        boolean documentAction = containsAny(normalized,
-                "生成",
+        boolean documentOutputIntent = containsAny(normalized,
+                "生成一份",
+                "生成报告",
+                "生成综述",
+                "写一篇",
+                "写个",
+                "写一份",
+                "写成",
                 "整理成",
                 "输出为",
                 "做成",
-                "撰写",
-                "生成一份",
-                "写一份",
-                "写成");
+                "撰写");
         boolean documentProduct = containsAny(normalized,
                 "报告",
                 "综述",
@@ -26,7 +29,7 @@ public class MultiAgentWorkflowDecider {
                 "对比表",
                 "表格",
                 "论文笔记");
-        boolean documentRequest = documentAction && documentProduct;
+        boolean documentRequest = documentOutputIntent && documentProduct;
         boolean complexResearch = containsAny(normalized,
                 "对比",
                 "比较",

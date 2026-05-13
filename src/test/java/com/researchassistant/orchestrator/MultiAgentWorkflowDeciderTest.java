@@ -36,6 +36,22 @@ class MultiAgentWorkflowDeciderTest {
     }
 
     @Test
+    void explicitReviewWritingRequestUsesPlanExecute() {
+        MultiAgentWorkflowDecision decision = decider.decide("请基于这些论文写一篇综述", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.PLAN_EXECUTE);
+        assertThat(decision.requiresDocumentComposer()).isTrue();
+    }
+
+    @Test
+    void explicitReportWritingRequestUsesPlanExecute() {
+        MultiAgentWorkflowDecision decision = decider.decide("帮我写个报告", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.PLAN_EXECUTE);
+        assertThat(decision.requiresDocumentComposer()).isTrue();
+    }
+
+    @Test
     void bareFormatQuestionUsesReact() {
         MultiAgentWorkflowDecision decision = decider.decide("Markdown 语法是什么", false);
 
@@ -62,6 +78,14 @@ class MultiAgentWorkflowDeciderTest {
     @Test
     void documentReadingConclusionQuestionUsesReact() {
         MultiAgentWorkflowDecision decision = decider.decide("这份文档里写了哪些结论", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.requiresDocumentComposer()).isFalse();
+    }
+
+    @Test
+    void textGenerationMethodQuestionUsesReact() {
+        MultiAgentWorkflowDecision decision = decider.decide("基于文档解释文本生成方法是什么", false);
 
         assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
         assertThat(decision.requiresDocumentComposer()).isFalse();
