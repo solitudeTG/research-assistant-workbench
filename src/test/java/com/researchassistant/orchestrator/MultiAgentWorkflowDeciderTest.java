@@ -1,0 +1,37 @@
+package com.researchassistant.orchestrator;
+
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class MultiAgentWorkflowDeciderTest {
+
+    private final MultiAgentWorkflowDecider decider = new MultiAgentWorkflowDecider();
+
+    @Test
+    void simpleQuestionUsesReact() {
+        assertThat(decider.decide("你好", false).mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decider.decide("这篇论文的标题是什么", false).mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+    }
+
+    @Test
+    void complexResearchUsesPlanExecute() {
+        MultiAgentWorkflowDecision decision = decider.decide(
+                "对比这几篇论文关于多 Agent 协作架构的观点，并给出可引用结论",
+                true
+        );
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.PLAN_EXECUTE);
+        assertThat(decision.requiresDeepResearch()).isTrue();
+        assertThat(decision.requiresEvidenceAudit()).isTrue();
+        assertThat(decision.requiresDocumentComposer()).isFalse();
+    }
+
+    @Test
+    void documentRequestsUsePlanExecute() {
+        MultiAgentWorkflowDecision decision = decider.decide("基于资料生成一份 Markdown 综述报告", true);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.PLAN_EXECUTE);
+        assertThat(decision.requiresDocumentComposer()).isTrue();
+    }
+}
