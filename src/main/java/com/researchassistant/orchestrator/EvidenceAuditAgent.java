@@ -37,6 +37,16 @@ public class EvidenceAuditAgent {
             );
         }
 
+        if (packet.claims().isEmpty() && hasDraftText && !hasDirectSupport(draftAnswer.trim(), packet)) {
+            return new AuditVerdict(
+                    "requires_revision",
+                    AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                    List.of(),
+                    List.of("Draft answer is not directly supported by paper or web evidence."),
+                    List.of("Support or revise unsupported draft answer.")
+            );
+        }
+
         if (!packet.evidenceGaps().isEmpty()) {
             return new AuditVerdict(
                     "pass_with_cautions",
@@ -62,13 +72,17 @@ public class EvidenceAuditAgent {
         if (packet.claims().isEmpty()) {
             return List.of();
         }
+        return packet.claims().stream()
+                .filter(claim -> !hasDirectSupport(claim, packet))
+                .toList();
+    }
+
+    private boolean hasDirectSupport(String text, ResearchPacket packet) {
         List<String> supportingEvidence = java.util.stream.Stream.concat(
                         packet.paperEvidence().stream(),
                         packet.webEvidence().stream()
                 )
                 .toList();
-        return packet.claims().stream()
-                .filter(claim -> supportingEvidence.stream().noneMatch(evidence -> evidence.contains(claim)))
-                .toList();
+        return supportingEvidence.stream().anyMatch(evidence -> evidence.contains(text));
     }
 }

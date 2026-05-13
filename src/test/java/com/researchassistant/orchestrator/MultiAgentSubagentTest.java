@@ -185,6 +185,52 @@ class MultiAgentSubagentTest {
     }
 
     @Test
+    void evidenceAuditAgentFlagsUnsupportedDraftAnswerWhenNoClaimsAndUnrelatedEvidenceExists() {
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of(),
+                List.of("paper: content=Unrelated method note."),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name()
+        );
+        EvidenceAuditAgent agent = new EvidenceAuditAgent();
+
+        AuditVerdict verdict = agent.audit("question", "The system is fully proven.", packet);
+
+        assertThat(verdict.isPassing()).isFalse();
+        assertThat(verdict.verdict()).isEqualTo("requires_revision");
+        assertThat(verdict.recommendedAnswerMode()).isEqualTo(AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+        assertThat(verdict.unsupportedClaims()).isEmpty();
+        assertThat(verdict.sourcePolicyIssues()).containsExactly("Draft answer is not directly supported by paper or web evidence.");
+        assertThat(verdict.requiredRevisions()).containsExactly("Support or revise unsupported draft answer.");
+    }
+
+    @Test
+    void evidenceAuditAgentPassesDraftAnswerWhenExactTextAppearsInEvidence() {
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of(),
+                List.of(),
+                List.of("web: snippet=The system is fully proven."),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.WEB_SUPPLEMENT.name()
+        );
+        EvidenceAuditAgent agent = new EvidenceAuditAgent();
+
+        AuditVerdict verdict = agent.audit("question", "The system is fully proven.", packet);
+
+        assertThat(verdict.isPassing()).isTrue();
+        assertThat(verdict.verdict()).isEqualTo("pass");
+        assertThat(verdict.requiredRevisions()).isEmpty();
+        assertThat(verdict.sourcePolicyIssues()).isEmpty();
+    }
+
+    @Test
     void documentComposerPassingOutputDoesNotPresentMemoryContextAsEvidenceOrSection() {
         ResearchPacket packet = new ResearchPacket(
                 "question",
