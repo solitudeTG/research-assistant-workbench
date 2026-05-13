@@ -11,11 +11,13 @@ public class MultiAgentWorkflowDecider {
 
         boolean documentAction = containsAny(normalized,
                 "生成",
-                "写",
                 "整理成",
                 "输出为",
+                "做成",
+                "撰写",
                 "生成一份",
-                "写一份");
+                "写一份",
+                "写成");
         boolean documentProduct = containsAny(normalized,
                 "报告",
                 "综述",

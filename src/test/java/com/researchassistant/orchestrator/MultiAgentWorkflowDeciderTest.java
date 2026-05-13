@@ -50,4 +50,20 @@ class MultiAgentWorkflowDeciderTest {
         assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
         assertThat(decision.requiresDocumentComposer()).isFalse();
     }
+
+    @Test
+    void documentReadingQuestionWithWriteVerbUsesReact() {
+        MultiAgentWorkflowDecision decision = decider.decide("这份文档写了什么", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.requiresDocumentComposer()).isFalse();
+    }
+
+    @Test
+    void documentReadingConclusionQuestionUsesReact() {
+        MultiAgentWorkflowDecision decision = decider.decide("这份文档里写了哪些结论", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.requiresDocumentComposer()).isFalse();
+    }
 }
