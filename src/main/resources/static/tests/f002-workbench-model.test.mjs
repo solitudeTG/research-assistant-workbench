@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
     applyCandidateAction,
@@ -56,6 +57,115 @@ function baseState() {
     };
 }
 
+test("workbench app module does not redeclare top-level functions", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const declarations = [...source.matchAll(/^function\s+([A-Za-z_$][\w$]*)\s*\(/gm)].map((match) => match[1]);
+    const duplicates = declarations.filter((name, index) => declarations.indexOf(name) !== index);
+
+    assert.deepEqual([...new Set(duplicates)], []);
+});
+
+test("research process UI labels are not mojibake", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const researchProcessSource = source.slice(
+            source.indexOf("function researchProcessPanel"),
+            source.indexOf("function updateAssistantMessage")
+    );
+
+    assert.doesNotMatch(researchProcessSource, /灞曞紑|鏀惰捣|宸ュ叿浜嬩欢|璇佹嵁鍛戒腑|璁板繂|杈圭晫|鐮旂┒/);
+});
+
+test("session row actions render behind a compact more menu", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const renderSessionsSource = source.slice(
+            source.indexOf("function renderSessions"),
+            source.indexOf("function renderSources")
+    );
+
+    assert.match(renderSessionsSource, /data-session-menu/);
+    assert.match(renderSessionsSource, /sessionActionsMenu\(session\)/);
+    assert.doesNotMatch(renderSessionsSource, /sessionIconButton\(session\.id,\s*"rename"/);
+    assert.doesNotMatch(renderSessionsSource, /sessionIconButton\(session\.id,\s*"delete"/);
+});
+
+test("opening the session action menu stops the same click from closing it", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const sessionClickSource = source.slice(
+            source.indexOf("dom.sessionList.addEventListener(\"click\""),
+            source.indexOf("dom.sessionList.addEventListener(\"keydown\"")
+    );
+    const menuBranch = sessionClickSource.slice(
+            sessionClickSource.indexOf("if (menuTrigger)"),
+            sessionClickSource.indexOf("if (renameTrigger)")
+    );
+
+    assert.match(menuBranch, /event\.stopPropagation\(\)/);
+});
+
+test("main session polish keeps the dialogue continuous and composer quiet", async () => {
+    const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
+
+    assert.match(css, /--shell-header-height:\s*98px;/);
+    assert.match(css, /\.drawer-header\s*\{[\s\S]*min-height:\s*var\(--shell-header-height\);/);
+    assert.match(css, /\.dialogue-header,[\s\S]*\.workspace-header\s*\{[\s\S]*min-height:\s*var\(--shell-header-height\);/);
+    assert.match(css, /\.sidebar-tabs\s*\{[\s\S]*min-height:\s*var\(--shell-header-height\);/);
+    assert.match(css, /\.drawer-search\s*\{[\s\S]*border-bottom:\s*1px solid/);
+    assert.match(css, /\.drawer-search::before\s*\{[\s\S]*content:\s*"search";/);
+    assert.match(css, /\.message-avatar\s*\{[\s\S]*display:\s*none;/);
+    assert.match(css, /\.message--assistant\s+\.message-body\s*\{[\s\S]*background:\s*transparent;/);
+    assert.match(css, /\.composer-surface\s*\{[\s\S]*box-shadow:\s*none;/);
+    assert.match(css, /\.right-column\s*\{[\s\S]*background:\s*oklch\(97% 0\.006 245\);/);
+});
+
+test("main session shell uses Chinese-only visible headings and status labels", async () => {
+    const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+
+    assert.match(html, /<h1>研究工作台<\/h1>/);
+    assert.match(html, /<p id="project-summary" hidden>/);
+    assert.match(html, /<h2>会话<\/h2>/);
+    assert.doesNotMatch(html, /<p class="overline">研究工作区<\/p>/);
+    assert.doesNotMatch(html, /<p class="overline">研究会话<\/p>/);
+    assert.doesNotMatch(html, /<p>会话<\/p>\s*<h2>研究会话<\/h2>/);
+    assert.doesNotMatch(html, /Research workspace|Research dialogue|Sessions/);
+
+    assert.match(source, /continue:\s*"进行中"/);
+    assert.doesNotMatch(source, /`\$\{session\.status \|\| "drafting"\}/);
+});
+
+test("session rows show recency without repeating low-value status text", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const renderSessionsSource = source.slice(
+            source.indexOf("function renderSessions"),
+            source.indexOf("function renderSources")
+    );
+
+    assert.match(renderSessionsSource, /textElement\("span",\s*formatRelativeTime\(session\.lastMessageAt \|\| session\.updatedAt\)\)/);
+    assert.doesNotMatch(renderSessionsSource, /sessionStatusLabel\(session\.status\)/);
+});
+
+test("secondary workspaces share the simplified Chinese product UI language", async () => {
+    const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+    const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+
+    assert.doesNotMatch(html, /研究工作台 \/ 资料库|研究工作台 \/ 知识|研究工作台 \/ 项目|研究工作台 \/ 检索诊断/);
+    assert.doesNotMatch(html, /Candidate review|Event detail|Observation/);
+    assert.match(html, /<h2>资料库<\/h2>/);
+    assert.match(html, /<h2>知识库<\/h2>/);
+    assert.match(html, /<h2>项目概览<\/h2>/);
+    assert.match(html, /<h2>检索诊断<\/h2>/);
+
+    assert.match(css, /\.workspace-list-pane,[\s\S]*\.workspace-inspector\s*\{[\s\S]*border:\s*0;/);
+    assert.match(css, /\.workspace-inspector\s*\{[\s\S]*border-left:\s*1px solid var\(--line\);/);
+    assert.match(css, /\.table-toolbar\s*\{[\s\S]*border-bottom:\s*1px solid/);
+    assert.match(css, /\.drop-zone,[\s\S]*\.review-strip\s*\{[\s\S]*background:\s*transparent;/);
+
+    assert.match(source, /metricItem\("检索调用",\s*summary\.callCount\)/);
+    assert.match(source, /textElement\("strong",\s*"后端命中"\)/);
+    assert.doesNotMatch(source, /Loading retrieval diagnostics|Retrieval diagnostics unavailable|Backend stats|Zero-hit classification/);
+});
+
 test("selecting a session updates activeSessionId and clears activeAnswerContext", () => {
     const state = baseState();
 
@@ -86,6 +196,7 @@ test("primary workspace selection is separate from session sidebar view", () => 
         sources: true,
         knowledge: false,
         project: false,
+        observability: false,
         showChatComposer: false,
         showSessionInspector: false
     });
@@ -99,6 +210,36 @@ test("primary workspace selection is separate from session sidebar view", () => 
     const fallback = selectWorkspace(knowledge, "unknown");
     assert.equal(fallback.activeWorkspace, "session");
     assert.equal(fallback.selectedSidebarView, "evidence-sources");
+});
+
+test("observability workspace is a first-level mutually exclusive workspace", () => {
+    const state = createWorkbenchState({
+        selectedSidebarView: "candidate-confirmation",
+        activeWorkspace: "observability"
+    });
+
+    assert.equal(state.activeWorkspace, "observability");
+    assert.deepEqual(getWorkspaceVisibility(state), {
+        session: false,
+        sources: false,
+        knowledge: false,
+        project: false,
+        observability: true,
+        showChatComposer: false,
+        showSessionInspector: false
+    });
+
+    for (const workspace of ["session", "sources", "knowledge", "project", "observability"]) {
+        const selected = selectWorkspace(state, workspace);
+        const visibility = getWorkspaceVisibility(selected);
+        const visibleWorkspaces = ["session", "sources", "knowledge", "project", "observability"]
+                .filter((name) => visibility[name]);
+
+        assert.deepEqual(visibleWorkspaces, [workspace]);
+        assert.equal(visibility.showChatComposer, workspace === "session");
+        assert.equal(visibility.showSessionInspector, workspace === "session");
+        assert.equal(selected.selectedSidebarView, "candidate-confirmation");
+    }
 });
 
 test("workbench chat requires project session context instead of legacy chat fallback", () => {
@@ -496,9 +637,26 @@ test("agent trace events fold into research process summary", () => {
     assert.equal(trace.answerDeltas[0].delta, "Grounded answer");
     assert.equal(trace.summary.toolCount, 3);
     assert.equal(trace.summary.evidenceCount, 1);
+    assert.equal(trace.summary.memoryCount, 1);
     assert.equal(trace.summary.weakClaims, 3);
     assert.equal(trace.summary.requiresConfirmation, true);
     assert.equal(state.currentAnswer.text, "Grounded answer");
+});
+
+test("memory.completed hit count contributes to trace summary when hit rows are absent", () => {
+    const state = applySseEvent(createWorkbenchState(), {
+        eventId: "trace-memory-completed",
+        eventType: "memory.completed",
+        runId: "run-memory",
+        answerId: "answer-memory",
+        payload: {
+            data: {
+                hitCount: 1
+            }
+        }
+    });
+
+    assert.equal(state.agentTraces["run-memory"].summary.memoryCount, 1);
 });
 
 test("candidate action helpers keep candidate edits local to candidate state", () => {

@@ -3,9 +3,12 @@ import {
     applySseEvent,
     buildProjectMessageUrl,
     buildProjectSessionMessagesUrl,
+    buildProjectSessionDeleteUrl,
     buildProjectSessionRenameUrl,
+    calculateRestoredScrollTop,
     createLocalSession,
     createWorkbenchState,
+    deleteSessionFromState,
     formatRelativeTime,
     getWorkspaceVisibility,
     normalizeDocument,
@@ -106,7 +109,13 @@ const dom = {
     projectOverviewSummary: document.getElementById("project-overview-summary"),
     overviewStatSources: document.getElementById("overview-stat-sources"),
     overviewStatKnowledge: document.getElementById("overview-stat-knowledge"),
-    overviewStatSessions: document.getElementById("overview-stat-sessions")
+    overviewStatSessions: document.getElementById("overview-stat-sessions"),
+    diagnosticsRefresh: document.getElementById("diagnostics-refresh"),
+    diagnosticsContext: document.getElementById("diagnostics-context"),
+    diagnosticsSummary: document.getElementById("diagnostics-summary"),
+    diagnosticsTaxonomy: document.getElementById("diagnostics-taxonomy"),
+    diagnosticsEvents: document.getElementById("diagnostics-events"),
+    diagnosticsDetail: document.getElementById("diagnostics-detail")
 };
 
 const app = {
@@ -121,8 +130,13 @@ const app = {
     editingSessionId: null,
     selectedSourceId: null,
     selectedKnowledgeEntryId: null,
+    selectedDiagnosticId: null,
+    retrievalDiagnostics: [],
+    diagnosticsLoadState: "idle",
+    diagnosticsError: "",
     sampleMode: false,
-    collapsedResearchProcesses: new Set()
+    collapsedResearchProcesses: new Set(),
+    openSessionMenuId: null
 };
 
 wireEvents();
@@ -134,7 +148,13 @@ function wireEvents() {
         button.addEventListener("click", () => {
             Object.assign(app, selectWorkspace(app, button.dataset.workspaceTarget));
             render();
+            if (app.activeWorkspace === "observability") {
+                void loadRetrievalDiagnostics();
+            }
         });
+    });
+    dom.diagnosticsRefresh?.addEventListener("click", () => {
+        void loadRetrievalDiagnostics({ force: true });
     });
 
     dom.newSessionButton.addEventListener("click", () => {
@@ -173,18 +193,39 @@ function wireEvents() {
         } else {
             app.collapsedResearchProcesses.add(processId);
         }
+        const previousScroll = {
+            scrollTop: dom.conversation.scrollTop,
+            scrollHeight: dom.conversation.scrollHeight,
+            clientHeight: dom.conversation.clientHeight
+        };
         renderDialogue();
+        dom.conversation.scrollTop = calculateRestoredScrollTop(previousScroll, dom.conversation.scrollHeight);
     });
 
     dom.sessionList.addEventListener("click", (event) => {
+        const menuTrigger = event.target.closest("[data-session-menu]");
         const renameTrigger = event.target.closest("[data-session-rename]");
         const renameSubmit = event.target.closest("[data-session-rename-submit]");
         const renameCancel = event.target.closest("[data-session-rename-cancel]");
+        const deleteTrigger = event.target.closest("[data-session-delete]");
         const selectTrigger = event.target.closest("[data-session-id]");
+        if (menuTrigger) {
+            event.stopPropagation();
+            const sessionId = menuTrigger.dataset.sessionMenu;
+            app.openSessionMenuId = app.openSessionMenuId === sessionId ? null : sessionId;
+            renderSessions();
+            return;
+        }
         if (renameTrigger) {
             app.editingSessionId = renameTrigger.dataset.sessionRename;
+            app.openSessionMenuId = null;
             renderSessions();
             focusSessionRenameInput();
+            return;
+        }
+        if (deleteTrigger) {
+            app.openSessionMenuId = null;
+            void submitSessionDelete(deleteTrigger.dataset.sessionDelete);
             return;
         }
         if (renameSubmit) {
@@ -215,6 +256,14 @@ function wireEvents() {
             app.editingSessionId = null;
             renderSessions();
         }
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!app.openSessionMenuId || event.target.closest("#session-list")) {
+            return;
+        }
+        app.openSessionMenuId = null;
+        renderSessions();
     });
 
     dom.sourceList.addEventListener("click", (event) => {
@@ -267,6 +316,14 @@ function wireEvents() {
     };
     dom.candidateList.addEventListener("click", handleCandidateClick);
     dom.knowledgeCandidateList.addEventListener("click", handleCandidateClick);
+    dom.diagnosticsEvents?.addEventListener("click", (event) => {
+        const row = event.target.closest("[data-diagnostic-id]");
+        if (!row) {
+            return;
+        }
+        app.selectedDiagnosticId = row.dataset.diagnosticId;
+        renderObservabilityWorkspace();
+    });
 }
 
 async function bootstrap() {
@@ -333,11 +390,54 @@ async function switchSession(sessionId) {
     }
     closeStream();
     Object.assign(app, selectSession(app, sessionId));
+    app.selectedDiagnosticId = null;
+    app.retrievalDiagnostics = [];
+    app.diagnosticsLoadState = "idle";
     app.messages = [];
     app.messageLoadState = "loading";
     render();
     await loadActiveSessionMessages();
+    if (app.activeWorkspace === "observability") {
+        await loadRetrievalDiagnostics();
+    }
     render();
+}
+
+async function loadRetrievalDiagnostics({ force = false } = {}) {
+    if (app.sampleMode) {
+        app.retrievalDiagnostics = sampleRetrievalDiagnostics();
+        app.diagnosticsLoadState = "sample";
+        app.diagnosticsError = "";
+        ensureSelectedDiagnostic();
+        renderObservabilityWorkspace();
+        return;
+    }
+    if (!hasProjectApi() || !app.activeSessionId) {
+        app.retrievalDiagnostics = [];
+        app.diagnosticsLoadState = "empty";
+        app.diagnosticsError = "需要先选择真实项目会话。";
+        renderObservabilityWorkspace();
+        return;
+    }
+    if (!force && app.diagnosticsLoadState === "loaded" && app.retrievalDiagnostics.length) {
+        return;
+    }
+    app.diagnosticsLoadState = "loading";
+    app.diagnosticsError = "";
+    renderObservabilityWorkspace();
+    try {
+        const diagnostics = await getJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions/${encodeURIComponent(app.activeSessionId)}/retrieval-diagnostics`);
+        app.retrievalDiagnostics = normalizeRetrievalDiagnostics(diagnostics);
+        app.diagnosticsLoadState = app.retrievalDiagnostics.length ? "loaded" : "empty";
+        app.diagnosticsError = "";
+        ensureSelectedDiagnostic();
+    } catch (error) {
+        app.retrievalDiagnostics = [];
+        app.selectedDiagnosticId = null;
+        app.diagnosticsLoadState = "error";
+        app.diagnosticsError = error.message;
+    }
+    renderObservabilityWorkspace();
 }
 
 async function submitSessionRename(sessionId) {
@@ -364,6 +464,42 @@ async function submitSessionRename(sessionId) {
         app.statusMessage = "会话名称已更新。";
     } catch (error) {
         app.statusMessage = `重命名会话失败：${error.message}`;
+    }
+    render();
+}
+
+async function submitSessionDelete(sessionId) {
+    const session = app.sessions.find((item) => item.id === sessionId);
+    if (!session) {
+        return;
+    }
+    const title = session.title || "未命名会话";
+    const confirmed = window.confirm(`删除会话“${title}”？这会删除该会话的消息、回答、证据、候选和研究过程记录，无法撤销。`);
+    if (!confirmed) {
+        return;
+    }
+    closeStream();
+    if (!hasProjectApi()) {
+        Object.assign(app, deleteSessionFromState(app, sessionId));
+        app.selectedDiagnosticId = null;
+        app.retrievalDiagnostics = [];
+        app.diagnosticsLoadState = "idle";
+        app.statusMessage = "本地样例会话已删除。";
+        render();
+        return;
+    }
+    try {
+        await deleteJson(buildProjectSessionDeleteUrl({ projectId: app.activeProjectId, sessionId }));
+        Object.assign(app, deleteSessionFromState(app, sessionId));
+        app.selectedDiagnosticId = null;
+        app.retrievalDiagnostics = [];
+        app.diagnosticsLoadState = "idle";
+        app.statusMessage = "会话已删除。";
+        if (app.activeSessionId) {
+            await loadActiveSessionMessages();
+        }
+    } catch (error) {
+        app.statusMessage = `删除会话失败：${error.message}`;
     }
     render();
 }
@@ -707,6 +843,7 @@ function render() {
     renderDialogue();
     renderSidebar();
     renderKnowledgeWorkspace();
+    renderObservabilityWorkspace();
 }
 
 function renderStatus() {
@@ -799,16 +936,23 @@ function renderSessions() {
         selectButton.dataset.sessionId = session.id;
         selectButton.append(
                 textElement("strong", session.title || "未命名会话"),
-                textElement("span", `${session.status || "drafting"} · ${formatRelativeTime(session.lastMessageAt || session.updatedAt)}`)
+                textElement("span", formatRelativeTime(session.lastMessageAt || session.updatedAt))
         );
-        const renameButton = document.createElement("button");
-        renameButton.type = "button";
-        renameButton.className = "icon-button";
-        renameButton.dataset.sessionRename = session.id;
-        renameButton.title = "重命名会话";
-        renameButton.setAttribute("aria-label", "重命名会话");
-        renameButton.textContent = "✎";
-        item.append(selectButton, renameButton);
+        const actions = document.createElement("div");
+        actions.className = "session-row-actions";
+        const menuButton = document.createElement("button");
+        menuButton.type = "button";
+        menuButton.className = "session-menu-button";
+        menuButton.setAttribute("data-session-menu", session.id);
+        menuButton.title = "会话操作";
+        menuButton.setAttribute("aria-label", "会话操作");
+        menuButton.setAttribute("aria-expanded", String(app.openSessionMenuId === session.id));
+        menuButton.textContent = "more_vert";
+        actions.appendChild(menuButton);
+        if (app.openSessionMenuId === session.id) {
+            actions.appendChild(sessionActionsMenu(session));
+        }
+        item.append(selectButton, actions);
         dom.sessionList.appendChild(item);
     }
 }
@@ -899,7 +1043,7 @@ function renderDialogue() {
     const session = app.sessions.find((item) => item.id === app.activeSessionId);
     dom.activeSessionTitle.textContent = session?.title || "多轮研究对话";
     dom.activeSessionMeta.textContent = session
-            ? `${session.status || "drafting"} · 最近更新 ${formatRelativeTime(session.lastMessageAt || session.updatedAt)}`
+            ? `${sessionStatusLabel(session.status)} · 最近更新 ${formatRelativeTime(session.lastMessageAt || session.updatedAt)}`
             : "选择会话后开始提问。";
     dom.answerState.textContent = answerStateText();
     dom.conversation.replaceChildren();
@@ -935,7 +1079,7 @@ function renderSidebar() {
     });
     const citationCount = app.currentAnswer?.citationCount || app.activeAnswerContext?.citationCount || 0;
     const candidateCount = app.candidates.filter((candidate) => candidate.status === "pending").length;
-    dom.answerContextLine.textContent = `当前回答关联 ${citationCount} 条引用，${candidateCount} 条待确认候选。`;
+    dom.answerContextLine.textContent = `当前回答审阅：${citationCount} 条最终引用，${candidateCount} 条待确认候选。`;
     renderKnowledgeBoard(dom.knowledgeBoard, { compact: true });
     renderEvidenceSources();
     renderCandidates(dom.candidateList);
@@ -982,7 +1126,9 @@ function renderKnowledgeBoard(target, { compact }) {
         );
         details.appendChild(summary);
         if (section.entries.length === 0) {
-            details.appendChild(emptyBlock("暂无已确认条目。"));
+            details.appendChild(emptyBlock(compact
+                    ? "项目还没有确认知识。候选确认或手动新建后会进入知识工作区。"
+                    : "暂无已确认条目。"));
         } else {
             for (const entry of section.entries) {
                 const row = document.createElement("article");
@@ -1022,10 +1168,315 @@ function renderKnowledgeDetail(entry) {
     dom.knowledgeDetail.appendChild(detail);
 }
 
+function renderObservabilityWorkspace() {
+    if (!dom.diagnosticsSummary) {
+        return;
+    }
+    ensureSelectedDiagnostic();
+    const session = app.sessions.find((item) => item.id === app.activeSessionId);
+    const events = app.retrievalDiagnostics || [];
+    const summary = summarizeRetrievalDiagnostics(events);
+    dom.diagnosticsContext.textContent = session
+            ? `${session.title || "当前会话"} · ${events.length} 条检索事件`
+            : "选择会话后查看检索诊断。";
+    dom.diagnosticsSummary.replaceChildren(
+            metricItem("检索调用", summary.callCount),
+            metricItem("查询改写", summary.queryCount),
+            metricItem("返回片段", summary.returnedChunks),
+            metricItem("零命中", summary.zeroHitCount)
+    );
+    dom.diagnosticsTaxonomy.replaceChildren(...taxonomyChips(summary.reasonCounts, app.diagnosticsLoadState));
+    renderDiagnosticsEvents(events);
+    renderDiagnosticsDetail(selectedDiagnostic());
+}
+
+function renderDiagnosticsEvents(events) {
+    dom.diagnosticsEvents.replaceChildren();
+    if (app.diagnosticsLoadState === "loading") {
+        dom.diagnosticsEvents.appendChild(emptyBlock("正在载入检索诊断。"));
+        return;
+    }
+    if (app.diagnosticsLoadState === "error") {
+        dom.diagnosticsEvents.appendChild(emptyBlock(`检索诊断暂时不可用：${app.diagnosticsError}`));
+        return;
+    }
+    if (!events.length) {
+        const message = app.sampleMode
+                ? "样例模式未配置检索诊断。"
+                : "当前会话还没有返回检索诊断；这不等于检索已经成功。";
+        dom.diagnosticsEvents.appendChild(emptyBlock(message));
+        return;
+    }
+    for (const event of events) {
+        const row = document.createElement("article");
+        row.className = `diagnostics-row${event.id === app.selectedDiagnosticId ? " is-selected" : ""}`;
+        row.dataset.diagnosticId = event.id;
+        row.append(
+                textElement("strong", `#${event.toolCallIndex ?? "?"} ${event.toolName || "paper_rag"}`),
+                textElement("span", event.zeroHitReason || event.rewriteStrategy || "OK"),
+                textElement("span", String(event.queryCount ?? event.retrievalQueryCount ?? 0)),
+                textElement("span", String(event.returnedScopedChunkCount ?? 0)),
+                textElement("span", backendSummary(event.backendStats)),
+                textElement("span", formatRelativeTime(event.createdAt))
+        );
+        dom.diagnosticsEvents.appendChild(row);
+    }
+}
+
+function renderDiagnosticsDetail(event) {
+    dom.diagnosticsDetail.replaceChildren();
+    if (!event) {
+        const text = app.diagnosticsLoadState === "error"
+                ? "诊断接口失败，暂无事件详情。"
+                : "选择一条检索事件后查看边界、命中与后端统计。";
+        dom.diagnosticsDetail.appendChild(emptyBlock(text));
+        return;
+    }
+    const detail = document.createElement("div");
+    detail.className = "detail-stack diagnostics-detail";
+    detail.append(
+            textElement("h3", event.originalQuery || event.query || "检索观察"),
+            detailRow("工具", `${event.toolName || "paper_rag"} #${event.toolCallIndex ?? "?"}`),
+            detailRow("策略", event.rewriteStrategy || "未知"),
+            detailRow("零命中原因", event.zeroHitReason || "无"),
+            detailRow("查询数", String(event.queryCount ?? event.retrievalQueryCount ?? 0)),
+            detailRow("返回片段", String(event.returnedScopedChunkCount ?? 0)),
+            detailRow("合并候选", String(event.mergedCandidateCount ?? "无")),
+            detailRow("重排片段", String(event.rerankedChunkCount ?? "无"))
+    );
+    if (event.zeroHitReason) {
+        const alert = document.createElement("div");
+        alert.className = "detail-alert";
+        alert.textContent = `零命中分类：${event.zeroHitReason}`;
+        detail.appendChild(alert);
+    }
+    detail.appendChild(backendStatsTable(event.backendStats));
+    if (event.retrievalQueries?.length) {
+        const queries = document.createElement("div");
+        queries.className = "diagnostics-query-list";
+        queries.appendChild(textElement("strong", "检索查询"));
+        queries.append(...event.retrievalQueries.slice(0, 5).map((query) => textElement("code", query)));
+        detail.appendChild(queries);
+    }
+    if (event.topChunks?.length) {
+        const chunks = document.createElement("div");
+        chunks.className = "diagnostics-chunks";
+        chunks.appendChild(textElement("strong", "关联证据"));
+        chunks.append(...event.topChunks.slice(0, 3).map((chunk) => {
+            const item = document.createElement("article");
+            item.className = "process-evidence__item";
+            item.append(
+                    textElement("span", "资料", "process-source-type"),
+                    textElement("strong", `Paper chunk #${chunk.chunkId ?? chunk.chunkIndex ?? "?"}`),
+                    textElement("p", chunk.snippet || "暂无摘录。")
+            );
+            return item;
+        }));
+        detail.appendChild(chunks);
+    }
+    dom.diagnosticsDetail.appendChild(detail);
+}
+
+function backendStatsTable(stats = {}) {
+    const table = document.createElement("div");
+    table.className = "backend-stats";
+    table.append(
+            textElement("strong", "后端命中"),
+            backendStatsRow("关键词", stats.keyword),
+            backendStatsRow("向量", stats.vector),
+            backendStatsRow("元数据", stats.metadata)
+    );
+    return table;
+}
+
+function backendStatsRow(name, stats = {}) {
+    const row = document.createElement("div");
+    row.className = "backend-stats-row";
+    row.append(
+            textElement("span", name),
+            textElement("span", `${Number(stats.queryCount ?? 0)} 次查询`),
+            textElement("span", `${Number(stats.preScopeHits ?? stats.hitCount ?? 0)} 初筛`),
+            textElement("span", `${Number(stats.postScopeHits ?? stats.hitCount ?? 0)} 入界`)
+    );
+    return row;
+}
+
+function taxonomyChips(reasonCounts, loadState) {
+    if (loadState === "error") {
+        return [taxonomyChip("endpoint_failed", 1, true)];
+    }
+    if (loadState === "empty") {
+        return [taxonomyChip("no_data", 0, false)];
+    }
+    const entries = Object.entries(reasonCounts);
+    if (!entries.length) {
+        return [taxonomyChip("no_zero_hit", 0, false)];
+    }
+    return entries.map(([reason, count]) => taxonomyChip(reason, count, true));
+}
+
+function taxonomyChip(label, count, warning) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `taxonomy-chip${warning ? " taxonomy-chip--warning" : ""}`;
+    chip.textContent = `${taxonomyLabel(label)} ${count}`;
+    return chip;
+}
+
+function taxonomyLabel(label) {
+    const labels = {
+        endpoint_failed: "接口失败",
+        no_data: "暂无数据",
+        no_zero_hit: "无零命中",
+        UNKNOWN: "未知原因"
+    };
+    return labels[label] || String(label || "未知原因").replaceAll("_", " ");
+}
+
+function summarizeRetrievalDiagnostics(events) {
+    return events.reduce((summary, event) => {
+        const queryCount = Number(event.queryCount ?? event.retrievalQueryCount ?? 0);
+        const returnedChunks = Number(event.returnedScopedChunkCount ?? 0);
+        summary.callCount += 1;
+        summary.queryCount += queryCount;
+        summary.returnedChunks += returnedChunks;
+        if (event.zeroHitReason || returnedChunks === 0) {
+            summary.zeroHitCount += 1;
+            const reason = event.zeroHitReason || "UNKNOWN";
+            summary.reasonCounts[reason] = (summary.reasonCounts[reason] || 0) + 1;
+        }
+        return summary;
+    }, { callCount: 0, queryCount: 0, returnedChunks: 0, zeroHitCount: 0, reasonCounts: {} });
+}
+
+function normalizeRetrievalDiagnostics(payload) {
+    const events = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload?.retrievals)
+                    ? payload.retrievals
+            : Array.isArray(payload?.events)
+                    ? payload.events
+                    : Array.isArray(payload?.diagnostics)
+                            ? payload.diagnostics
+                            : Array.isArray(payload?.observations)
+                                    ? payload.observations
+                                    : [];
+    return events.map((event, index) => normalizeRetrievalDiagnostic(event, index));
+}
+
+function normalizeRetrievalDiagnostic(raw = {}, index) {
+    const observation = raw.observation || raw.retrievalObservation || raw;
+    const summary = observation.retrievalObservationSummary || raw.retrievalObservationSummary || {};
+    const backendStats = normalizeBackendStats(observation.backendStats || summary.backendStats || {});
+    const retrievalQueries = raw.retrievalQueries || observation.retrievalQueries || observation.rewrite?.retrievalQueries || [];
+    return {
+        id: String(observation.observationId || raw.observationId || raw.id || raw.traceId || `diagnostic-${index}`),
+        toolName: observation.toolName || raw.toolName || "paper_rag",
+        toolCallIndex: observation.toolCallIndex ?? summary.toolCallIndex ?? raw.toolCallIndex ?? index + 1,
+        originalQuery: observation.originalQuery || observation.query || raw.queryText || raw.query || "",
+        rewriteStrategy: raw.rewriteStrategy || observation.rewriteStrategy || "unknown",
+        retrievalQueries,
+        keywords: raw.keywords || observation.keywords || [],
+        queryCount: Number(observation.queryCount ?? observation.retrievalQueryCount ?? retrievalQueries.length ?? 0),
+        backendStats,
+        mergedCandidateCount: observation.mergedCandidateCount,
+        rerankedChunkCount: observation.rerankedChunkCount,
+        returnedScopedChunkCount: Number(raw.returnedScopedChunkCount ?? observation.returnedScopedChunkCount ?? summary.returnedScopedChunkCount ?? 0),
+        zeroHitReason: raw.zeroHitReason || observation.zeroHitReason || summary.zeroHitReason || null,
+        topChunks: Array.isArray(raw.topChunks) ? raw.topChunks : [],
+        createdAt: observation.createdAt || raw.createdAt || ""
+    };
+}
+
+function normalizeBackendStats(stats) {
+    return {
+        keyword: normalizeBackendStat(stats.keyword),
+        vector: normalizeBackendStat(stats.vector),
+        metadata: normalizeBackendStat(stats.metadata)
+    };
+}
+
+function normalizeBackendStat(stat = {}) {
+    return {
+        queryCount: Number(stat.queryCount ?? 0),
+        hitCount: Number(stat.hitCount ?? 0),
+        preScopeHits: Number(stat.preScopeHits ?? stat.hitCount ?? 0),
+        postScopeHits: Number(stat.postScopeHits ?? stat.hitCount ?? 0),
+        durationMs: Number(stat.durationMs ?? 0)
+    };
+}
+
+function selectedDiagnostic() {
+    return (app.retrievalDiagnostics || []).find((event) => event.id === app.selectedDiagnosticId) || app.retrievalDiagnostics?.[0] || null;
+}
+
+function ensureSelectedDiagnostic() {
+    if (!app.retrievalDiagnostics?.length) {
+        app.selectedDiagnosticId = null;
+        return;
+    }
+    if (!app.retrievalDiagnostics.some((event) => event.id === app.selectedDiagnosticId)) {
+        app.selectedDiagnosticId = app.retrievalDiagnostics[0].id;
+    }
+}
+
+function sampleRetrievalDiagnostics() {
+    const now = new Date().toISOString();
+    return [
+        {
+            id: "sample-diagnostic-1",
+            toolName: "paper_rag",
+            toolCallIndex: 1,
+            originalQuery: "Space-Time Beamforming",
+            rewriteStrategy: "original_only",
+            retrievalQueries: ["Space-Time Beamforming"],
+            keywords: ["space-time", "beamforming"],
+            queryCount: 1,
+            returnedScopedChunkCount: 3,
+            zeroHitReason: null,
+            backendStats: normalizeBackendStats({
+                keyword: { queryCount: 1, preScopeHits: 5, postScopeHits: 2, durationMs: 4 },
+                vector: { queryCount: 1, preScopeHits: 8, postScopeHits: 3, durationMs: 7 },
+                metadata: { queryCount: 1, preScopeHits: 1, postScopeHits: 1, durationMs: 2 }
+            }),
+            topChunks: [
+                { chunkId: 37, snippet: "Space-time beamforming aligns interference mitigation with spectral efficiency." }
+            ],
+            createdAt: now
+        },
+        {
+            id: "sample-diagnostic-2",
+            toolName: "paper_rag",
+            toolCallIndex: 2,
+            originalQuery: "Doppler shift diversity distinguish co-located users",
+            rewriteStrategy: "generated_subquery",
+            retrievalQueries: ["Doppler shift diversity distinguish co-located users"],
+            keywords: ["Doppler", "co-located users"],
+            queryCount: 1,
+            returnedScopedChunkCount: 0,
+            zeroHitReason: "SCOPE_FILTERED_EMPTY",
+            backendStats: normalizeBackendStats({
+                keyword: { queryCount: 1, preScopeHits: 0, postScopeHits: 0, durationMs: 2 },
+                vector: { queryCount: 1, preScopeHits: 4, postScopeHits: 0, durationMs: 6 },
+                metadata: { queryCount: 1, preScopeHits: 0, postScopeHits: 0, durationMs: 1 }
+            }),
+            topChunks: [],
+            createdAt: now
+        }
+    ];
+}
+
+function backendSummary(stats = {}) {
+    const keyword = Number(stats.keyword?.postScopeHits ?? stats.keyword?.hitCount ?? 0);
+    const vector = Number(stats.vector?.postScopeHits ?? stats.vector?.hitCount ?? 0);
+    const metadata = Number(stats.metadata?.postScopeHits ?? stats.metadata?.hitCount ?? 0);
+    return `k${keyword} / v${vector} / m${metadata}`;
+}
+
 function renderEvidenceSources() {
     dom.evidenceList.replaceChildren();
     if (!app.evidenceSources.length) {
-        dom.evidenceList.appendChild(emptyBlock("暂无证据。提问后会显示引用来源。"));
+        dom.evidenceList.appendChild(emptyBlock("当前回答还没有最终引用。回答完成并完成证据评估后会显示。"));
         return;
     }
     for (const evidence of app.evidenceSources) {
@@ -1043,7 +1494,7 @@ function renderEvidenceSources() {
 function renderCandidates(target) {
     target.replaceChildren();
     if (!app.candidates.length) {
-        target.appendChild(emptyBlock("暂无候选。候选需确认后写入知识板。"));
+        target.appendChild(emptyBlock("本轮尚未生成待确认候选。开启“提炼候选”后，回答完成时会出现在这里。"));
         return;
     }
     for (const candidate of app.candidates) {
@@ -1104,6 +1555,7 @@ function researchProcessPanel(message) {
     const tools = trace?.tools || [];
     const retrievalHits = trace?.retrievalHits || [];
     const memoryHits = trace?.memoryHits || [];
+    const memoryCount = Number(summary.memoryCount ?? memoryHits.length);
     const evidenceEvents = trace?.evidenceEvents || [];
     const answerDeltas = trace?.answerDeltas || [];
     const gaps = evidenceEvents.filter((event) => event.eventType === "evidence.gap.detected");
@@ -1120,8 +1572,8 @@ function researchProcessPanel(message) {
     header.append(
             textElement("span", processStatusLabel(message, trace), "process-status"),
             textElement("strong", "研究过程"),
-            textElement("small", processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas)),
-            textElement("span", isCollapsed ? "灞曞紑" : "鏀惰捣", "process-toggle-label")
+            textElement("small", processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount)),
+            textElement("span", isCollapsed ? "展开" : "收起", "process-toggle-label")
     );
     section.appendChild(header);
     if (isCollapsed) {
@@ -1133,7 +1585,7 @@ function researchProcessPanel(message) {
     metrics.append(
             processMetric("工具", processToolCount(tools)),
             processMetric("证据", Number(summary.evidenceCount ?? retrievalHits.length)),
-            processMetric("记忆", memoryHits.length),
+            processMetric("记忆", memoryCount),
             processMetric("边界", gaps.length)
     );
 
@@ -1144,12 +1596,12 @@ function researchProcessPanel(message) {
 
     const evidenceMatrix = document.createElement("div");
     evidenceMatrix.className = "process-evidence";
-    evidenceMatrix.appendChild(textElement("strong", "证据与记忆"));
+    evidenceMatrix.appendChild(textElement("strong", "过程命中"));
     const evidenceItems = [...retrievalHits, ...memoryHits].slice(0, 5);
     if (evidenceItems.length) {
         evidenceMatrix.append(...evidenceItems.map(processEvidenceItem));
     } else {
-        evidenceMatrix.appendChild(textElement("p", "等待资料命中、联网补充或记忆召回事件。"));
+        evidenceMatrix.appendChild(textElement("p", "等待资料命中、联网补充或记忆召回事件。过程命中不等于最终引用。"));
     }
 
     if (gaps.length) {
@@ -1177,7 +1629,7 @@ function processStatusLabel(message, trace) {
     return "运行中";
 }
 
-function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas) {
+function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount = memoryHits.length) {
     if (!tools.length && !retrievalHits.length && !memoryHits.length && !answerDeltas.length) {
         return "等待后端步骤事件";
     }
@@ -1188,8 +1640,8 @@ function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas
     if (retrievalHits.length) {
         parts.push(`${retrievalHits.length} 条证据命中`);
     }
-    if (memoryHits.length) {
-        parts.push(`${memoryHits.length} 条记忆`);
+    if (memoryCount) {
+        parts.push(`${memoryCount} 条记忆`);
     }
     if (gaps.length) {
         parts.push(`${gaps.length} 个边界提示`);
@@ -1451,6 +1903,11 @@ async function patchJson(url, body) {
     return readResponse(response);
 }
 
+async function deleteJson(url) {
+    const response = await fetch(url, { method: "DELETE" });
+    return readResponse(response);
+}
+
 async function postForm(url, formData) {
     const response = await fetch(url, { method: "POST", body: formData });
     return readResponse(response);
@@ -1558,6 +2015,16 @@ function sourceTypeLabel(type) {
     return SOURCE_LABELS[String(type || "").toLowerCase()] || type || "资料";
 }
 
+function sessionStatusLabel(status) {
+    const labels = {
+        continue: "进行中",
+        drafting: "草稿",
+        completed: "已完成",
+        failed: "失败"
+    };
+    return labels[String(status || "").toLowerCase()] || "进行中";
+}
+
 function statusChip(status) {
     const chip = document.createElement("mark");
     chip.dataset.status = String(status || "unknown").toLowerCase();
@@ -1600,6 +2067,31 @@ function detailActions(labels) {
     return actions;
 }
 
+function sessionActionsMenu(session) {
+    const menu = document.createElement("div");
+    menu.className = "session-actions-menu";
+    menu.setAttribute("role", "menu");
+    menu.append(
+            sessionMenuAction(session.id, "rename", "重命名"),
+            sessionMenuAction(session.id, "delete", "删除")
+    );
+    return menu;
+}
+
+function sessionMenuAction(sessionId, action, label) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = action === "delete" ? "session-menu-item session-menu-item--danger" : "session-menu-item";
+    button.setAttribute("role", "menuitem");
+    if (action === "delete") {
+        button.dataset.sessionDelete = sessionId;
+    } else {
+        button.dataset.sessionRename = sessionId;
+    }
+    button.textContent = label;
+    return button;
+}
+
 function candidateButton(candidateId, action, label) {
     const button = document.createElement("button");
     button.type = "button";
@@ -1616,6 +2108,21 @@ function candidateEditButton(candidateId) {
     button.className = "quiet-button";
     button.dataset.candidateEdit = candidateId;
     button.textContent = app.editingCandidateId === candidateId ? "编辑中" : "编辑";
+    return button;
+}
+
+function sessionIconButton(sessionId, action, label, icon) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = action === "delete" ? "icon-button icon-button--danger" : "icon-button";
+    if (action === "delete") {
+        button.dataset.sessionDelete = sessionId;
+    } else {
+        button.dataset.sessionRename = sessionId;
+    }
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.textContent = icon;
     return button;
 }
 

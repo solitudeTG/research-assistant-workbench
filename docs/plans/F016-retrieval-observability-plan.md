@@ -166,29 +166,30 @@ mvn -Dtest=ProjectAgentToolsTest test
 
 ## Task 8: Add Safe Diagnostics Endpoint Only If Needed
 
-- [ ] If the frontend or manual diagnosis needs read access, add a project-scoped read-only endpoint.
-- [ ] Keep it behind existing project/session/run path boundaries.
-- [ ] Return summaries by default; full details only when explicitly requested.
+- [x] If the frontend or manual diagnosis needs read access, add a project-scoped read-only endpoint.
+- [x] Keep it behind existing project/session/run path boundaries.
+- [x] Return summaries by default; full details only when explicitly requested.
 
 Candidate endpoint:
 
 ```text
-GET /api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/retrieval-observations
+GET /api/projects/{projectId}/sessions/{sessionId}/retrieval-diagnostics
 ```
 
 Verification:
 
 ```powershell
-mvn -Dtest=ProjectControllerTest,ProjectEvidenceBoundaryTest test
+mvn -Dtest=RetrievalDiagnosticsControllerTest,TraceControllerTest test
 ```
 
 ## Task 9: Evidence and Closeout
 
-- [ ] Run focused backend tests.
-- [ ] Run full relevant backend test slice.
-- [ ] Run Harness validation.
-- [ ] Create evidence doc only after implementation, likely `docs/evidence/EV-015-f016-retrieval-observability.md`.
-- [ ] Update F016 status and `docs/BACKLOG.md`.
+- [x] Run focused backend tests.
+- [x] Run full relevant backend test slice.
+- [x] Run frontend model and syntax checks for the diagnostics workspace.
+- [x] Run Harness validation.
+- [x] Update existing evidence doc `docs/evidence/EV-015-f016-retrieval-observability-slice.md`.
+- [x] Update F016 status and `docs/BACKLOG.md`.
 
 Commands:
 

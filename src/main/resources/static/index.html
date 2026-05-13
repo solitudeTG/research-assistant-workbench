@@ -18,6 +18,7 @@
             <button class="rail-button" type="button" data-workspace-target="sources" data-icon="library_books" title="资料库" aria-label="资料库"><span>资料库</span></button>
             <button class="rail-button" type="button" data-workspace-target="knowledge" data-icon="hub" title="知识" aria-label="知识"><span>知识</span></button>
             <button class="rail-button" type="button" data-workspace-target="project" data-icon="folder" title="项目" aria-label="项目"><span>项目</span></button>
+            <button class="rail-button" type="button" data-workspace-target="observability" data-icon="monitoring" title="观测" aria-label="观测"><span>观测</span></button>
         </div>
         <div class="rail-footer">
             <span id="system-status" class="status-pill" data-state="checking">连接中</span>
@@ -27,9 +28,8 @@
     <aside class="left-column" aria-label="工作区上下文">
         <header class="drawer-header">
             <div>
-                <p class="overline">Research workspace</p>
                 <h1>研究工作台</h1>
-                <p id="project-summary">正在载入项目空间</p>
+                <p id="project-summary" hidden>正在载入项目空间</p>
             </div>
             <span id="active-project-chip" class="context-chip">项目未选择</span>
         </header>
@@ -37,8 +37,7 @@
         <section class="drawer-panel is-active" data-context-panel="session">
             <div class="section-heading section-heading--inline">
                 <div>
-                    <p>Sessions</p>
-                    <h2>研究会话</h2>
+                    <h2>会话</h2>
                 </div>
                 <button id="new-session" class="quiet-button" type="button">新建</button>
             </div>
@@ -51,7 +50,7 @@
         <section class="drawer-panel" data-context-panel="sources">
             <div class="section-heading section-heading--inline">
                 <div>
-                    <p>Sources</p>
+                    <p>资料</p>
                     <h2>资料集合</h2>
                 </div>
                 <button id="refresh-sources" class="quiet-button" type="button">刷新</button>
@@ -67,7 +66,7 @@
         <section class="drawer-panel" data-context-panel="knowledge">
             <div class="section-heading section-heading--inline">
                 <div>
-                    <p>Knowledge</p>
+                    <p>知识</p>
                     <h2>知识分区</h2>
                 </div>
                 <button class="quiet-button" type="button" data-knowledge-action="new">新建</button>
@@ -77,7 +76,7 @@
 
         <section class="drawer-panel" data-context-panel="project">
             <div class="section-heading">
-                <p>Project</p>
+                <p>项目</p>
                 <h2 id="project-topic">项目空间</h2>
             </div>
             <p id="project-description" class="compact-text">选择或创建一个研究项目后，资料、会话和知识会围绕该项目工作。</p>
@@ -87,6 +86,13 @@
                 <div><dt>会话</dt><dd id="stat-sessions">0</dd></div>
             </dl>
         </section>
+        <section class="drawer-panel" data-context-panel="observability">
+            <div class="section-heading">
+                <p>观测</p>
+                <h2>检索诊断</h2>
+            </div>
+            <p class="compact-text">按当前会话查看 retrieval events、zero-hit 分类和后端命中统计。</p>
+        </section>
     </aside>
 
     <main class="workspace-root" aria-label="主工作区">
@@ -94,7 +100,6 @@
             <main class="center-column" data-region="center-research-dialogue" aria-label="多轮研究对话">
                 <header class="dialogue-header">
                     <div>
-                        <p class="overline">Research dialogue</p>
                         <h2 id="active-session-title">多轮研究对话</h2>
                         <p id="active-session-meta">本地知识优先，证据不足时标记需要补充。</p>
                     </div>
@@ -117,23 +122,23 @@
                 </section>
             </main>
 
-            <aside class="right-column" data-region="right-research-sidebar" aria-label="研究审阅区">
-                <nav class="sidebar-tabs" aria-label="会话上下文视图">
+            <aside class="right-column" data-region="right-research-sidebar" aria-label="当前回答审阅区">
+                <nav class="sidebar-tabs" aria-label="当前回答审阅视图">
                     <button class="tab-button" type="button" data-sidebar-view="knowledge-board">知识</button>
                     <button class="tab-button is-active" type="button" data-sidebar-view="evidence-sources">证据</button>
                     <button class="tab-button" type="button" data-sidebar-view="candidate-confirmation">候选</button>
                 </nav>
-                <p id="answer-context-line" class="context-line">当前回答还没有关联证据或候选。</p>
-                <section class="sidebar-view" data-view="knowledge-board" aria-label="知识板">
-                    <div class="section-heading"><p>Knowledge board</p><h2>长期研究知识</h2></div>
-                    <div id="knowledge-board" class="knowledge-board"></div>
+                <p id="answer-context-line" class="context-line">当前回答审阅：0 条最终引用，0 条待确认候选。</p>
+                <section class="sidebar-view" data-view="knowledge-board" aria-label="项目知识摘要">
+                    <div class="section-heading"><p>知识摘要</p><h2>项目知识摘要</h2></div>
+                <div id="knowledge-board" class="knowledge-board"></div>
                 </section>
-                <section class="sidebar-view is-active" data-view="evidence-sources" aria-label="证据来源">
-                    <div class="section-heading"><p>Evidence</p><h2>证据来源</h2></div>
+                <section class="sidebar-view is-active" data-view="evidence-sources" aria-label="最终证据来源">
+                    <div class="section-heading"><p>最终证据</p><h2>最终证据来源</h2></div>
                     <div id="evidence-list" class="stack-list"></div>
                 </section>
                 <section class="sidebar-view" data-view="candidate-confirmation" aria-label="候选确认">
-                    <div class="section-heading"><p>Candidates</p><h2>候选确认</h2></div>
+                    <div class="section-heading"><p>候选</p><h2>候选确认</h2></div>
                     <div id="candidate-list" class="stack-list"></div>
                 </section>
             </aside>
@@ -142,7 +147,6 @@
         <section class="workspace workspace--sources" data-workspace="sources" aria-label="资料库工作区">
             <header class="workspace-header">
                 <div>
-                    <p class="overline">研究工作台 / 资料库</p>
                     <h2>资料库</h2>
                     <p>管理项目论文、网页与笔记，处理完成后进入本地知识检索。</p>
                 </div>
@@ -169,7 +173,7 @@
                     <div id="source-list" class="source-table" aria-live="polite"></div>
                 </div>
                 <aside class="workspace-inspector" aria-label="来源详情">
-                    <div class="section-heading"><p>Source detail</p><h2>来源详情</h2></div>
+                    <div class="section-heading"><p>来源</p><h2>来源详情</h2></div>
                     <div id="source-detail"></div>
                 </aside>
             </section>
@@ -178,7 +182,6 @@
         <section class="workspace workspace--knowledge" data-workspace="knowledge" aria-label="知识工作区">
             <header class="workspace-header">
                 <div>
-                    <p class="overline">研究工作台 / 知识</p>
                     <h2>知识库</h2>
                     <p>管理已确认的项目知识，审阅候选并维护可复用研究结论。</p>
                 </div>
@@ -198,13 +201,13 @@
                     <div id="knowledge-workspace-board" class="knowledge-workspace-board"></div>
                     <section class="candidate-lane">
                         <div class="section-heading section-heading--inline">
-                            <div><p>Candidate review</p><h2>候选审阅</h2></div>
+                            <div><h2>候选审阅</h2></div>
                         </div>
                         <div id="knowledge-candidate-list" class="stack-list"></div>
                     </section>
                 </div>
                 <aside class="workspace-inspector" aria-label="知识详情">
-                    <div class="section-heading"><p>Knowledge detail</p><h2>知识详情</h2></div>
+                    <div class="section-heading"><p>知识详情</p><h2>知识详情</h2></div>
                     <div id="knowledge-detail"></div>
                 </aside>
             </section>
@@ -213,7 +216,6 @@
         <section class="workspace workspace--project" data-workspace="project" aria-label="项目工作区">
             <header class="workspace-header">
                 <div>
-                    <p class="overline">研究工作台 / 项目</p>
                     <h2>项目概览</h2>
                     <p>查看当前研究项目的资料、会话与知识状态。</p>
                 </div>
@@ -228,6 +230,33 @@
                     <div><dt>知识</dt><dd id="overview-stat-knowledge">0</dd></div>
                     <div><dt>会话</dt><dd id="overview-stat-sessions">0</dd></div>
                 </dl>
+            </section>
+        </section>
+        <section class="workspace workspace--observability" data-workspace="observability" aria-label="检索诊断工作区">
+            <header class="workspace-header">
+                <div>
+                    <h2>检索诊断</h2>
+                    <p id="diagnostics-context">当前会话的检索质量、失败分类和工具调用明细。</p>
+                </div>
+                <div class="workspace-actions">
+                    <button id="diagnostics-refresh" class="quiet-button" type="button">刷新</button>
+                </div>
+            </header>
+            <section id="diagnostics-summary" class="diagnostics-summary" aria-label="检索诊断摘要"></section>
+            <section id="diagnostics-taxonomy" class="diagnostics-taxonomy" aria-label="zero-hit 与失败分类"></section>
+            <section class="workspace-split diagnostics-split">
+                <div class="workspace-list-pane">
+                    <div class="table-toolbar">
+                        <input type="search" placeholder="筛选检索事件" disabled>
+                        <select disabled><option>全部原因</option></select>
+                        <select disabled><option>全部工具</option></select>
+                    </div>
+                    <div id="diagnostics-events" class="diagnostics-table" aria-live="polite"></div>
+                </div>
+                <aside class="workspace-inspector" aria-label="检索事件详情">
+                    <div class="section-heading"><h2>事件详情</h2></div>
+                    <div id="diagnostics-detail"></div>
+                </aside>
             </section>
         </section>
     </main>

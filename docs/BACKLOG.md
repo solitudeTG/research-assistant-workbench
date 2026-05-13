@@ -18,9 +18,9 @@ This file records active engineering state that future sessions must be able to 
 - Plan: [F016-retrieval-observability-plan.md](plans/F016-retrieval-observability-plan.md)
 - Current intent: turn Paper RAG retrieval into a long-lived observable capability that can explain query rewrite, hybrid retrieval hit counts, scope filtering, rerank output, zero-hit reasons, and final citation linkage. This is intentionally a backend observability feature first, not another UI patch.
 - Product reason: recent research-process UI exposed many `paper_rag returned 0 scoped chunk(s)` events. The durable fix is to make the backend explain whether the cause is Agent over-calling, weak query rewrite, no backend hits, scope-filtered vector candidates, rerank empty output, or missing scoped evidence.
-- Current slice: minimum observation model, query rewrite strategy, `NO_BACKEND_HITS` classification, `retrieval.query.rewritten`, `retrieval.completed`, and `tool.completed.data.retrievalObservationSummary` are implemented and covered by focused tests. Live observation also exposed that local restart recovery was broken for `LocalVectorSearchPort`; startup warmup now rehydrates indexed chunks into the in-memory vector index. Follow-up diagnosis showed retrieval recovered but evidence boundary was too strict for local deterministic scores; non-empty scoped paper chunks now produce weak local evidence instead of `REFUSAL/NONE`. The Agent tool boundary now deduplicates identical `paper_rag` queries and caps backend `paper_rag` calls at 3 per answer run.
+- Current slice: minimum observation model, query rewrite strategy, `NO_BACKEND_HITS` classification, `retrieval.query.rewritten`, `retrieval.completed`, and `tool.completed.data.retrievalObservationSummary` are implemented and covered by focused tests. Live observation also exposed that local restart recovery was broken for `LocalVectorSearchPort`; startup warmup now rehydrates indexed chunks into the in-memory vector index. Follow-up diagnosis showed retrieval recovered but evidence boundary was too strict for local deterministic scores; non-empty scoped paper chunks now produce weak local evidence instead of `REFUSAL/NONE`. The Agent tool boundary now deduplicates identical `paper_rag` queries and caps backend `paper_rag` calls at 3 per answer run. A project/session scoped diagnostics endpoint and first-level Observability workspace now expose the recorded retrieval traces for manual diagnosis.
 - Evidence: [EV-015-f016-retrieval-observability-slice.md](evidence/EV-015-f016-retrieval-observability-slice.md)
-- Next step: rebuild/restart the backend and rerun the same manual query. Expected outcome is vector hits remain non-zero, low-scored but present paper evidence is shown as weak local evidence rather than refusal, and repeated `paper_rag` calls stay within the per-answer budget. After that, inspect whether multi-weak-evidence aggregation should promote some answers from weak to local evidence.
+- Next step: rebuild/restart the Docker app image and validate the Observability workspace against a fresh manual run. Expected outcome is the page shows the latest retrieval calls, zero-hit taxonomy, backend hit counts, and bounded top chunks without reading database rows by hand.
 
 ### F014 Primary Workspace Navigation UI
 
@@ -43,6 +43,14 @@ This file records active engineering state that future sessions must be able to 
 - Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ## Recently Completed
+
+### F017 Session Delete and Review Sidebar
+
+- Status: completed
+- Feature page: [F017-session-delete-and-review-sidebar.md](features/F017-session-delete-and-review-sidebar.md)
+- Evidence: [EV-016-f017-session-delete-and-review-sidebar.md](evidence/EV-016-f017-session-delete-and-review-sidebar.md)
+- Result: project sessions now support confirmed hard delete through `DELETE /api/projects/{projectId}/sessions/{sessionId}`; deletion explicitly removes session-scoped messages, answers, evidence, candidates, stream events, retrieval traces, and memory entries. The session list exposes compact rename/delete actions, and the right sidebar now frames itself as current-answer review with final evidence, candidate drafts, and project knowledge summary kept conceptually separate.
+- Known limitation: this does not improve candidate generation quality or auto-create knowledge entries; empty candidate/knowledge states remain valid and are now explained in UI copy.
 
 ### F015 Agent Trace Event Contract and Live SSE
 

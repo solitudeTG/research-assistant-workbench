@@ -8,7 +8,7 @@ const STATUS_TONE = {
 };
 
 const SIDEBAR_VIEWS = new Set(["knowledge-board", "evidence-sources", "candidate-confirmation"]);
-const WORKSPACES = new Set(["session", "sources", "knowledge", "project"]);
+const WORKSPACES = new Set(["session", "sources", "knowledge", "project", "observability"]);
 const KNOWLEDGE_SECTIONS = [
     { section: "current_candidates", title: "本轮候选" },
     { section: "core_concept", title: "核心概念" },
@@ -53,6 +53,7 @@ export function getWorkspaceVisibility(state) {
         sources: activeWorkspace === "sources",
         knowledge: activeWorkspace === "knowledge",
         project: activeWorkspace === "project",
+        observability: activeWorkspace === "observability",
         showChatComposer: activeWorkspace === "session",
         showSessionInspector: activeWorkspace === "session"
     };
@@ -80,6 +81,10 @@ export function buildProjectSessionRenameUrl(context) {
     return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}`;
 }
 
+export function buildProjectSessionDeleteUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}`;
+}
+
 export function renameSessionTitle(state, sessionId, title) {
     const normalizedTitle = String(title || "").trim();
     if (!normalizedTitle) {
@@ -97,6 +102,37 @@ export function renameSessionTitle(state, sessionId, title) {
             };
         })
     };
+}
+
+export function deleteSessionFromState(state, sessionId) {
+    const sessions = (state.sessions || []).filter((session) => session.id !== sessionId);
+    const deletedActive = state.activeSessionId === sessionId;
+    const activeSessionId = deletedActive ? sessions[0]?.id || null : state.activeSessionId || null;
+    return {
+        ...state,
+        sessions,
+        activeSessionId,
+        activeAnswerContext: deletedActive ? null : state.activeAnswerContext || null,
+        currentAnswer: deletedActive
+                ? { answerId: null, text: "", status: "idle", evidenceState: null, outputMode: null, citationCount: 0 }
+                : state.currentAnswer,
+        messages: deletedActive ? [] : state.messages || [],
+        evidenceSources: deletedActive ? [] : state.evidenceSources || [],
+        candidates: deletedActive
+                ? (state.candidates || []).filter((candidate) => candidate.sessionId !== sessionId)
+                : state.candidates || [],
+        agentTraces: deletedActive ? {} : state.agentTraces || {},
+        processedEventIds: deletedActive ? [] : state.processedEventIds || []
+    };
+}
+
+export function calculateRestoredScrollTop(previous, nextScrollHeight) {
+    const scrollTop = Number(previous?.scrollTop ?? 0);
+    const scrollHeight = Number(previous?.scrollHeight ?? 0);
+    const clientHeight = Number(previous?.clientHeight ?? 0);
+    const nextHeight = Number(nextScrollHeight ?? 0);
+    const distanceFromBottom = Math.max(0, scrollHeight - scrollTop - clientHeight);
+    return Math.max(0, nextHeight - clientHeight - distanceFromBottom);
 }
 
 export function normalizeProjectMessage(raw) {
@@ -244,9 +280,11 @@ function applyAgentTraceEvent(state, event, eventType, payload) {
         trace.summary.evidenceCount = trace.retrievalHits.length;
     } else if (eventType === "memory.hit") {
         trace.memoryHits.push(traceEntry);
+        trace.summary.memoryCount = trace.memoryHits.length;
     } else if (eventType === "memory.completed") {
         trace.timeline.push(traceEntry);
         trace.memorySummary = traceEntry;
+        trace.summary.memoryCount = Math.max(trace.memoryHits.length, Number(data.hitCount ?? 0));
     } else if (eventType === "evidence.evaluated" || eventType === "evidence.gap.detected") {
         trace.evidenceEvents.push(traceEntry);
         trace.summary.weakClaims += Number(data.weakClaims ?? 0);
@@ -280,6 +318,7 @@ function ensureAgentTrace(state, runId) {
         summary: {
             toolCount: Number(existingSummary.toolCount ?? 0),
             evidenceCount: Number(existingSummary.evidenceCount ?? 0),
+            memoryCount: Number(existingSummary.memoryCount ?? 0),
             weakClaims: Number(existingSummary.weakClaims ?? 0),
             requiresConfirmation: Boolean(existingSummary.requiresConfirmation)
         }

@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class ProjectRepository {
@@ -88,6 +89,50 @@ public class ProjectRepository {
                 where project_id = ?
                   and id = ?
                 """, projectId, sessionId);
+    }
+
+    @Transactional
+    public boolean deleteSession(String projectId, String sessionId) {
+        if (findSession(projectId, sessionId).isEmpty()) {
+            return false;
+        }
+        jdbcTemplate.update("""
+                delete from stream_event_record
+                where project_id = ?
+                  and session_id = ?
+                """, projectId, sessionId);
+        jdbcTemplate.update("""
+                delete from knowledge_candidate
+                where project_id = ?
+                  and session_id = ?
+                """, projectId, sessionId);
+        jdbcTemplate.update("""
+                delete from assistant_answer
+                where project_id = ?
+                  and session_id = ?
+                """, projectId, sessionId);
+        jdbcTemplate.update("""
+                delete from retrieval_trace
+                where session_id in (
+                    select id from chat_session where session_key = ?
+                )
+                """, sessionId);
+        jdbcTemplate.update("""
+                delete from memory_entry
+                where session_id in (
+                    select id from chat_session where session_key = ?
+                )
+                """, sessionId);
+        jdbcTemplate.update("""
+                delete from chat_session
+                where session_key = ?
+                """, sessionId);
+        int deleted = jdbcTemplate.update("""
+                delete from research_session
+                where project_id = ?
+                  and id = ?
+                """, projectId, sessionId);
+        return deleted > 0;
     }
 
     private ProjectRecord mapProject(java.sql.ResultSet resultSet) throws java.sql.SQLException {

@@ -376,6 +376,44 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void workingMemorySummaryPublishesMemoryHitEvenWhenL3RecallIsEmpty() {
+        ResearchSessionRecord session = createSession();
+        jdbcTemplate.update("""
+                insert into chat_session(session_key, rolling_summary, salient_facts_json, compressed_rounds_json)
+                values (?, ?, ?::jsonb, '[]'::jsonb)
+                """,
+                session.id(),
+                "User previously compared two satellite communication papers.",
+                "[\"Discussed two IEEE papers\"]"
+        );
+        String question = "What did we discuss before?";
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        "You previously compared two satellite communication papers.",
+                        new RagResult(question, List.of(), List.of()),
+                        null,
+                        new MemoryRecallResult(question, List.of()),
+                        List.of("memory_recall")
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        WorkbenchEvent memoryHit = eventPublisher.readRunEventsAfter(response.streamRunId(), null).stream()
+                .filter(candidate -> "memory.hit".equals(candidate.eventType().wireName()))
+                .filter(candidate -> response.answerId().equals(candidate.answerId()))
+                .findFirst()
+                .orElseThrow();
+        JsonNode data = objectMapper.valueToTree(memoryHit.payload()).get("data");
+        assertThat(data.get("memoryLayer").asText()).isEqualTo("L1");
+        assertThat(data.get("label").asText()).isEqualTo("工作记忆");
+        assertThat(data.get("snippet").asText()).contains("satellite communication papers");
+    }
+
+    @Test
     void toolsUsedOmitsPaperRagWhenNoScopedPaperEvidenceExists() {
         ResearchSessionRecord session = createSession();
         String question = "What are the latest findings?";

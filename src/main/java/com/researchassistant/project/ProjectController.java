@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -73,6 +74,19 @@ public class ProjectController {
         return projectRepository.renameSession(projectId, sessionId, request.title())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/{projectId}/sessions/{sessionId}")
+    public ResponseEntity<Void> deleteSession(
+            @PathVariable String projectId,
+            @PathVariable String sessionId
+    ) {
+        if (projectRepository.findProject(projectId).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return projectRepository.deleteSession(projectId, sessionId)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
     }
 
     public record CreateProjectRequest(

@@ -216,7 +216,7 @@ public class SupervisorService {
                     evidenceScope
             );
 
-            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memoryRecallResult, agentRun);
+            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, memoryRecallResult, agentRun);
             publishRetrievalHitEvents(projectId, sessionId, runId, answerId, ragResult, webSearchResult, evidenceScope);
             publishRunEvent(
                     WorkbenchEventType.RETRIEVAL_COMPLETED,
@@ -677,11 +677,31 @@ public class SupervisorService {
                                           String sessionId,
                                           String runId,
                                           String answerId,
+                                          WorkingMemory memory,
                                           MemoryRecallResult memoryRecallResult,
                                           ProjectAgentRun agentRun) {
         List<MemoryRecallHit> hits = memoryRecallResult == null || memoryRecallResult.hits() == null
                 ? List.of()
                 : memoryRecallResult.hits();
+        int workingMemoryHitCount = 0;
+        if (hasWorkingMemorySummary(memory)) {
+            workingMemoryHitCount = 1;
+            Map<String, Object> data = payload(
+                    "memoryLayer", "L1",
+                    "label", "\u5de5\u4f5c\u8bb0\u5fc6",
+                    "snippet", bounded(workingMemorySnippet(memory)),
+                    "score", 1.0
+            );
+            publishRunEvent(
+                    WorkbenchEventType.MEMORY_HIT,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "memory_worker",
+                    answerId,
+                    payload("data", data)
+            );
+        }
         for (MemoryRecallHit hit : hits) {
             Map<String, Object> data = payload(
                     "memoryLayer", "L3",
@@ -699,7 +719,7 @@ public class SupervisorService {
                     payload("data", data)
             );
         }
-        if (!hits.isEmpty() || toolWasUsed(agentRun, "memory_recall")) {
+        if (workingMemoryHitCount > 0 || !hits.isEmpty() || toolWasUsed(agentRun, "memory_recall")) {
             publishRunEvent(
                     WorkbenchEventType.MEMORY_COMPLETED,
                     projectId,
@@ -707,9 +727,30 @@ public class SupervisorService {
                     runId,
                     "memory_worker",
                     answerId,
-                    payload("data", payload("hitCount", hits.size()))
+                    payload("data", payload(
+                            "hitCount", workingMemoryHitCount + hits.size(),
+                            "workingMemoryHitCount", workingMemoryHitCount,
+                            "l3HitCount", hits.size()
+                    ))
             );
         }
+    }
+
+    private boolean hasWorkingMemorySummary(WorkingMemory memory) {
+        return memory != null
+                && ((memory.rollingSummary() != null && !memory.rollingSummary().isBlank())
+                || (memory.salientFacts() != null && !memory.salientFacts().isEmpty()));
+    }
+
+    private String workingMemorySnippet(WorkingMemory memory) {
+        if (memory == null) {
+            return "";
+        }
+        String summary = safe(memory.rollingSummary());
+        if (memory.salientFacts() == null || memory.salientFacts().isEmpty()) {
+            return summary;
+        }
+        return summary + "\n" + String.join("; ", memory.salientFacts());
     }
 
     private void publishRetrievalHitEvents(String projectId,

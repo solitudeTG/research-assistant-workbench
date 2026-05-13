@@ -49,6 +49,22 @@ Agent tool-call control follow-up:
 - `ProjectAgentTools.paperRag(...)` now enforces a conservative budget of 3 backend `paper_rag` calls per answer run and returns structured `skipped=true, reason=paper_rag_budget_exhausted` metadata after the budget is exhausted.
 - This is intentionally enforced at the tool boundary rather than in the prompt so the constraint is deterministic and testable.
 
+Diagnostics workspace follow-up:
+
+- Added a project/session scoped read-only diagnostics endpoint:
+  `GET /api/projects/{projectId}/sessions/{sessionId}/retrieval-diagnostics`.
+- The endpoint reuses existing `retrieval_trace.rerank_result_json.observation` payloads instead of introducing a new aggregate table.
+- The response exposes retrieval-call counts, zero-hit counts, returned scoped chunk totals, rewrite strategy distribution, zero-hit reason distribution, per-backend stats, bounded retrieval queries, and bounded top chunks.
+- Added an Observability first-level workspace in the static workbench UI, aligned with the Stitch diagnostic design direction while keeping the existing compact research-workspace style.
+- The UI shows summary metrics, taxonomy chips, a retrieval-event table, and a detail inspector. It calls the real diagnostics endpoint in normal mode and uses static sample data only in sample mode.
+
+UI regression follow-up:
+
+- Manual testing showed the left primary workspace rail no longer switched workspaces.
+- Browser console evidence showed `Uncaught SyntaxError: Identifier 'sampleRetrievalDiagnostics' has already been declared` in `workbench-app.js`.
+- Root cause: the diagnostics UI slice introduced a second top-level `sampleRetrievalDiagnostics()` definition. `node --check` did not catch this browser-module strict-mode failure.
+- Fix: removed the duplicate definition and added a frontend regression test that rejects duplicate top-level function declarations in `workbench-app.js`.
+
 ## Verification Commands
 
 Focused backend verification:
@@ -57,6 +73,13 @@ Focused backend verification:
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=LocalVectorIndexWarmupTest,QueryRewriteServiceTest,PaperRagServiceTest,ProjectAgentToolsTest' test
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=ProjectEvidenceBoundaryTest,LocalVectorIndexWarmupTest' test
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=ProjectAgentToolsTest' test
+& 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=RetrievalDiagnosticsControllerTest,TraceControllerTest' test
+node --test src/main/resources/static/tests/f002-workbench-model.test.mjs
+node --test src/main/resources/static/tests/workbench-model.test.mjs
+node --check src/main/resources/static/js/workbench-app.js
+node --check src/main/resources/static/js/workbench-model.js
+git diff --check
+.\scripts\rebuild-dev.cmd
 ```
 
 Result:
@@ -68,6 +91,13 @@ BUILD SUCCESS
 Tests run: 16, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+Node frontend tests: 15/15 and 3/3 passed.
+JavaScript syntax checks: passed.
+git diff --check: passed with CRLF warnings only.
+Docker rebuild: passed, app container restarted.
+Headless Chrome console smoke after rebuild: no `Uncaught`, `TypeError`, `ReferenceError`, or `SyntaxError` from `workbench-app.js`.
 ```
 
 Harness validation:
@@ -87,5 +117,5 @@ ok
 - This slice does not yet distinguish vector pre-scope and post-scope hits. Current stats use the existing search results, so `SCOPE_FILTERED_EMPTY` still needs a stronger test and likely vector search contract work.
 - This slice does not yet link final persisted citations back to a retrieval observation id or tool-call index.
 - No dedicated `retrieval_observation` table was added. This intentionally avoids an ADR-triggering storage decision until aggregation needs are proven.
-- UI was not changed in this slice.
-- The current live container must be rebuilt/restarted before the warmup code can affect local manual testing.
+- The diagnostics endpoint is session scoped, not cross-session trend analytics. A dedicated table or time-series dashboard remains a future decision if aggregate analysis becomes necessary.
+- The current Docker app image must be rebuilt before the new backend endpoint and static UI are visible in container-based manual testing.
