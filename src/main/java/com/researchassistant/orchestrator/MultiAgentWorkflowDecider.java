@@ -18,9 +18,9 @@ public class MultiAgentWorkflowDecider {
                 "写一份",
                 "写成",
                 "整理成",
-                "输出为",
                 "做成",
-                "撰写");
+                "撰写")
+                || containsSafeOutputAs(normalized);
         boolean documentProduct = containsAny(normalized,
                 "报告",
                 "综述",
@@ -93,6 +93,11 @@ public class MultiAgentWorkflowDecider {
             }
         }
         return false;
+    }
+
+    private boolean containsSafeOutputAs(String text) {
+        return text.contains("输出为")
+                && !containsAny(text, "输出为什么", "输出为何", "输出为啥");
     }
 
     private String normalize(String question) {

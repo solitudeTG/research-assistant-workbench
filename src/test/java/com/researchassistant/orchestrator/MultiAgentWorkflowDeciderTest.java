@@ -90,4 +90,12 @@ class MultiAgentWorkflowDeciderTest {
         assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
         assertThat(decision.requiresDocumentComposer()).isFalse();
     }
+
+    @Test
+    void outputDiagnosticQuestionUsesReact() {
+        MultiAgentWorkflowDecision decision = decider.decide("这份文档输出为什么为空", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.requiresDocumentComposer()).isFalse();
+    }
 }
