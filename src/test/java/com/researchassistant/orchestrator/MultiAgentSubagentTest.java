@@ -140,10 +140,83 @@ class MultiAgentSubagentTest {
     }
 
     @Test
+    void evidenceAuditAgentFlagsUnsupportedClaimEvenWhenUnrelatedPaperEvidenceExists() {
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of("Claim A is supported."),
+                List.of("paper: content=This evidence supports a different claim."),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name()
+        );
+        EvidenceAuditAgent agent = new EvidenceAuditAgent();
+
+        AuditVerdict verdict = agent.audit("question", "Claim A is supported.", packet);
+
+        assertThat(verdict.isPassing()).isFalse();
+        assertThat(verdict.verdict()).isEqualTo("requires_revision");
+        assertThat(verdict.recommendedAnswerMode()).isEqualTo(AnswerMode.LOCAL_WEAK_EVIDENCE.name());
+        assertThat(verdict.unsupportedClaims()).containsExactly("Claim A is supported.");
+        assertThat(verdict.requiredRevisions()).containsExactly("Support or revise unsupported claim: Claim A is supported.");
+    }
+
+    @Test
+    void evidenceAuditAgentPassesClaimWhenExactTextAppearsInEvidence() {
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of("Claim A is supported."),
+                List.of("paper: content=Claim A is supported."),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name()
+        );
+        EvidenceAuditAgent agent = new EvidenceAuditAgent();
+
+        AuditVerdict verdict = agent.audit("question", "Claim A is supported.", packet);
+
+        assertThat(verdict.isPassing()).isTrue();
+        assertThat(verdict.verdict()).isEqualTo("pass");
+        assertThat(verdict.unsupportedClaims()).isEmpty();
+        assertThat(verdict.requiredRevisions()).isEmpty();
+    }
+
+    @Test
+    void documentComposerPassingOutputDoesNotPresentMemoryContextAsEvidenceOrSection() {
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of(),
+                List.of("paper: content=Supported evidence."),
+                List.of(),
+                List.of("memory: background only"),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass",
+                AnswerMode.LOCAL_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        DocumentComposerAgent agent = new DocumentComposerAgent();
+
+        DocumentDraft draft = agent.compose("markdown", "Passing result", packet, verdict);
+
+        assertThat(draft.sections()).extracting(DocumentDraft.Section::heading)
+                .doesNotContain("Memory Context", "Memory Context (background only)");
+        assertThat(draft.body()).doesNotContain("memory: background only");
+    }
+
+    @Test
     void documentComposerGeneratesRevisionDraftWhenVerdictDoesNotPass() {
         ResearchPacket packet = new ResearchPacket(
                 "question",
-                List.of("Unsupported final claim"),
+                List.of("Sensitive unsupported claim"),
                 List.of(),
                 List.of(),
                 List.of("memory context"),
@@ -154,9 +227,9 @@ class MultiAgentSubagentTest {
         AuditVerdict verdict = new AuditVerdict(
                 "requires_revision",
                 AnswerMode.REFUSAL.name(),
-                List.of("Unsupported final claim"),
+                List.of("Sensitive unsupported claim"),
                 List.of(),
-                List.of("Remove unsupported final claim.")
+                List.of("Remove unsupported claim before composing conclusions.")
         );
         DocumentComposerAgent agent = new DocumentComposerAgent();
 
@@ -165,8 +238,8 @@ class MultiAgentSubagentTest {
         assertThat(draft.format()).isEqualTo("markdown");
         assertThat(draft.title()).isEqualTo("Audit result");
         assertThat(draft.body()).contains("Required revisions");
-        assertThat(draft.body()).contains("Remove unsupported final claim.");
-        assertThat(draft.body()).doesNotContain("Unsupported conclusions");
+        assertThat(draft.body()).contains("Remove unsupported claim before composing conclusions.");
+        assertThat(draft.body()).doesNotContain("Sensitive unsupported claim");
         assertThat(draft.sections()).extracting(DocumentDraft.Section::heading)
                 .containsExactly("Audit Status", "Required Revisions");
     }

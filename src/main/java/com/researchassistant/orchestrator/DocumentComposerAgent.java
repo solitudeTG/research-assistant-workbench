@@ -34,7 +34,6 @@ public class DocumentComposerAgent {
         ));
         addListSection(sections, "Paper Evidence", packet.paperEvidence());
         addListSection(sections, "Web Evidence", packet.webEvidence());
-        addListSection(sections, "Memory Context", packet.memoryContext());
         addListSection(sections, "Cautions", verdict.requiredRevisions());
         return sections;
     }
