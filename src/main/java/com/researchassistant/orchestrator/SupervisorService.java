@@ -66,6 +66,8 @@ public class SupervisorService {
     private final AgentIntentRouter agentIntentRouter;
     private final WebSearchPort webSearchPort;
     private final ProjectAgentToolLoop projectAgentToolLoop;
+    private final MultiAgentWorkflowDecider multiAgentWorkflowDecider;
+    private final MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop;
 
     public SupervisorService(
             TaskRouter taskRouter,
@@ -86,7 +88,9 @@ public class SupervisorService {
             TransactionTemplate transactionTemplate,
             AgentIntentRouter agentIntentRouter,
             WebSearchPort webSearchPort,
-            ProjectAgentToolLoop projectAgentToolLoop) {
+            ProjectAgentToolLoop projectAgentToolLoop,
+            MultiAgentWorkflowDecider multiAgentWorkflowDecider,
+            MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
         this.evidenceBoundaryService = evidenceBoundaryService;
@@ -106,6 +110,8 @@ public class SupervisorService {
         this.agentIntentRouter = agentIntentRouter;
         this.webSearchPort = webSearchPort;
         this.projectAgentToolLoop = projectAgentToolLoop;
+        this.multiAgentWorkflowDecider = multiAgentWorkflowDecider;
+        this.multiAgentPlanExecuteLoop = multiAgentPlanExecuteLoop;
     }
 
     public ProjectMessageResponse answerProject(String projectId, String sessionId, ProjectMessageRequest request) {
@@ -173,6 +179,115 @@ public class SupervisorService {
         try {
             WorkingMemory memory = workingMemoryService.load(sessionId);
             boolean allowWebSupplement = Boolean.TRUE.equals(request.allowWebSupplement());
+            MultiAgentWorkflowDecision workflowDecision =
+                    multiAgentWorkflowDecider.decide(request.question(), allowWebSupplement);
+            if (workflowDecision.mode() == MultiAgentExecutionMode.PLAN_EXECUTE) {
+                MultiAgentPlanExecuteResult planExecuteResult = multiAgentPlanExecuteLoop.run(
+                        memory.sessionId(),
+                        request.question(),
+                        evidenceScope,
+                        allowWebSupplement,
+                        workflowDecision
+                );
+                RagResult ragResult = new RagResult(request.question(), documentIds, List.of());
+                WebSearchResult webSearchResult = null;
+                EvidenceAssessment assessment = planExecuteEvidenceAssessment(planExecuteResult);
+                String answer = planExecuteAnswer(planExecuteResult);
+                persistProjectAnswerAndEvidence(
+                        answerId,
+                        projectId,
+                        sessionId,
+                        request.question(),
+                        answer,
+                        assessment,
+                        ragResult,
+                        webSearchResult,
+                        evidenceScope
+                );
+                publishRunEvent(
+                        WorkbenchEventType.RETRIEVAL_COMPLETED,
+                        projectId,
+                        sessionId,
+                        runId,
+                        "retrieval-agent",
+                        answerId,
+                        payload(
+                                "retrievalMode", RetrievalMode.NO_RETRIEVAL.name(),
+                                "sourceFilterCount", request.sourceFilters() == null ? 0 : request.sourceFilters().size(),
+                                "paperEvidenceCount", 0,
+                                "memoryRecallCount", 0,
+                                "webSupplementAllowed", allowWebSupplement,
+                                "intent", "MULTI_AGENT_PLAN_EXECUTE",
+                                "toolsUsed", List.of(),
+                                "webEvidenceCount", 0,
+                                "webSearchStatus", webSearchStatus(webSearchResult),
+                                "topPaperScore", 0.0,
+                                "citationCount", assessment.citationCount(),
+                                "summary", "Completed supervisor-led plan-execute workflow."
+                        )
+                );
+                publishRunEvent(
+                        WorkbenchEventType.EVIDENCE_EVALUATED,
+                        projectId,
+                        sessionId,
+                        runId,
+                        "evidence-boundary",
+                        answerId,
+                        payload(
+                                "evidenceState", assessment.evidenceLevel().name(),
+                                "outputMode", assessment.answerMode().name(),
+                                "citationCount", assessment.citationCount(),
+                                "sourceTypes", List.of()
+                        )
+                );
+                List<String> deltas = answerDeltas(answer);
+                for (int index = 0; index < deltas.size(); index++) {
+                    String delta = deltas.get(index);
+                    publishRunEvent(
+                            WorkbenchEventType.ANSWER_DELTA,
+                            projectId,
+                            sessionId,
+                            runId,
+                            "writing-agent",
+                            answerId,
+                            payload(
+                                    "delta", bounded(delta),
+                                    "text", bounded(delta),
+                                    "index", index
+                            )
+                    );
+                }
+                publishRunEvent(
+                        WorkbenchEventType.ANSWER_COMPLETED,
+                        projectId,
+                        sessionId,
+                        runId,
+                        "supervisor",
+                        answerId,
+                        payload(
+                                "answerId", answerId,
+                                "answerMode", assessment.answerMode().name(),
+                                "evidenceState", assessment.evidenceLevel().name(),
+                                "citationCount", assessment.citationCount()
+                        )
+                );
+                publishRunEvent(
+                        WorkbenchEventType.RUN_COMPLETED,
+                        projectId,
+                        sessionId,
+                        runId,
+                        "supervisor",
+                        answerId,
+                        payload("status", "completed")
+                );
+
+                return new ProjectMessageResponse(
+                        messageId,
+                        answerId,
+                        runId,
+                        "/api/projects/" + projectId + "/sessions/" + sessionId + "/runs/" + runId + "/events"
+                );
+            }
             ProjectAgentRun agentRun = projectAgentToolLoop.run(new ProjectAgentRequest(
                     projectId,
                     sessionId,
@@ -418,6 +533,51 @@ public class SupervisorService {
                 .filter(chunk -> evidenceScope.sourceIdByIndexedDocumentId().containsKey(chunk.documentId()))
                 .toList();
         return new RagResult(ragResult.query(), evidenceScope.indexedDocumentIds(), scopedChunks);
+    }
+
+    private String planExecuteAnswer(MultiAgentPlanExecuteResult result) {
+        if (result.documentDraft() != null) {
+            return result.documentDraft().body();
+        }
+        return result.finalSynthesisContext();
+    }
+
+    private EvidenceAssessment planExecuteEvidenceAssessment(MultiAgentPlanExecuteResult result) {
+        AnswerMode answerMode = planExecuteAnswerMode(result);
+        EvidenceLevel evidenceLevel = switch (answerMode) {
+            case LOCAL_EVIDENCE -> EvidenceLevel.SUFFICIENT;
+            case WEB_SUPPLEMENT, LOCAL_WEAK_EVIDENCE -> EvidenceLevel.WEAK;
+            case REFUSAL -> EvidenceLevel.NONE;
+        };
+        return new EvidenceAssessment(evidenceLevel, answerMode, planExecuteCitationCount(result, answerMode));
+    }
+
+    private AnswerMode planExecuteAnswerMode(MultiAgentPlanExecuteResult result) {
+        if (result.auditVerdict() != null) {
+            return parseAnswerMode(result.auditVerdict().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
+        }
+        if (result.researchPacket() != null) {
+            return parseAnswerMode(result.researchPacket().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
+        }
+        return AnswerMode.LOCAL_WEAK_EVIDENCE;
+    }
+
+    private AnswerMode parseAnswerMode(String value, AnswerMode fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return AnswerMode.valueOf(value);
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
+    private int planExecuteCitationCount(MultiAgentPlanExecuteResult result, AnswerMode answerMode) {
+        if (answerMode == AnswerMode.REFUSAL || result.researchPacket() == null) {
+            return 0;
+        }
+        return result.researchPacket().paperEvidence().size() + result.researchPacket().webEvidence().size();
     }
 
     private void persistProjectAnswerAndEvidence(String answerId,
