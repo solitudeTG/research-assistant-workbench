@@ -50,7 +50,7 @@ public class MultiAgentPlanExecuteLoop {
 
         if (decision.requiresEvidenceAudit() || decision.requiresDocumentComposer()) {
             ResearchPacket groundedPacket = Objects.requireNonNull(packet, "researchPacket");
-            verdict = evidenceAuditAgent.audit(question, deterministicDraft(question, groundedPacket), groundedPacket);
+            verdict = evidenceAuditAgent.audit(question, deterministicDraft(groundedPacket), groundedPacket);
             steps = completeStep(steps, "evidence-audit");
         }
 
@@ -114,11 +114,11 @@ public class MultiAgentPlanExecuteLoop {
                 .toList();
     }
 
-    private String deterministicDraft(String question, ResearchPacket packet) {
+    private String deterministicDraft(ResearchPacket packet) {
         if (!packet.claims().isEmpty()) {
             return String.join("\n", packet.claims());
         }
-        return question;
+        return "";
     }
 
     private String finalSynthesisContext(

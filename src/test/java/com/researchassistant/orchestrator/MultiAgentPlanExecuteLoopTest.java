@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,6 +57,41 @@ class MultiAgentPlanExecuteLoopTest {
                 .containsExactly("Deep Research Agent", "Evidence Audit Agent");
         assertThat(result.plan().steps()).extracting(MultiAgentPlan.Step::status)
                 .containsExactly("completed", "completed");
+    }
+
+    @Test
+    void emptyClaimsUseEmptyAuditDraftSoGroundedPacketsCanPass() {
+        EvidenceAuditAgent realAuditAgent = spy(new EvidenceAuditAgent());
+        MultiAgentPlanExecuteLoop loopWithRealAudit = new MultiAgentPlanExecuteLoop(
+                deepResearchAgent,
+                realAuditAgent,
+                documentComposerAgent
+        );
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "source-10"));
+        MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                "complex_research",
+                true,
+                true,
+                false
+        );
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of(),
+                List.of("paper: content=Grounded evidence that does not repeat the user question."),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name()
+        );
+        when(deepResearchAgent.research(42L, "question", scope, true)).thenReturn(packet);
+
+        MultiAgentPlanExecuteResult result = loopWithRealAudit.run(42L, "question", scope, true, decision);
+
+        verify(realAuditAgent).audit("question", "", packet);
+        assertThat(result.auditVerdict().isPassing()).isTrue();
+        assertThat(result.auditVerdict().verdict()).isEqualTo("pass");
     }
 
     @Test
