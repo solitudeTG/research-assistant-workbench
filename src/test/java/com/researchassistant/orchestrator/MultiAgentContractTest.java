@@ -1,11 +1,13 @@
 package com.researchassistant.orchestrator;
 
+import com.researchassistant.evidence.AnswerMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class MultiAgentContractTest {
 
@@ -18,6 +20,7 @@ class MultiAgentContractTest {
         assertThat(packet.webEvidence()).isEmpty();
         assertThat(packet.memoryContext()).isEmpty();
         assertThat(packet.evidenceGaps()).containsExactly("No local paper evidence supports the claim.");
+        assertThat(packet.recommendedAnswerMode()).isEqualTo(AnswerMode.LOCAL_WEAK_EVIDENCE.name());
     }
 
     @Test
@@ -37,7 +40,7 @@ class MultiAgentContractTest {
                 memoryContext,
                 conflicts,
                 evidenceGaps,
-                "grounded"
+                AnswerMode.LOCAL_EVIDENCE.name()
         );
 
         claims.add("mutated claim");
@@ -56,6 +59,27 @@ class MultiAgentContractTest {
     }
 
     @Test
+    void researchPacketAccessorListsAreUnmodifiable() {
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of("claim"),
+                List.of("paper"),
+                List.of("web"),
+                List.of("memory"),
+                List.of("conflict"),
+                List.of("gap"),
+                AnswerMode.LOCAL_EVIDENCE.name()
+        );
+
+        assertThatThrownBy(() -> packet.claims().add("mutated")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> packet.paperEvidence().add("mutated")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> packet.webEvidence().add("mutated")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> packet.memoryContext().add("mutated")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> packet.conflicts().add("mutated")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> packet.evidenceGaps().add("mutated")).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void auditVerdictDefensivelyCopiesListsAndClassifiesPassingVerdicts() {
         List<String> unsupportedClaims = new ArrayList<>(List.of("unsupported"));
         List<String> sourcePolicyIssues = new ArrayList<>(List.of("policy"));
@@ -63,13 +87,19 @@ class MultiAgentContractTest {
 
         AuditVerdict passWithCautions = new AuditVerdict(
                 "pass_with_cautions",
-                "grounded",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
                 unsupportedClaims,
                 sourcePolicyIssues,
                 requiredRevisions
         );
-        AuditVerdict fail = new AuditVerdict("fail", "refuse", List.of(), List.of(), List.of());
-        AuditVerdict requiresRevision = new AuditVerdict("requires_revision", "revise", List.of(), List.of(), List.of());
+        AuditVerdict fail = new AuditVerdict("fail", AnswerMode.REFUSAL.name(), List.of(), List.of(), List.of());
+        AuditVerdict requiresRevision = new AuditVerdict(
+                "requires_revision",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
 
         unsupportedClaims.add("mutated unsupported");
         sourcePolicyIssues.add("mutated policy");
@@ -84,6 +114,37 @@ class MultiAgentContractTest {
     }
 
     @Test
+    void auditVerdictRejectsNullVerdict() {
+        assertThatThrownBy(() -> new AuditVerdict(
+                null,
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        ))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("verdict");
+    }
+
+    @Test
+    void auditVerdictAccessorListsAreUnmodifiable() {
+        AuditVerdict verdict = new AuditVerdict(
+                "pass",
+                AnswerMode.LOCAL_EVIDENCE.name(),
+                List.of("unsupported"),
+                List.of("policy"),
+                List.of("revision")
+        );
+
+        assertThatThrownBy(() -> verdict.unsupportedClaims().add("mutated"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> verdict.sourcePolicyIssues().add("mutated"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> verdict.requiredRevisions().add("mutated"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void documentDraftDefensivelyCopiesSections() {
         List<DocumentDraft.Section> sections = new ArrayList<>(List.of(
                 new DocumentDraft.Section("Summary", "Body")
@@ -94,5 +155,18 @@ class MultiAgentContractTest {
         sections.add(new DocumentDraft.Section("Mutated", "Mutated body"));
 
         assertThat(draft.sections()).containsExactly(new DocumentDraft.Section("Summary", "Body"));
+    }
+
+    @Test
+    void documentDraftAccessorSectionsAreUnmodifiable() {
+        DocumentDraft draft = new DocumentDraft(
+                "markdown",
+                "Title",
+                "Full body",
+                List.of(new DocumentDraft.Section("Summary", "Body"))
+        );
+
+        assertThatThrownBy(() -> draft.sections().add(new DocumentDraft.Section("Mutated", "Mutated body")))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 }

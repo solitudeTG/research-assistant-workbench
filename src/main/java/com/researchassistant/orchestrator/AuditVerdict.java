@@ -2,6 +2,7 @@ package com.researchassistant.orchestrator;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 public record AuditVerdict(
         String verdict,
@@ -12,9 +13,11 @@ public record AuditVerdict(
 ) {
 
     public AuditVerdict {
-        unsupportedClaims = List.copyOf(unsupportedClaims);
-        sourcePolicyIssues = List.copyOf(sourcePolicyIssues);
-        requiredRevisions = List.copyOf(requiredRevisions);
+        verdict = Objects.requireNonNull(verdict, "verdict");
+        recommendedAnswerMode = Objects.requireNonNull(recommendedAnswerMode, "recommendedAnswerMode");
+        unsupportedClaims = List.copyOf(Objects.requireNonNull(unsupportedClaims, "unsupportedClaims"));
+        sourcePolicyIssues = List.copyOf(Objects.requireNonNull(sourcePolicyIssues, "sourcePolicyIssues"));
+        requiredRevisions = List.copyOf(Objects.requireNonNull(requiredRevisions, "requiredRevisions"));
     }
 
     public boolean isPassing() {

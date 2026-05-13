@@ -1,7 +1,10 @@
 package com.researchassistant.orchestrator;
 
+import com.researchassistant.evidence.AnswerMode;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public record ResearchPacket(
         String question,
@@ -15,12 +18,14 @@ public record ResearchPacket(
 ) {
 
     public ResearchPacket {
-        claims = List.copyOf(claims);
-        paperEvidence = List.copyOf(paperEvidence);
-        webEvidence = List.copyOf(webEvidence);
-        memoryContext = List.copyOf(memoryContext);
-        conflicts = List.copyOf(conflicts);
-        evidenceGaps = List.copyOf(evidenceGaps);
+        question = Objects.requireNonNull(question, "question");
+        claims = List.copyOf(Objects.requireNonNull(claims, "claims"));
+        paperEvidence = List.copyOf(Objects.requireNonNull(paperEvidence, "paperEvidence"));
+        webEvidence = List.copyOf(Objects.requireNonNull(webEvidence, "webEvidence"));
+        memoryContext = List.copyOf(Objects.requireNonNull(memoryContext, "memoryContext"));
+        conflicts = List.copyOf(Objects.requireNonNull(conflicts, "conflicts"));
+        evidenceGaps = List.copyOf(Objects.requireNonNull(evidenceGaps, "evidenceGaps"));
+        recommendedAnswerMode = Objects.requireNonNull(recommendedAnswerMode, "recommendedAnswerMode");
     }
 
     public static ResearchPacket empty(String question) {
@@ -32,7 +37,7 @@ public record ResearchPacket(
                 List.of(),
                 List.of(),
                 List.of(),
-                "grounded"
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
         );
     }
 

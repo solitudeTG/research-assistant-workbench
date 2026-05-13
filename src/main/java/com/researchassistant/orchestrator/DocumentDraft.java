@@ -1,6 +1,7 @@
 package com.researchassistant.orchestrator;
 
 import java.util.List;
+import java.util.Objects;
 
 public record DocumentDraft(
         String format,
@@ -10,7 +11,10 @@ public record DocumentDraft(
 ) {
 
     public DocumentDraft {
-        sections = List.copyOf(sections);
+        format = Objects.requireNonNull(format, "format");
+        title = Objects.requireNonNull(title, "title");
+        body = Objects.requireNonNull(body, "body");
+        sections = List.copyOf(Objects.requireNonNull(sections, "sections"));
     }
 
     public record Section(String heading, String body) {
