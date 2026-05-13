@@ -3,6 +3,7 @@ package com.researchassistant.orchestrator;
 import com.researchassistant.evidence.ProjectEvidenceScope;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 
@@ -14,15 +15,18 @@ public class MultiAgentPlanExecuteLoop {
     private final DeepResearchAgent deepResearchAgent;
     private final EvidenceAuditAgent evidenceAuditAgent;
     private final DocumentComposerAgent documentComposerAgent;
+    private final AgentTracePublisher tracePublisher;
 
     public MultiAgentPlanExecuteLoop(
             DeepResearchAgent deepResearchAgent,
             EvidenceAuditAgent evidenceAuditAgent,
-            DocumentComposerAgent documentComposerAgent
+            DocumentComposerAgent documentComposerAgent,
+            AgentTracePublisher tracePublisher
     ) {
         this.deepResearchAgent = Objects.requireNonNull(deepResearchAgent, "deepResearchAgent");
         this.evidenceAuditAgent = Objects.requireNonNull(evidenceAuditAgent, "evidenceAuditAgent");
         this.documentComposerAgent = Objects.requireNonNull(documentComposerAgent, "documentComposerAgent");
+        this.tracePublisher = Objects.requireNonNull(tracePublisher, "tracePublisher");
     }
 
     public MultiAgentPlanExecuteResult run(
@@ -32,6 +36,17 @@ public class MultiAgentPlanExecuteLoop {
             boolean allowWebSupplement,
             MultiAgentWorkflowDecision decision
     ) {
+        return run(sessionId, question, evidenceScope, allowWebSupplement, decision, null);
+    }
+
+    public MultiAgentPlanExecuteResult run(
+            long sessionId,
+            String question,
+            ProjectEvidenceScope evidenceScope,
+            boolean allowWebSupplement,
+            MultiAgentWorkflowDecision decision,
+            AgentTraceContext traceContext
+    ) {
         Objects.requireNonNull(question, "question");
         Objects.requireNonNull(decision, "decision");
         if (decision.mode() != MultiAgentExecutionMode.PLAN_EXECUTE) {
@@ -39,24 +54,49 @@ public class MultiAgentPlanExecuteLoop {
         }
 
         List<MultiAgentPlan.Step> steps = createSteps(decision);
+        publishPlanCreated(traceContext, decision, steps);
         ResearchPacket packet = null;
         AuditVerdict verdict = null;
         DocumentDraft draft = null;
 
         if (needsResearch(decision)) {
-            packet = deepResearchAgent.research(sessionId, question, evidenceScope, allowWebSupplement);
+            MultiAgentPlan.Step step = stepById(steps, "deep-research");
+            publishStarted(traceContext, step);
+            try {
+                packet = deepResearchAgent.research(sessionId, question, evidenceScope, allowWebSupplement);
+            } catch (RuntimeException exception) {
+                publishFailed(traceContext, step, exception);
+                throw exception;
+            }
             steps = completeStep(steps, "deep-research");
+            publishCompleted(traceContext, stepById(steps, "deep-research"), researchPacketTraceData(packet));
         }
 
         if (decision.requiresEvidenceAudit() || decision.requiresDocumentComposer()) {
             ResearchPacket groundedPacket = Objects.requireNonNull(packet, "researchPacket");
-            verdict = evidenceAuditAgent.audit(question, deterministicDraft(groundedPacket), groundedPacket);
+            MultiAgentPlan.Step step = stepById(steps, "evidence-audit");
+            publishStarted(traceContext, step);
+            try {
+                verdict = evidenceAuditAgent.audit(question, deterministicDraft(groundedPacket), groundedPacket);
+            } catch (RuntimeException exception) {
+                publishFailed(traceContext, step, exception);
+                throw exception;
+            }
             steps = completeStep(steps, "evidence-audit");
+            publishAuditVerdict(traceContext, verdict);
         }
 
         if (decision.requiresDocumentComposer()) {
-            draft = documentComposerAgent.compose("markdown", question, packet, verdict);
+            MultiAgentPlan.Step step = stepById(steps, "document-composer");
+            publishStarted(traceContext, step);
+            try {
+                draft = documentComposerAgent.compose("markdown", question, packet, verdict);
+            } catch (RuntimeException exception) {
+                publishFailed(traceContext, step, exception);
+                throw exception;
+            }
             steps = completeStep(steps, "document-composer");
+            publishComposerCompleted(traceContext, draft);
         }
 
         MultiAgentPlan plan = new MultiAgentPlan(
@@ -71,6 +111,66 @@ public class MultiAgentPlanExecuteLoop {
                 draft,
                 finalSynthesisContext(question, packet, verdict, draft)
         );
+    }
+
+    private void publishPlanCreated(
+            AgentTraceContext traceContext,
+            MultiAgentWorkflowDecision decision,
+            List<MultiAgentPlan.Step> steps
+    ) {
+        if (traceContext == null) {
+            return;
+        }
+        tracePublisher.planCreated(traceContext, new MultiAgentPlan(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                "Serial plan-execute workflow: " + decision.reason(),
+                steps
+        ));
+    }
+
+    private void publishStarted(AgentTraceContext traceContext, MultiAgentPlan.Step step) {
+        if (traceContext != null) {
+            tracePublisher.subagentStarted(traceContext, step);
+        }
+    }
+
+    private void publishCompleted(
+            AgentTraceContext traceContext,
+            MultiAgentPlan.Step step,
+            Map<String, Object> data
+    ) {
+        if (traceContext != null) {
+            tracePublisher.subagentCompleted(traceContext, step, data);
+        }
+    }
+
+    private void publishAuditVerdict(AgentTraceContext traceContext, AuditVerdict verdict) {
+        if (traceContext != null) {
+            tracePublisher.auditVerdict(traceContext, verdict);
+        }
+    }
+
+    private void publishComposerCompleted(AgentTraceContext traceContext, DocumentDraft draft) {
+        if (traceContext != null) {
+            tracePublisher.composerCompleted(traceContext, draft);
+        }
+    }
+
+    private void publishFailed(
+            AgentTraceContext traceContext,
+            MultiAgentPlan.Step step,
+            RuntimeException exception
+    ) {
+        if (traceContext != null) {
+            tracePublisher.subagentFailed(traceContext, step, safeError(exception));
+        }
+    }
+
+    private String safeError(RuntimeException exception) {
+        if (exception.getMessage() == null || exception.getMessage().isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+        return exception.getMessage();
     }
 
     private boolean needsResearch(MultiAgentWorkflowDecision decision) {
@@ -112,6 +212,35 @@ public class MultiAgentPlanExecuteLoop {
         return steps.stream()
                 .map(step -> step.stepId().equals(stepId) ? step.completed() : step)
                 .toList();
+    }
+
+    private MultiAgentPlan.Step stepById(List<MultiAgentPlan.Step> steps, String stepId) {
+        return steps.stream()
+                .filter(step -> step.stepId().equals(stepId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Missing plan step: " + stepId));
+    }
+
+    private Map<String, Object> researchPacketTraceData(ResearchPacket packet) {
+        if (packet == null) {
+            return Map.of(
+                    "claimCount", 0,
+                    "paperEvidenceCount", 0,
+                    "webEvidenceCount", 0,
+                    "memoryContextCount", 0,
+                    "conflictCount", 0,
+                    "evidenceGapCount", 0
+            );
+        }
+        return Map.of(
+                "claimCount", packet.claims().size(),
+                "paperEvidenceCount", packet.paperEvidence().size(),
+                "webEvidenceCount", packet.webEvidence().size(),
+                "memoryContextCount", packet.memoryContext().size(),
+                "conflictCount", packet.conflicts().size(),
+                "evidenceGapCount", packet.evidenceGaps().size(),
+                "recommendedAnswerMode", packet.recommendedAnswerMode()
+        );
     }
 
     private String deterministicDraft(ResearchPacket packet) {

@@ -197,7 +197,16 @@ public class AgentTracePublisher {
     }
 
     private String agentRole(MultiAgentPlan.Step step) {
-        String normalized = step.agentRole()
+        return switch (step.stepId()) {
+            case "deep-research" -> "deep_research_agent";
+            case "evidence-audit" -> "evidence_audit_agent";
+            case "document-composer" -> "document_composer_agent";
+            default -> stableRoleFromStepId(step.stepId());
+        };
+    }
+
+    private String stableRoleFromStepId(String stepId) {
+        String normalized = stepId
                 .trim()
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "_")

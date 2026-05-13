@@ -91,7 +91,7 @@ class AgentTracePublisherTest {
                 MultiAgentExecutionMode.PLAN_EXECUTE,
                 "Serial plan-execute workflow: complex_research_request",
                 List.of(
-                        new MultiAgentPlan.Step("deep-research", "Collect and separate grounded evidence", "Deep Research Agent", "completed"),
+                        new MultiAgentPlan.Step("deep-research", "Collect and separate grounded evidence", "Localized Research Label", "completed"),
                         new MultiAgentPlan.Step("evidence-audit", "Audit claims against gathered evidence", "Evidence Audit Agent", "completed"),
                         new MultiAgentPlan.Step("document-composer", "Compose requested document from audited packet", "Document Composer Agent", "completed")
                 )

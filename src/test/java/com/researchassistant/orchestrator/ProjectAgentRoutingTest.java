@@ -106,6 +106,7 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 anyString(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()
         );
         assertThat(answerRow(response.answerId()))
@@ -125,7 +126,8 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 eq(question),
                 org.mockito.ArgumentMatchers.any(),
                 eq(true),
-                eq(decision)
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
         )).thenReturn(planResult(
                 null,
                 AnswerMode.LOCAL_EVIDENCE,
@@ -144,7 +146,8 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 eq(question),
                 org.mockito.ArgumentMatchers.any(),
                 eq(true),
-                eq(decision)
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
         );
         assertThat(answerRow(response.answerId()))
                 .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE")
@@ -171,7 +174,8 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 eq(question),
                 org.mockito.ArgumentMatchers.any(),
                 eq(false),
-                eq(decision)
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
         )).thenReturn(planResult(
                 draft,
                 AnswerMode.LOCAL_EVIDENCE,
@@ -203,7 +207,8 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 eq(question),
                 org.mockito.ArgumentMatchers.any(),
                 eq(true),
-                eq(decision)
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
         )).thenReturn(planResult(
                 null,
                 AnswerMode.REFUSAL,

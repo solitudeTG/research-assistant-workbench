@@ -96,6 +96,15 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
     @SpyBean
     private MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop;
 
+    @MockBean
+    private DeepResearchAgent deepResearchAgent;
+
+    @MockBean
+    private EvidenceAuditAgent evidenceAuditAgent;
+
+    @MockBean
+    private DocumentComposerAgent documentComposerAgent;
+
     @MockBean(answer = org.mockito.Answers.RETURNS_DEEP_STUBS)
     private org.springframework.ai.chat.client.ChatClient chatClient;
 
@@ -112,7 +121,8 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
 
     @AfterEach
     void resetToolLoopSpy() {
-        reset(projectAgentToolLoop, multiAgentWorkflowDecider, multiAgentPlanExecuteLoop);
+        reset(projectAgentToolLoop, multiAgentWorkflowDecider, multiAgentPlanExecuteLoop,
+                deepResearchAgent, evidenceAuditAgent, documentComposerAgent);
     }
 
     @Test
@@ -378,14 +388,26 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
                 true,
                 true
         );
-        MultiAgentPlanExecuteResult result = planExecuteResult(question);
+        ResearchPacket packet = researchPacket(question);
+        AuditVerdict verdict = auditVerdict();
+        DocumentDraft draft = documentDraft();
         doReturn(decision).when(multiAgentWorkflowDecider).decide(question, true);
-        doReturn(result).when(multiAgentPlanExecuteLoop).run(
+        doReturn(packet).when(deepResearchAgent).research(
                 anyLong(),
                 eq(question),
                 any(),
-                eq(true),
-                eq(decision)
+                eq(true)
+        );
+        doReturn(verdict).when(evidenceAuditAgent).audit(
+                eq(question),
+                eq("Supported claim"),
+                eq(packet)
+        );
+        doReturn(draft).when(documentComposerAgent).compose(
+                eq("markdown"),
+                eq(question),
+                eq(packet),
+                eq(verdict)
         );
 
         JsonNode response = postProjectMessage(session, """
@@ -516,8 +538,8 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
         return objectMapper.readTree(result.getResponse().getContentAsString());
     }
 
-    private MultiAgentPlanExecuteResult planExecuteResult(String question) {
-        ResearchPacket packet = new ResearchPacket(
+    private ResearchPacket researchPacket(String question) {
+        return new ResearchPacket(
                 question,
                 List.of("Supported claim"),
                 List.of("paper: content=Supported claim"),
@@ -527,14 +549,20 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
                 List.of("Evidence is weak and should be qualified."),
                 AnswerMode.LOCAL_WEAK_EVIDENCE.name()
         );
-        AuditVerdict verdict = new AuditVerdict(
+    }
+
+    private AuditVerdict auditVerdict() {
+        return new AuditVerdict(
                 "pass_with_cautions",
                 AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
                 List.of("Unsupported claim should only appear as a count in trace payload."),
                 List.of("Use local evidence only."),
                 List.of("Qualify weak evidence.")
         );
-        DocumentDraft draft = new DocumentDraft(
+    }
+
+    private DocumentDraft documentDraft() {
+        return new DocumentDraft(
                 "markdown",
                 "Plan Execute Report",
                 "# Plan Execute Report\n\nAudited document body.",
@@ -542,21 +570,6 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
                         new DocumentDraft.Section("Summary", "Audited body."),
                         new DocumentDraft.Section("Evidence", "Bounded details.")
                 )
-        );
-        return new MultiAgentPlanExecuteResult(
-                new MultiAgentPlan(
-                        MultiAgentExecutionMode.PLAN_EXECUTE,
-                        "Serial plan-execute workflow: complex_research_request",
-                        List.of(
-                                new MultiAgentPlan.Step("deep-research", "Collect and separate grounded evidence", "Deep Research Agent", "completed"),
-                                new MultiAgentPlan.Step("evidence-audit", "Audit claims against gathered evidence", "Evidence Audit Agent", "completed"),
-                                new MultiAgentPlan.Step("document-composer", "Compose requested document from audited packet", "Document Composer Agent", "completed")
-                        )
-                ),
-                packet,
-                verdict,
-                draft,
-                "fallback synthesis"
         );
     }
 

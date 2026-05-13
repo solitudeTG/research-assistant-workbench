@@ -2,6 +2,8 @@ package com.researchassistant.orchestrator;
 
 import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.ProjectEvidenceScope;
+import com.researchassistant.events.InMemoryWorkbenchEventPublisher;
+import com.researchassistant.events.WorkbenchEvent;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -11,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -26,7 +29,8 @@ class MultiAgentPlanExecuteLoopTest {
     private final MultiAgentPlanExecuteLoop loop = new MultiAgentPlanExecuteLoop(
             deepResearchAgent,
             evidenceAuditAgent,
-            documentComposerAgent
+            documentComposerAgent,
+            new AgentTracePublisher(new InMemoryWorkbenchEventPublisher())
     );
 
     @Test
@@ -60,12 +64,88 @@ class MultiAgentPlanExecuteLoopTest {
     }
 
     @Test
+    void publishesSubagentStartedBeforeCallingDeepResearchAndCompletedAfterItReturns() {
+        InMemoryWorkbenchEventPublisher eventPublisher = new InMemoryWorkbenchEventPublisher();
+        MultiAgentPlanExecuteLoop tracedLoop = tracedLoop(eventPublisher);
+        AgentTraceContext traceContext = traceContext();
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "source-10"));
+        MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                "complex_research",
+                true,
+                false,
+                false
+        );
+        ResearchPacket packet = packet();
+        doAnswer(invocation -> {
+            List<WorkbenchEvent> liveEvents = eventPublisher.readRunEventsAfter("run-1", null);
+            assertThat(liveEvents)
+                    .extracting(event -> event.eventType().wireName())
+                    .containsSubsequence("agent.plan.created", "agent.step.started")
+                    .doesNotContain("agent.step.completed");
+            WorkbenchEvent started = firstTraceStep(liveEvents, "deep-research", "running");
+            assertThat(started.actor()).isEqualTo("deep_research_agent");
+            assertThat(dataOf(started)).containsEntry("execution", "serial");
+            return packet;
+        }).when(deepResearchAgent).research(42L, "question", scope, true);
+
+        tracedLoop.run(42L, "question", scope, true, decision, traceContext);
+
+        List<WorkbenchEvent> finalEvents = eventPublisher.readRunEventsAfter("run-1", null);
+        assertThat(finalEvents)
+                .extracting(event -> event.eventType().wireName())
+                .containsSubsequence("agent.plan.created", "agent.step.started", "agent.step.completed");
+        WorkbenchEvent completed = firstTraceStep(finalEvents, "deep-research", "completed");
+        assertThat(completed.actor()).isEqualTo("deep_research_agent");
+        assertThat(dataOf(completed))
+                .containsEntry("paperEvidenceCount", 1)
+                .containsEntry("webEvidenceCount", 0)
+                .containsEntry("memoryContextCount", 1);
+    }
+
+    @Test
+    void publishesKnownSubagentFailureBeforeRethrowing() {
+        InMemoryWorkbenchEventPublisher eventPublisher = new InMemoryWorkbenchEventPublisher();
+        MultiAgentPlanExecuteLoop tracedLoop = tracedLoop(eventPublisher);
+        AgentTraceContext traceContext = traceContext();
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "source-10"));
+        MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                "complex_research",
+                true,
+                false,
+                false
+        );
+        doAnswer(invocation -> {
+            assertThat(firstTraceStep(eventPublisher.readRunEventsAfter("run-1", null), "deep-research", "running"))
+                    .extracting(WorkbenchEvent::actor)
+                    .isEqualTo("deep_research_agent");
+            throw new IllegalStateException("paper retrieval timeout");
+        }).when(deepResearchAgent).research(42L, "question", scope, true);
+
+        assertThatThrownBy(() -> tracedLoop.run(42L, "question", scope, true, decision, traceContext))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("paper retrieval timeout");
+
+        List<WorkbenchEvent> events = eventPublisher.readRunEventsAfter("run-1", null);
+        assertThat(events)
+                .extracting(event -> event.eventType().wireName())
+                .containsSubsequence("agent.plan.created", "agent.step.started", "agent.step.failed");
+        WorkbenchEvent failed = firstTraceStep(events, "deep-research", "failed");
+        assertThat(failed.actor()).isEqualTo("deep_research_agent");
+        assertThat(dataOf(failed))
+                .containsEntry("execution", "serial")
+                .containsEntry("error", "paper retrieval timeout");
+    }
+
+    @Test
     void emptyClaimsUseEmptyAuditDraftSoGroundedPacketsCanPass() {
         EvidenceAuditAgent realAuditAgent = spy(new EvidenceAuditAgent());
         MultiAgentPlanExecuteLoop loopWithRealAudit = new MultiAgentPlanExecuteLoop(
                 deepResearchAgent,
                 realAuditAgent,
-                documentComposerAgent
+                documentComposerAgent,
+                new AgentTracePublisher(new InMemoryWorkbenchEventPublisher())
         );
         ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "source-10"));
         MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
@@ -204,5 +284,43 @@ class MultiAgentPlanExecuteLoopTest {
                 List.of(),
                 List.of()
         );
+    }
+
+    private MultiAgentPlanExecuteLoop tracedLoop(InMemoryWorkbenchEventPublisher eventPublisher) {
+        return new MultiAgentPlanExecuteLoop(
+                deepResearchAgent,
+                evidenceAuditAgent,
+                documentComposerAgent,
+                new AgentTracePublisher(eventPublisher)
+        );
+    }
+
+    private AgentTraceContext traceContext() {
+        return new AgentTraceContext(
+                "project-1",
+                "session-1",
+                "run-1",
+                "message-1",
+                "answer-1"
+        );
+    }
+
+    private WorkbenchEvent firstTraceStep(List<WorkbenchEvent> events, String stepId, String status) {
+        return events.stream()
+                .filter(event -> event.payload().containsKey("step"))
+                .filter(event -> {
+                    Object stepValue = event.payload().get("step");
+                    if (!(stepValue instanceof Map<?, ?> step)) {
+                        return false;
+                    }
+                    return stepId.equals(step.get("stepId")) && status.equals(step.get("status"));
+                })
+                .findFirst()
+                .orElseThrow();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> dataOf(WorkbenchEvent event) {
+        return (Map<String, Object>) event.payload().get("data");
     }
 }

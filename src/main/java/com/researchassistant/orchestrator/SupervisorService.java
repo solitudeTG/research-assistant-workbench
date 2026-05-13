@@ -198,9 +198,9 @@ public class SupervisorService {
                         request.question(),
                         evidenceScope,
                         allowWebSupplement,
-                        workflowDecision
+                        workflowDecision,
+                        traceContext
                 );
-                publishPlanExecuteTraceEvents(traceContext, planExecuteResult);
                 RagResult ragResult = new RagResult(request.question(), documentIds, List.of());
                 WebSearchResult webSearchResult = null;
                 EvidenceAssessment assessment = planExecuteEvidenceAssessment(planExecuteResult);
@@ -552,54 +552,6 @@ public class SupervisorService {
             return result.documentDraft().body();
         }
         return result.finalSynthesisContext();
-    }
-
-    private void publishPlanExecuteTraceEvents(
-            AgentTraceContext traceContext,
-            MultiAgentPlanExecuteResult result
-    ) {
-        agentTracePublisher.planCreated(traceContext, result.plan());
-        for (MultiAgentPlan.Step step : result.plan().steps()) {
-            if (!"completed".equals(step.status()) && !"failed".equals(step.status())) {
-                continue;
-            }
-            agentTracePublisher.subagentStarted(traceContext, step);
-            if ("failed".equals(step.status())) {
-                agentTracePublisher.subagentFailed(traceContext, step, "Plan-Execute step failed.");
-                continue;
-            }
-            if ("deep-research".equals(step.stepId())) {
-                agentTracePublisher.subagentCompleted(traceContext, step, researchPacketTraceData(result.researchPacket()));
-            } else if ("evidence-audit".equals(step.stepId()) && result.auditVerdict() != null) {
-                agentTracePublisher.auditVerdict(traceContext, result.auditVerdict());
-            } else if ("document-composer".equals(step.stepId()) && result.documentDraft() != null) {
-                agentTracePublisher.composerCompleted(traceContext, result.documentDraft());
-            } else {
-                agentTracePublisher.subagentCompleted(traceContext, step, Map.of());
-            }
-        }
-    }
-
-    private Map<String, Object> researchPacketTraceData(ResearchPacket packet) {
-        if (packet == null) {
-            return payload(
-                    "claimCount", 0,
-                    "paperEvidenceCount", 0,
-                    "webEvidenceCount", 0,
-                    "memoryContextCount", 0,
-                    "conflictCount", 0,
-                    "evidenceGapCount", 0
-            );
-        }
-        return payload(
-                "claimCount", packet.claims().size(),
-                "paperEvidenceCount", packet.paperEvidence().size(),
-                "webEvidenceCount", packet.webEvidence().size(),
-                "memoryContextCount", packet.memoryContext().size(),
-                "conflictCount", packet.conflicts().size(),
-                "evidenceGapCount", packet.evidenceGaps().size(),
-                "recommendedAnswerMode", packet.recommendedAnswerMode()
-        );
     }
 
     private EvidenceAssessment planExecuteEvidenceAssessment(MultiAgentPlanExecuteResult result) {
