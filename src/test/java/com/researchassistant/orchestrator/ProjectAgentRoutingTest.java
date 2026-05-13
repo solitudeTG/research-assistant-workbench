@@ -147,9 +147,11 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 eq(decision)
         );
         assertThat(answerRow(response.answerId()))
-                .containsEntry("answer_mode", "LOCAL_EVIDENCE")
-                .containsEntry("evidence_state", "SUFFICIENT")
+                .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE")
+                .containsEntry("evidence_state", "WEAK")
                 .containsEntry("answer", "Audited synthesis from plan-execute.");
+        assertThat(evidenceSourceCount(response.answerId())).isZero();
+        assertRetrievalCitationTelemetry(response.streamRunId(), response.answerId(), 0);
     }
 
     @Test
@@ -184,9 +186,10 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
 
         verify(projectAgentToolLoop, never()).run(org.mockito.ArgumentMatchers.any());
         assertThat(answerRow(response.answerId()))
-                .containsEntry("answer_mode", "LOCAL_EVIDENCE")
-                .containsEntry("evidence_state", "SUFFICIENT")
+                .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE")
+                .containsEntry("evidence_state", "WEAK")
                 .containsEntry("answer", "# Project report\n\nAudited document body.");
+        assertThat(evidenceSourceCount(response.answerId())).isZero();
     }
 
     @Test
@@ -630,6 +633,15 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 """, answerId);
     }
 
+    private int evidenceSourceCount(String answerId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                from evidence_source
+                where answer_id = ?
+                """, Integer.class, answerId);
+        return count == null ? 0 : count;
+    }
+
     private void insertIndexedProjectSource(String projectId, long indexedDocumentId) {
         jdbcTemplate.update("""
                 insert into source_document(id, project_id, type, title, status, indexed_document_id)
@@ -647,5 +659,15 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         assertThat(payload.get("toolsUsed"))
                 .extracting(JsonNode::asText)
                 .containsExactly(expectedTools);
+    }
+
+    private void assertRetrievalCitationTelemetry(String runId, String answerId, int expectedCitationCount) {
+        WorkbenchEvent event = eventPublisher.readRunEventsAfter(runId, null).stream()
+                .filter(candidate -> "retrieval.completed".equals(candidate.eventType().wireName()))
+                .filter(candidate -> answerId.equals(candidate.answerId()))
+                .findFirst()
+                .orElseThrow();
+        JsonNode payload = objectMapper.valueToTree(event.payload());
+        assertThat(payload.get("citationCount").asInt()).isEqualTo(expectedCitationCount);
     }
 }

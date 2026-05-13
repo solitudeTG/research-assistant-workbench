@@ -549,15 +549,25 @@ public class SupervisorService {
             case WEB_SUPPLEMENT, LOCAL_WEAK_EVIDENCE -> EvidenceLevel.WEAK;
             case REFUSAL -> EvidenceLevel.NONE;
         };
-        return new EvidenceAssessment(evidenceLevel, answerMode, planExecuteCitationCount(result, answerMode));
+        return new EvidenceAssessment(evidenceLevel, answerMode, 0);
     }
 
     private AnswerMode planExecuteAnswerMode(MultiAgentPlanExecuteResult result) {
+        AnswerMode recommendedMode;
         if (result.auditVerdict() != null) {
-            return parseAnswerMode(result.auditVerdict().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
+            recommendedMode = parseAnswerMode(result.auditVerdict().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
+            return planExecutePersistedAnswerMode(recommendedMode);
         }
         if (result.researchPacket() != null) {
-            return parseAnswerMode(result.researchPacket().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
+            recommendedMode = parseAnswerMode(result.researchPacket().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
+            return planExecutePersistedAnswerMode(recommendedMode);
+        }
+        return AnswerMode.LOCAL_WEAK_EVIDENCE;
+    }
+
+    private AnswerMode planExecutePersistedAnswerMode(AnswerMode recommendedMode) {
+        if (recommendedMode == AnswerMode.REFUSAL) {
+            return AnswerMode.REFUSAL;
         }
         return AnswerMode.LOCAL_WEAK_EVIDENCE;
     }
@@ -571,13 +581,6 @@ public class SupervisorService {
         } catch (IllegalArgumentException ignored) {
             return fallback;
         }
-    }
-
-    private int planExecuteCitationCount(MultiAgentPlanExecuteResult result, AnswerMode answerMode) {
-        if (answerMode == AnswerMode.REFUSAL || result.researchPacket() == null) {
-            return 0;
-        }
-        return result.researchPacket().paperEvidence().size() + result.researchPacket().webEvidence().size();
     }
 
     private void persistProjectAnswerAndEvidence(String answerId,
