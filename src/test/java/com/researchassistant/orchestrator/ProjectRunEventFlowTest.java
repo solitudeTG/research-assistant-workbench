@@ -2,6 +2,7 @@ package com.researchassistant.orchestrator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.memory.MemoryEntry;
@@ -34,11 +35,13 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -87,6 +90,12 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
     @SpyBean
     private ProjectAgentToolLoop projectAgentToolLoop;
 
+    @SpyBean
+    private MultiAgentWorkflowDecider multiAgentWorkflowDecider;
+
+    @SpyBean
+    private MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop;
+
     @MockBean(answer = org.mockito.Answers.RETURNS_DEEP_STUBS)
     private org.springframework.ai.chat.client.ChatClient chatClient;
 
@@ -103,7 +112,7 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
 
     @AfterEach
     void resetToolLoopSpy() {
-        reset(projectAgentToolLoop);
+        reset(projectAgentToolLoop, multiAgentWorkflowDecider, multiAgentPlanExecuteLoop);
     }
 
     @Test
@@ -358,6 +367,129 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
         });
     }
 
+    @Test
+    void planExecuteRequestPublishesSerialMultiAgentTraceAndSseReplay() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+        String question = "Compare these papers rigorously and write a Markdown report";
+        MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                "complex_research_request",
+                true,
+                true,
+                true
+        );
+        MultiAgentPlanExecuteResult result = planExecuteResult(question);
+        doReturn(decision).when(multiAgentWorkflowDecider).decide(question, true);
+        doReturn(result).when(multiAgentPlanExecuteLoop).run(
+                anyLong(),
+                eq(question),
+                any(),
+                eq(true),
+                eq(decision)
+        );
+
+        JsonNode response = postProjectMessage(session, """
+                {
+                  "question": "Compare these papers rigorously and write a Markdown report",
+                  "answerMode": "local_first",
+                  "allowWebSupplement": true
+                }
+                """);
+        String runId = response.get("streamRunId").asText();
+        List<WorkbenchEvent> events = eventPublisher.readRunEventsAfter(runId, null);
+
+        WorkbenchEvent modeSelected = firstTraceStep(events, "mode-selection", "completed");
+        assertThat(dataOf(modeSelected))
+                .containsEntry("mode", "PLAN_EXECUTE")
+                .containsEntry("reason", "complex_research_request");
+
+        WorkbenchEvent planCreated = events.stream()
+                .filter(event -> "agent.plan.created".equals(event.eventType().wireName()))
+                .filter(event -> event.payload().containsKey("data"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(dataOf(planCreated))
+                .containsEntry("mode", "PLAN_EXECUTE")
+                .containsEntry("summary", "Serial plan-execute workflow: complex_research_request")
+                .containsEntry("execution", "serial");
+        assertThat((List<?>) dataOf(planCreated).get("steps")).hasSize(3);
+
+        WorkbenchEvent deepStarted = firstTraceStep(events, "deep-research", "running");
+        WorkbenchEvent deepCompleted = firstTraceStep(events, "deep-research", "completed");
+        WorkbenchEvent auditStarted = firstTraceStep(events, "evidence-audit", "running");
+        WorkbenchEvent auditCompleted = firstTraceStep(events, "evidence-audit", "completed");
+        WorkbenchEvent composerStarted = firstTraceStep(events, "document-composer", "running");
+        WorkbenchEvent composerCompleted = firstTraceStep(events, "document-composer", "completed");
+
+        assertThat(indexOf(events, modeSelected)).isLessThan(indexOf(events, planCreated));
+        assertThat(indexOf(events, planCreated)).isLessThan(indexOf(events, deepStarted));
+        assertThat(indexOf(events, deepStarted)).isLessThan(indexOf(events, deepCompleted));
+        assertThat(indexOf(events, deepCompleted)).isLessThan(indexOf(events, auditStarted));
+        assertThat(indexOf(events, auditStarted)).isLessThan(indexOf(events, auditCompleted));
+        assertThat(indexOf(events, auditCompleted)).isLessThan(indexOf(events, composerStarted));
+        assertThat(indexOf(events, composerStarted)).isLessThan(indexOf(events, composerCompleted));
+
+        assertThat(deepStarted.actor()).isEqualTo("deep_research_agent");
+        assertThat(dataOf(deepCompleted))
+                .containsEntry("paperEvidenceCount", 1)
+                .containsEntry("webEvidenceCount", 1)
+                .containsEntry("memoryContextCount", 1);
+        assertThat(auditCompleted.actor()).isEqualTo("evidence_audit_agent");
+        assertThat(dataOf(auditCompleted))
+                .containsEntry("verdict", "pass_with_cautions")
+                .containsEntry("recommendedAnswerMode", "LOCAL_WEAK_EVIDENCE")
+                .containsEntry("unsupportedClaimCount", 1)
+                .containsEntry("sourcePolicyIssueCount", 1)
+                .containsEntry("requiredRevisionCount", 1)
+                .doesNotContainKey("unsupportedClaims");
+        assertThat(composerCompleted.actor()).isEqualTo("document_composer_agent");
+        assertThat(dataOf(composerCompleted))
+                .containsEntry("format", "markdown")
+                .containsEntry("title", "Plan Execute Report")
+                .containsEntry("sectionCount", 2)
+                .doesNotContainKey("body");
+
+        assertThat(events)
+                .extracting(event -> event.eventType().wireName())
+                .containsSubsequence(
+                        "agent.step.completed",
+                        "agent.plan.created",
+                        "agent.step.started",
+                        "agent.step.completed",
+                        "agent.step.started",
+                        "agent.step.completed",
+                        "agent.step.started",
+                        "agent.step.completed",
+                        "evidence.evaluated",
+                        "answer.completed",
+                        "run.completed"
+                );
+
+        MvcResult sseResult = mockMvc.perform(get("/api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events",
+                        session.projectId(), session.id(), runId))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        sseResult.getAsyncResult(5_000);
+        String sseBody = mockMvc.perform(asyncDispatch(sseResult))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(sseBody)
+                .contains("event:agent.plan.created")
+                .contains("event:agent.step.started")
+                .contains("event:agent.step.completed")
+                .contains("\"mode\":\"PLAN_EXECUTE\"")
+                .contains("\"reason\":\"complex_research_request\"")
+                .contains("\"agentRole\":\"deep_research_agent\"")
+                .contains("\"agentRole\":\"evidence_audit_agent\"")
+                .contains("\"agentRole\":\"document_composer_agent\"")
+                .contains("\"execution\":\"serial\"")
+                .doesNotContain("\"execution\":\"parallel\"");
+    }
+
     private JsonNode postProjectMessage(ResearchSessionRecord session) throws Exception {
         String requestBody = """
                 {
@@ -366,6 +498,10 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
                 }
                 """;
 
+        return postProjectMessage(session, requestBody);
+    }
+
+    private JsonNode postProjectMessage(ResearchSessionRecord session, String requestBody) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/projects/{projectId}/sessions/{sessionId}/messages",
                         session.projectId(), session.id())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -378,6 +514,50 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
                 .andReturn();
 
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private MultiAgentPlanExecuteResult planExecuteResult(String question) {
+        ResearchPacket packet = new ResearchPacket(
+                question,
+                List.of("Supported claim"),
+                List.of("paper: content=Supported claim"),
+                List.of("web: title=Recent result url=https://example.test score=0.80 snippet=Supported web context"),
+                List.of("memory: topic=Workflow summary score=0.70 summary=Prior context"),
+                List.of(),
+                List.of("Evidence is weak and should be qualified."),
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass_with_cautions",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of("Unsupported claim should only appear as a count in trace payload."),
+                List.of("Use local evidence only."),
+                List.of("Qualify weak evidence.")
+        );
+        DocumentDraft draft = new DocumentDraft(
+                "markdown",
+                "Plan Execute Report",
+                "# Plan Execute Report\n\nAudited document body.",
+                List.of(
+                        new DocumentDraft.Section("Summary", "Audited body."),
+                        new DocumentDraft.Section("Evidence", "Bounded details.")
+                )
+        );
+        return new MultiAgentPlanExecuteResult(
+                new MultiAgentPlan(
+                        MultiAgentExecutionMode.PLAN_EXECUTE,
+                        "Serial plan-execute workflow: complex_research_request",
+                        List.of(
+                                new MultiAgentPlan.Step("deep-research", "Collect and separate grounded evidence", "Deep Research Agent", "completed"),
+                                new MultiAgentPlan.Step("evidence-audit", "Audit claims against gathered evidence", "Evidence Audit Agent", "completed"),
+                                new MultiAgentPlan.Step("document-composer", "Compose requested document from audited packet", "Document Composer Agent", "completed")
+                        )
+                ),
+                packet,
+                verdict,
+                draft,
+                "fallback synthesis"
+        );
     }
 
     private ResearchSessionRecord createResearchSession() {
@@ -398,6 +578,24 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
                 .filter(event -> sourceType == null || sourceType.equals(dataOf(event).get("sourceType")))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private WorkbenchEvent firstTraceStep(List<WorkbenchEvent> events, String stepId, String status) {
+        return events.stream()
+                .filter(event -> event.payload().containsKey("step"))
+                .filter(event -> {
+                    Object stepValue = event.payload().get("step");
+                    if (!(stepValue instanceof Map<?, ?> step)) {
+                        return false;
+                    }
+                    return stepId.equals(step.get("stepId")) && status.equals(step.get("status"));
+                })
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private int indexOf(List<WorkbenchEvent> events, WorkbenchEvent event) {
+        return events.indexOf(event);
     }
 
     @SuppressWarnings("unchecked")
