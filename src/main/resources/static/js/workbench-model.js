@@ -291,6 +291,12 @@ function applyAgentTraceEvent(state, event, eventType, payload) {
         trace.summary.requiresConfirmation = trace.summary.requiresConfirmation || Boolean(data.requiresUserConfirmation);
     } else if (eventType === "answer.delta") {
         trace.answerDeltas.push(traceEntry);
+    } else if (eventType === "agent.plan.created") {
+        applyPlanTrace(trace, traceEntry, data);
+    } else if (eventType === "agent.step.started"
+            || eventType === "agent.step.completed"
+            || eventType === "agent.step.failed") {
+        applyAgentStepTrace(trace, traceEntry, eventType, payload, data);
     } else {
         return state;
     }
@@ -315,14 +321,165 @@ function ensureAgentTrace(state, runId) {
         evidenceEvents: Array.isArray(existing.evidenceEvents) ? [...existing.evidenceEvents] : [],
         memoryHits: Array.isArray(existing.memoryHits) ? [...existing.memoryHits] : [],
         answerDeltas: Array.isArray(existing.answerDeltas) ? [...existing.answerDeltas] : [],
+        subagents: cloneSubagents(existing.subagents),
+        plan: existing.plan ? { ...existing.plan, steps: Array.isArray(existing.plan.steps) ? [...existing.plan.steps] : [] } : null,
+        mode: existing.mode || null,
+        modeReason: existing.modeReason || "",
+        modeSelection: existing.modeSelection ? { ...existing.modeSelection } : null,
+        audit: existing.audit ? { ...existing.audit, counts: { ...(existing.audit.counts || {}) } } : null,
+        document: existing.document ? { ...existing.document } : null,
         summary: {
             toolCount: Number(existingSummary.toolCount ?? 0),
             evidenceCount: Number(existingSummary.evidenceCount ?? 0),
             memoryCount: Number(existingSummary.memoryCount ?? 0),
             weakClaims: Number(existingSummary.weakClaims ?? 0),
-            requiresConfirmation: Boolean(existingSummary.requiresConfirmation)
+            requiresConfirmation: Boolean(existingSummary.requiresConfirmation),
+            execution: existingSummary.execution || null,
+            mode: existingSummary.mode || existing.mode || null,
+            auditVerdict: existingSummary.auditVerdict || existing.audit?.verdict || null,
+            recommendedAnswerMode: existingSummary.recommendedAnswerMode
+                    || existing.audit?.recommendedAnswerMode
+                    || null,
+            documentFormat: existingSummary.documentFormat || existing.document?.format || null,
+            documentTitle: existingSummary.documentTitle || existing.document?.title || null,
+            documentSectionCount: Number(existingSummary.documentSectionCount ?? existing.document?.sectionCount ?? 0)
         }
     };
+}
+
+function cloneSubagents(subagents) {
+    if (!subagents || typeof subagents !== "object") {
+        return {};
+    }
+    return Object.fromEntries(Object.entries(subagents).map(([role, subagent]) => [
+        role,
+        {
+            ...subagent,
+            timeline: Array.isArray(subagent.timeline) ? [...subagent.timeline] : [],
+            latestData: subagent.latestData && typeof subagent.latestData === "object" ? { ...subagent.latestData } : {}
+        }
+    ]));
+}
+
+function applyPlanTrace(trace, traceEntry, data) {
+    const plan = {
+        eventId: traceEntry.eventId,
+        mode: data.mode || trace.mode || null,
+        summary: data.summary || "",
+        execution: data.execution || "serial",
+        steps: Array.isArray(data.steps) ? data.steps.map((step) => ({ ...step })) : []
+    };
+    trace.plan = plan;
+    if (plan.mode) {
+        trace.mode = plan.mode;
+        trace.summary.mode = plan.mode;
+    }
+    trace.summary.execution = plan.execution;
+}
+
+function applyAgentStepTrace(trace, traceEntry, eventType, payload, data) {
+    const step = payload.step && typeof payload.step === "object" ? payload.step : {};
+    if (step.stepId === "mode-selection" || data.mode) {
+        trace.mode = data.mode || trace.mode || null;
+        trace.modeReason = data.reason || trace.modeReason || "";
+        trace.modeSelection = {
+            mode: trace.mode,
+            reason: trace.modeReason
+        };
+        trace.summary.mode = trace.mode;
+        return;
+    }
+
+    const actor = payload.actor && typeof payload.actor === "object" ? payload.actor : {};
+    const actorRole = normalizeAgentRole(actor.agentRole || actor.role || data.actorRole || data.agentRole);
+    if (!actorRole) {
+        return;
+    }
+
+    const status = agentStepStatus(eventType, step.status);
+    const agentEntry = {
+        ...traceEntry,
+        actorRole,
+        actorDisplayName: actor.displayName || data.actorDisplayName || actorRole,
+        stepId: step.stepId || data.stepId || traceEntry.stepId || null,
+        parentStepId: step.parentStepId || data.parentStepId || null,
+        label: step.label || data.label || "",
+        status
+    };
+    trace.timeline.push(agentEntry);
+
+    const existing = trace.subagents[actorRole] || {
+        actorRole,
+        displayName: agentEntry.actorDisplayName,
+        status: "idle",
+        timeline: [],
+        latestData: {}
+    };
+    trace.subagents[actorRole] = {
+        ...existing,
+        displayName: agentEntry.actorDisplayName || existing.displayName,
+        status,
+        stepId: agentEntry.stepId || existing.stepId || null,
+        latestData: { ...(existing.latestData || {}), ...data },
+        timeline: [...(existing.timeline || []), agentEntry]
+    };
+
+    if (actorRole === "evidence_audit_agent" && status === "completed") {
+        trace.audit = auditSummary(data);
+        trace.summary.auditVerdict = trace.audit.verdict || null;
+        trace.summary.recommendedAnswerMode = trace.audit.recommendedAnswerMode || null;
+    }
+    if (actorRole === "document_composer_agent" && status === "completed") {
+        trace.document = documentSummary(data);
+        trace.summary.documentFormat = trace.document.format || null;
+        trace.summary.documentTitle = trace.document.title || null;
+        trace.summary.documentSectionCount = Number(trace.document.sectionCount ?? 0);
+    }
+}
+
+function normalizeAgentRole(role) {
+    const normalized = String(role || "").trim();
+    if (!normalized || normalized === "supervisor") {
+        return "";
+    }
+    return normalized;
+}
+
+function agentStepStatus(eventType, stepStatus) {
+    if (eventType === "agent.step.failed") {
+        return "failed";
+    }
+    if (eventType === "agent.step.completed") {
+        return "completed";
+    }
+    return stepStatus || "started";
+}
+
+function auditSummary(data) {
+    return {
+        verdict: data.verdict || null,
+        recommendedAnswerMode: data.recommendedAnswerMode || null,
+        counts: traceCountSummary(data)
+    };
+}
+
+function documentSummary(data) {
+    return {
+        format: data.format || null,
+        title: data.title || null,
+        sectionCount: Number(data.sectionCount ?? 0)
+    };
+}
+
+function traceCountSummary(data) {
+    return Object.fromEntries([
+        "paperEvidenceCount",
+        "webEvidenceCount",
+        "memoryContextCount",
+        "claimCount",
+        "conflictCount",
+        "evidenceGapCount"
+    ].filter((key) => data[key] !== undefined && data[key] !== null).map((key) => [key, Number(data[key])]));
 }
 
 function traceDataOf(payload) {

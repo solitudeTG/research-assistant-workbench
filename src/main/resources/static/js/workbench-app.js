@@ -1670,7 +1670,10 @@ function processTimelineItems(trace, message) {
     const memoryHits = trace?.memoryHits || [];
     const evidenceEvents = trace?.evidenceEvents || [];
     const answerDeltas = trace?.answerDeltas || [];
+    const agentEvents = (trace?.timeline || []).filter((event) => String(event.eventType || "").startsWith("agent."));
     const orderedEvents = [
+        processPlanTimelineEvent(trace?.plan),
+        ...agentEvents.map((event, index) => processAgentTimelineEvent(event, index)),
         ...tools.map((event, index) => processToolTimelineEvent(event, index)),
         ...retrievalHits.map((event, index) => processHitTimelineEvent(event, index, "retrieval")),
         ...memoryHits.map((event, index) => processHitTimelineEvent(event, index, "memory")),
@@ -1686,6 +1689,29 @@ function processTimelineItems(trace, message) {
         }];
     }
     return orderedEvents.sort((left, right) => processEventOrder(left) - processEventOrder(right));
+}
+
+function processPlanTimelineEvent(plan) {
+    if (!plan) {
+        return null;
+    }
+    return {
+        eventType: "agent.plan.created",
+        status: "completed",
+        label: "执行计划",
+        detail: plan.summary || `${plan.steps?.length || 0} 个串行步骤`,
+        order: 0
+    };
+}
+
+function processAgentTimelineEvent(event, index) {
+    return {
+        eventType: event.eventType,
+        status: agentTimelineStatus(event),
+        label: event.label || event.actorDisplayName || agentRoleLabel(event.actorRole),
+        detail: agentTimelineDetail(event),
+        order: processEventOrderValue(event, 10 + index)
+    };
 }
 
 function processToolTimelineEvent(event, index) {
@@ -1783,6 +1809,38 @@ function toolDetail(event) {
         return `查询：${event.query}`;
     }
     return event.eventType === "tool.completed" ? "步骤已完成。" : "步骤运行中。";
+}
+
+function agentTimelineStatus(event) {
+    if (event.status === "failed") {
+        return "failed";
+    }
+    if (event.status === "completed") {
+        return "completed";
+    }
+    return "running";
+}
+
+function agentTimelineDetail(event) {
+    if (event.status === "failed") {
+        return `${event.errorType || "步骤失败"} · ${event.message || "子 Agent 未完成"}`;
+    }
+    if (event.verdict) {
+        return `审证结论：${event.verdict}`;
+    }
+    if (event.format || event.title) {
+        return [event.format, event.title].filter(Boolean).join(" · ");
+    }
+    return event.status === "completed" ? "子 Agent 步骤已完成。" : "子 Agent 步骤运行中。";
+}
+
+function agentRoleLabel(role) {
+    const labels = {
+        deep_research_agent: "Deep Research Agent",
+        evidence_audit_agent: "Evidence Audit Agent",
+        document_composer_agent: "Document Composer Agent"
+    };
+    return labels[role] || role || "子 Agent";
 }
 
 function processEvidenceItem(event) {
