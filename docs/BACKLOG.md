@@ -10,6 +10,18 @@ This file records active engineering state that future sessions must be able to 
 
 ## Active Work
 
+### F018 Multi-Agent Evidence-Grounded Workflow
+
+- Status: active
+- Feature page: [F018-multi-agent-evidence-grounded-workflow.md](features/F018-multi-agent-evidence-grounded-workflow.md)
+- Spec: [F018-multi-agent-evidence-grounded-workflow-spec.md](specs/F018-multi-agent-evidence-grounded-workflow-spec.md)
+- Plan: [F018-multi-agent-evidence-grounded-workflow-plan.md](plans/F018-multi-agent-evidence-grounded-workflow-plan.md)
+- ADR: [ADR-005-supervisor-led-serial-multi-agent-workflow.md](decisions/ADR-005-supervisor-led-serial-multi-agent-workflow.md)
+- Current intent: upgrade the project message path from a single main-Agent tool loop into a Supervisor-led workflow with two execution modes. Simple tasks remain on the existing ReAct path; complex research and document tasks use a serial Plan-Execute path with real Deep Research, Evidence Audit, and Document Composer subagents.
+- Product reason: the user wants 2-3 real subagents primarily to improve answer reliability, while also letting the frontend honestly show multi-agent collaboration. The design deliberately rejects a separate Planner Agent because planning and delegation belong to the Supervisor, and it defers parallel worker runtime until the serial contracts and trace semantics are proven.
+- Current slice: pre-implementation Harness anchors are being established. No business code should be changed before the Feature/spec/plan/ADR are accepted and the implementation path is chosen.
+- Next step: execute the F018 plan from the backend contracts outward: mode decision, structured packets/verdicts, serial plan-execute loop, Supervisor integration, trace/SSE projection, then frontend research-process rendering.
+
 ### F016 Retrieval Observability
 
 - Status: active
