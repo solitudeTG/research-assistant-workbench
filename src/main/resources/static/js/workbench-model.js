@@ -478,7 +478,10 @@ function traceCountSummary(data) {
         "memoryContextCount",
         "claimCount",
         "conflictCount",
-        "evidenceGapCount"
+        "evidenceGapCount",
+        "unsupportedClaimCount",
+        "sourcePolicyIssueCount",
+        "requiredRevisionCount"
     ].filter((key) => data[key] !== undefined && data[key] !== null).map((key) => [key, Number(data[key])]));
 }
 

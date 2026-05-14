@@ -766,9 +766,9 @@ test("plan execute trace events fold into serial multi-agent projection", () => 
             data: {
                 verdict: "pass_with_cautions",
                 recommendedAnswerMode: "LOCAL_WEAK_EVIDENCE",
-                paperEvidenceCount: 4,
-                webEvidenceCount: 2,
-                memoryContextCount: 1
+                unsupportedClaimCount: 2,
+                sourcePolicyIssueCount: 1,
+                requiredRevisionCount: 3
             }
         }
     });
@@ -828,9 +828,9 @@ test("plan execute trace events fold into serial multi-agent projection", () => 
     assert.equal(trace.audit.verdict, "pass_with_cautions");
     assert.equal(trace.audit.recommendedAnswerMode, "LOCAL_WEAK_EVIDENCE");
     assert.deepEqual(trace.audit.counts, {
-        paperEvidenceCount: 4,
-        webEvidenceCount: 2,
-        memoryContextCount: 1
+        unsupportedClaimCount: 2,
+        sourcePolicyIssueCount: 1,
+        requiredRevisionCount: 3
     });
     assert.equal(trace.document.format, "markdown");
     assert.equal(trace.document.title, "Grounded Research Brief");
