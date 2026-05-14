@@ -80,6 +80,52 @@ class MultiAgentContractTest {
     }
 
     @Test
+    void researchPacketWithEvidenceReplacesOnlyEvidenceListsAndPreservesContext() {
+        ResearchPacket packet = new ResearchPacket(
+                "satellite interference question",
+                List.of("claim"),
+                List.of("raw paper"),
+                List.of("raw web"),
+                List.of("memory"),
+                List.of("conflict"),
+                List.of("old gap"),
+                AnswerMode.WEB_SUPPLEMENT.name()
+        );
+
+        ResearchPacket curated = packet.withEvidence(
+                List.of("curated paper"),
+                List.of(),
+                List.of("old gap", "No topic-matched evidence survived curation.")
+        );
+
+        assertThat(curated.question()).isEqualTo("satellite interference question");
+        assertThat(curated.claims()).containsExactly("claim");
+        assertThat(curated.paperEvidence()).containsExactly("curated paper");
+        assertThat(curated.webEvidence()).isEmpty();
+        assertThat(curated.memoryContext()).containsExactly("memory");
+        assertThat(curated.conflicts()).containsExactly("conflict");
+        assertThat(curated.evidenceGaps())
+                .containsExactly("old gap", "No topic-matched evidence survived curation.");
+        assertThat(curated.recommendedAnswerMode()).isEqualTo(AnswerMode.WEB_SUPPLEMENT.name());
+    }
+
+    @Test
+    void curatedEvidenceSetSeparatesAcceptedAndRejectedSourceTexts() {
+        CuratedEvidenceSet set = new CuratedEvidenceSet(List.of(
+                new CuratedEvidenceItem("paper", "LEO satellite interference evidence.", true, "", List.of("satellite")),
+                new CuratedEvidenceItem("web", "No information is available for this page.", false, "EMPTY_OR_NAVIGATION_PAGE", List.of())
+        ));
+
+        assertThat(set.acceptedCount()).isEqualTo(1);
+        assertThat(set.rejectedCount()).isEqualTo(1);
+        assertThat(set.acceptedPaperEvidence()).containsExactly("LEO satellite interference evidence.");
+        assertThat(set.acceptedWebEvidence()).isEmpty();
+        assertThat(set.rejectedItems())
+                .extracting(CuratedEvidenceItem::rejectReason)
+                .containsExactly("EMPTY_OR_NAVIGATION_PAGE");
+    }
+
+    @Test
     void auditVerdictDefensivelyCopiesListsAndClassifiesPassingVerdicts() {
         List<String> unsupportedClaims = new ArrayList<>(List.of("unsupported"));
         List<String> sourcePolicyIssues = new ArrayList<>(List.of("policy"));

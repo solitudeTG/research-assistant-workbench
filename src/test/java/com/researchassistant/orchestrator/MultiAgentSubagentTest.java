@@ -231,6 +231,54 @@ class MultiAgentSubagentTest {
     }
 
     @Test
+    void evidenceCuratorRejectsEmptyPagesAndOffTopicWebForSatelliteInterferenceQuestion() {
+        ResearchPacket packet = new ResearchPacket(
+                "Assess LEO satellite interference and beamforming research route.",
+                List.of(),
+                List.of("paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations."),
+                List.of(
+                        "web: title=Search result snippet=No information is available for this page. Learn why",
+                        "web: title=Ukraine update snippet=The latest news discussed Russia, Trump, and European diplomatic pressure."
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.WEB_SUPPLEMENT.name()
+        );
+        EvidenceCurator curator = new EvidenceCurator();
+
+        CuratedEvidenceSet curated = curator.curate(packet.question(), packet);
+
+        assertThat(curated.acceptedPaperEvidence())
+                .containsExactly("paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations.");
+        assertThat(curated.acceptedWebEvidence()).isEmpty();
+        assertThat(curated.rejectedItems())
+                .extracting(CuratedEvidenceItem::rejectReason)
+                .containsExactly("EMPTY_OR_NAVIGATION_PAGE", "OFF_TOPIC");
+    }
+
+    @Test
+    void evidenceCuratorRetainsRelevantSatelliteWebSupplement() {
+        ResearchPacket packet = new ResearchPacket(
+                "Assess LEO satellite interference and beamforming research route.",
+                List.of(),
+                List.of(),
+                List.of("web: title=LEO beamforming snippet=Satellite beamforming can mitigate inter-satellite interference in dense LEO communication networks."),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.WEB_SUPPLEMENT.name()
+        );
+        EvidenceCurator curator = new EvidenceCurator();
+
+        CuratedEvidenceSet curated = curator.curate(packet.question(), packet);
+
+        assertThat(curated.acceptedWebEvidence())
+                .containsExactly("web: title=LEO beamforming snippet=Satellite beamforming can mitigate inter-satellite interference in dense LEO communication networks.");
+        assertThat(curated.rejectedItems()).isEmpty();
+    }
+
+    @Test
     void documentComposerPassingOutputDoesNotPresentMemoryContextAsEvidenceOrSection() {
         ResearchPacket packet = new ResearchPacket(
                 "question",

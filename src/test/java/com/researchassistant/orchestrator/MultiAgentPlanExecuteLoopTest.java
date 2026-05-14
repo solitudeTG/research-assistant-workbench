@@ -28,6 +28,7 @@ class MultiAgentPlanExecuteLoopTest {
     private final DocumentComposerAgent documentComposerAgent = mock(DocumentComposerAgent.class);
     private final MultiAgentPlanExecuteLoop loop = new MultiAgentPlanExecuteLoop(
             deepResearchAgent,
+            new EvidenceCurator(),
             evidenceAuditAgent,
             documentComposerAgent,
             new AgentTracePublisher(new InMemoryWorkbenchEventPublisher())
@@ -54,7 +55,7 @@ class MultiAgentPlanExecuteLoopTest {
         order.verify(deepResearchAgent).research(42L, "question", scope, true);
         order.verify(evidenceAuditAgent).audit("question", "Claim A is supported.", packet);
         verify(documentComposerAgent, never()).compose(any(), any(), any(), any());
-        assertThat(result.researchPacket()).isSameAs(packet);
+        assertThat(result.researchPacket()).isEqualTo(packet);
         assertThat(result.auditVerdict()).isSameAs(verdict);
         assertThat(result.documentDraft()).isNull();
         assertThat(result.plan().steps()).extracting(MultiAgentPlan.Step::agentRole)
@@ -143,6 +144,7 @@ class MultiAgentPlanExecuteLoopTest {
         EvidenceAuditAgent realAuditAgent = spy(new EvidenceAuditAgent());
         MultiAgentPlanExecuteLoop loopWithRealAudit = new MultiAgentPlanExecuteLoop(
                 deepResearchAgent,
+                new EvidenceCurator(),
                 realAuditAgent,
                 documentComposerAgent,
                 new AgentTracePublisher(new InMemoryWorkbenchEventPublisher())
@@ -206,6 +208,52 @@ class MultiAgentPlanExecuteLoopTest {
         assertThat(result.plan().steps()).extracting(MultiAgentPlan.Step::agentRole)
                 .containsExactly("Deep Research Agent", "Evidence Audit Agent", "Document Composer Agent");
         assertThat(result.finalSynthesisContext()).isEqualTo("# question");
+    }
+
+    @Test
+    void documentRequestAuditsAndComposesOnlyCuratedEvidence() {
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "source-10"));
+        MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                "document_request",
+                false,
+                true,
+                true
+        );
+        ResearchPacket rawPacket = new ResearchPacket(
+                "Assess LEO satellite interference and beamforming research route.",
+                List.of(),
+                List.of("paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations."),
+                List.of("web: title=Ukraine update snippet=The latest news discussed Russia, Trump, and European diplomatic pressure."),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.WEB_SUPPLEMENT.name()
+        );
+        AuditVerdict verdict = passVerdict();
+        DocumentDraft draft = new DocumentDraft(
+                "markdown",
+                "Assess LEO satellite interference and beamforming research route.",
+                "# curated",
+                List.of()
+        );
+        when(deepResearchAgent.research(42L, rawPacket.question(), scope, true)).thenReturn(rawPacket);
+        when(evidenceAuditAgent.audit(eq(rawPacket.question()), eq(""), any(ResearchPacket.class))).thenReturn(verdict);
+        when(documentComposerAgent.compose(eq("markdown"), eq(rawPacket.question()), any(ResearchPacket.class), eq(verdict)))
+                .thenReturn(draft);
+
+        MultiAgentPlanExecuteResult result = loop.run(42L, rawPacket.question(), scope, true, decision);
+
+        org.mockito.ArgumentCaptor<ResearchPacket> auditPacket = org.mockito.ArgumentCaptor.forClass(ResearchPacket.class);
+        org.mockito.ArgumentCaptor<ResearchPacket> composerPacket = org.mockito.ArgumentCaptor.forClass(ResearchPacket.class);
+        verify(evidenceAuditAgent).audit(eq(rawPacket.question()), eq(""), auditPacket.capture());
+        verify(documentComposerAgent).compose(eq("markdown"), eq(rawPacket.question()), composerPacket.capture(), eq(verdict));
+        assertThat(auditPacket.getValue().paperEvidence())
+                .containsExactly("paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations.");
+        assertThat(auditPacket.getValue().webEvidence()).isEmpty();
+        assertThat(auditPacket.getValue().evidenceGaps()).contains("Rejected 1 raw evidence candidate during curation.");
+        assertThat(composerPacket.getValue()).isEqualTo(auditPacket.getValue());
+        assertThat(result.researchPacket()).isEqualTo(auditPacket.getValue());
     }
 
     @Test
@@ -324,6 +372,7 @@ class MultiAgentPlanExecuteLoopTest {
     private MultiAgentPlanExecuteLoop tracedLoop(InMemoryWorkbenchEventPublisher eventPublisher) {
         return new MultiAgentPlanExecuteLoop(
                 deepResearchAgent,
+                new EvidenceCurator(),
                 evidenceAuditAgent,
                 documentComposerAgent,
                 new AgentTracePublisher(eventPublisher)

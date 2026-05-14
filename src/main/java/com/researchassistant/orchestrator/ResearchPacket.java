@@ -55,4 +55,21 @@ public record ResearchPacket(
                 recommendedAnswerMode
         );
     }
+
+    public ResearchPacket withEvidence(
+            List<String> updatedPaperEvidence,
+            List<String> updatedWebEvidence,
+            List<String> updatedEvidenceGaps
+    ) {
+        return new ResearchPacket(
+                question,
+                claims,
+                updatedPaperEvidence,
+                updatedWebEvidence,
+                memoryContext,
+                conflicts,
+                updatedEvidenceGaps,
+                recommendedAnswerMode
+        );
+    }
 }

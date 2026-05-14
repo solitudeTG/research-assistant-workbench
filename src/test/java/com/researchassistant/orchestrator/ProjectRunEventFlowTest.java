@@ -258,8 +258,8 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
         assertThat(answerDeltas)
                 .allSatisfy(event -> assertThat(event.payload()).containsKeys("delta", "text", "index"));
         assertThat(answerDeltas.get(0).payload())
-                .containsEntry("delta", "First paragraph from the current evidence.")
-                .containsEntry("text", "First paragraph from the current evidence.")
+                .containsEntry("delta", "First paragraph from the current evidence.\n\n")
+                .containsEntry("text", "First paragraph from the current evidence.\n\n")
                 .containsEntry("index", 0);
     }
 
@@ -401,12 +401,12 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
         doReturn(verdict).when(evidenceAuditAgent).audit(
                 eq(question),
                 eq("Supported claim"),
-                eq(packet)
+                any(ResearchPacket.class)
         );
         doReturn(draft).when(documentComposerAgent).compose(
                 eq("markdown"),
                 eq(question),
-                eq(packet),
+                any(ResearchPacket.class),
                 eq(verdict)
         );
 
@@ -542,7 +542,7 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
         return new ResearchPacket(
                 question,
                 List.of("Supported claim"),
-                List.of("paper: content=Supported claim"),
+                List.of("paper: content=Supported claim appears in peer-reviewed evidence context."),
                 List.of("web: title=Recent result url=https://example.test score=0.80 snippet=Supported web context"),
                 List.of("memory: topic=Workflow summary score=0.70 summary=Prior context"),
                 List.of(),

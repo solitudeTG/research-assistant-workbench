@@ -14,17 +14,20 @@ public class MultiAgentPlanExecuteLoop {
     private static final String PENDING = "pending";
 
     private final DeepResearchAgent deepResearchAgent;
+    private final EvidenceCurator evidenceCurator;
     private final EvidenceAuditAgent evidenceAuditAgent;
     private final DocumentComposerAgent documentComposerAgent;
     private final AgentTracePublisher tracePublisher;
 
     public MultiAgentPlanExecuteLoop(
             DeepResearchAgent deepResearchAgent,
+            EvidenceCurator evidenceCurator,
             EvidenceAuditAgent evidenceAuditAgent,
             DocumentComposerAgent documentComposerAgent,
             AgentTracePublisher tracePublisher
     ) {
         this.deepResearchAgent = Objects.requireNonNull(deepResearchAgent, "deepResearchAgent");
+        this.evidenceCurator = Objects.requireNonNull(evidenceCurator, "evidenceCurator");
         this.evidenceAuditAgent = Objects.requireNonNull(evidenceAuditAgent, "evidenceAuditAgent");
         this.documentComposerAgent = Objects.requireNonNull(documentComposerAgent, "documentComposerAgent");
         this.tracePublisher = Objects.requireNonNull(tracePublisher, "tracePublisher");
@@ -69,6 +72,7 @@ public class MultiAgentPlanExecuteLoop {
                 publishFailed(traceContext, step, exception);
                 throw exception;
             }
+            packet = evidenceCurator.curatedPacket(question, packet);
             steps = completeStep(steps, "deep-research");
             publishCompleted(traceContext, stepById(steps, "deep-research"), researchPacketTraceData(packet));
         }
