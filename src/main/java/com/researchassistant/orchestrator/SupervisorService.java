@@ -32,6 +32,7 @@ import com.researchassistant.rag.RagResult;
 import com.researchassistant.websearch.WebSearchHit;
 import com.researchassistant.websearch.WebSearchPort;
 import com.researchassistant.websearch.WebSearchResult;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1021,7 +1022,15 @@ public class SupervisorService {
                 .map(String::trim)
                 .filter(part -> !part.isBlank())
                 .toList();
-        return deltas.isEmpty() ? List.of("") : deltas;
+        if (deltas.isEmpty()) {
+            return List.of("");
+        }
+        List<String> appendableDeltas = new ArrayList<>();
+        for (int index = 0; index < deltas.size(); index++) {
+            String separator = index == deltas.size() - 1 ? "" : "\n\n";
+            appendableDeltas.add(deltas.get(index) + separator);
+        }
+        return appendableDeltas;
     }
 
     private String memorySnippet(MemoryRecallHit hit) {
