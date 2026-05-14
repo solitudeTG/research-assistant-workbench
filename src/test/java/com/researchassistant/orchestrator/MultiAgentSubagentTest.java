@@ -339,6 +339,47 @@ class MultiAgentSubagentTest {
     }
 
     @Test
+    void documentComposerExtractsAbstractEvidenceAndSkipsReferenceFragments() {
+        ResearchPacket packet = new ResearchPacket(
+                "请输出一份 markdown 研究报告",
+                List.of(),
+                List.of(
+                        "paper: content=9500 IEEE TRANSACTIONS ON WIRELESS COMMUNICATIONS, VOL. 25, 2026\n"
+                                + "Beamforming Design and Satellite Selection for Realizing Integrated Communication and Navigation in LEO Satellite Networks\n"
+                                + "Abstract—Relying on powerful communication capabilities and rapidly changing geometric configurations, LEO satellites can support integrated communication and navigation services.\n"
+                                + "REFERENCES\n[1] J. Yim, J. Park, and N. Lee, Space-time beamforming.",
+                        "paper: content=throughput, demonstrating the technique's adaptability and effectiveness for next-generation satellite communications.\n"
+                                + "REFERENCES\n[2] S. Cioni, On the satellite role in the era of 5G.",
+                        "paper: content=Simulation results show that adaptive beamforming reduces inter-satellite interference under high mobility."
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass_with_cautions",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        DocumentComposerAgent agent = new DocumentComposerAgent();
+
+        DocumentDraft draft = agent.compose("markdown", "近邻星干涉研究路线评估报告", packet, verdict);
+
+        assertThat(draft.body())
+                .contains("Relying on powerful communication capabilities")
+                .contains("adaptive beamforming reduces inter-satellite interference")
+                .doesNotContain("9500 IEEE TRANSACTIONS")
+                .doesNotContain("REFERENCES")
+                .doesNotContain("throughput, demonstrating")
+                .doesNotContain("J. Yim")
+                .doesNotContain("S. Cioni");
+    }
+
+    @Test
     void documentComposerGeneratesRevisionDraftWhenVerdictDoesNotPass() {
         ResearchPacket packet = new ResearchPacket(
                 "question",

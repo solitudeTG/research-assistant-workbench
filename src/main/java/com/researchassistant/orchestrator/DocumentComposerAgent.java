@@ -2,6 +2,7 @@ package com.researchassistant.orchestrator;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 
@@ -82,12 +83,14 @@ public class DocumentComposerAgent {
                 .map(this::userFacingEvidence)
                 .filter(value -> !value.isBlank())
                 .filter(this::isSubstantiveEvidence)
+                .filter(this::hasReportEvidenceShape)
                 .limit(5)
                 .forEach(evidence::add);
         packet.webEvidence().stream()
                 .map(this::userFacingEvidence)
                 .filter(value -> !value.isBlank())
                 .filter(this::isSubstantiveEvidence)
+                .filter(this::hasReportEvidenceShape)
                 .limit(3)
                 .forEach(evidence::add);
         return evidence.isEmpty()
@@ -119,10 +122,10 @@ public class DocumentComposerAgent {
         for (String marker : List.of("content=", "snippet=", "summary=")) {
             int index = evidence.indexOf(marker);
             if (index >= 0) {
-                return evidence.substring(index + marker.length()).trim();
+                return cleanEvidenceText(evidence.substring(index + marker.length()));
             }
         }
-        return evidence.trim();
+        return cleanEvidenceText(evidence);
     }
 
     private String reportTitle(String title, String question) {
@@ -135,7 +138,7 @@ public class DocumentComposerAgent {
     }
 
     private boolean isSubstantiveEvidence(String evidence) {
-        String normalized = evidence.toLowerCase();
+        String normalized = evidence.toLowerCase(Locale.ROOT);
         return List.of(
                 "supported by",
                 "grant",
@@ -150,6 +153,52 @@ public class DocumentComposerAgent {
                 "funded by",
                 "msit"
         ).stream().noneMatch(normalized::contains);
+    }
+
+    private String cleanEvidenceText(String evidence) {
+        String cleaned = evidence == null ? "" : evidence.trim();
+        cleaned = trimBeforeReferences(cleaned);
+        cleaned = extractAbstract(cleaned);
+        return cleaned
+                .replaceAll("[\\r\\n]+", " ")
+                .replaceAll("\\s+", " ")
+                .replace("Abstract—", "")
+                .replace("Abstract-", "")
+                .trim();
+    }
+
+    private String trimBeforeReferences(String evidence) {
+        String normalized = evidence.toLowerCase(Locale.ROOT);
+        int referencesIndex = normalized.indexOf("references");
+        if (referencesIndex < 0) {
+            return evidence;
+        }
+        return evidence.substring(0, referencesIndex).trim();
+    }
+
+    private String extractAbstract(String evidence) {
+        String normalized = evidence.toLowerCase(Locale.ROOT);
+        int abstractIndex = normalized.indexOf("abstract");
+        if (abstractIndex < 0) {
+            return evidence;
+        }
+        String abstractText = evidence.substring(abstractIndex);
+        int dashIndex = Math.max(abstractText.indexOf('—'), abstractText.indexOf('-'));
+        return dashIndex >= 0 ? abstractText.substring(dashIndex + 1).trim() : abstractText.trim();
+    }
+
+    private boolean hasReportEvidenceShape(String evidence) {
+        if (evidence.length() < 10) {
+            return false;
+        }
+        char first = evidence.charAt(0);
+        if (Character.isLowerCase(first)) {
+            return false;
+        }
+        String normalized = evidence.toLowerCase(Locale.ROOT);
+        return !normalized.contains("references")
+                && !normalized.matches(".*\\[[0-9]+].*")
+                && !normalized.contains("ieee transactions");
     }
 
     private String renderBody(String title, List<DocumentDraft.Section> sections) {

@@ -27,6 +27,7 @@ Verified capabilities:
 - F018.4 follow-up keeps the scope on interview-demo polish before F019: assistant report messages now render a safe markdown subset as structured DOM (`h1`, `h2`, `ul`, `li`, `p`) and `Document Composer Agent` filters administrative paper chunks such as grants, affiliations, and corresponding-author notes before choosing report evidence.
 - F018.4 also normalizes the validated demo prompt title from the raw user instruction into `近邻星干涉研究路线评估报告`, so the first viewport shows a report artifact rather than an instruction echo.
 - F018.5 follow-up fixes the remaining streaming-boundary bug from manual validation: `answer.delta` chunks now keep the paragraph separator needed for append-mode reconstruction, so report headings do not glue onto the preceding section when streamed into the conversation.
+- F018.6 follow-up fixes the evidence-quality regression exposed after markdown rendering was corrected: `Document Composer Agent` now trims reference sections, extracts abstract text from page-like chunks, and rejects reference-list fragments or lowercase mid-sentence fragments before adding report evidence.
 
 ## Verification Commands
 
@@ -113,6 +114,19 @@ BUILD SUCCESS
 Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
 ```
 
+F018.6 focused backend re-run on 2026-05-14:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentWorkflowDeciderTest,MultiAgentContractTest,MultiAgentSubagentTest,MultiAgentPlanExecuteLoopTest,AgentTracePublisherTest,SupervisorServiceLogicTest' test
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+Tests run: 54, Failures: 0, Errors: 0, Skipped: 0
+```
+
 The full closeout backend command including Postgres integration tests was also attempted on 2026-05-14 and was blocked by local Docker/Testcontainers availability, not by assertion failures:
 
 ```text
@@ -173,6 +187,7 @@ F018 was implemented with subagent-driven review gates after each task:
 - F018.3 manual validation caught that the cleaned report body still appeared flattened in the conversation. The fix renders message line breaks explicitly in the DOM so markdown-style report sections remain visually separated.
 - F018.4 manual validation caught that the report still was not interview-demo quality: raw markdown markers were visible as plain text and low-value administrative chunks could dominate the main evidence section. The fix keeps the existing serial multi-agent architecture and improves only deterministic presentation/selection behavior.
 - F018.5 manual validation caught that the latest code was running, but streamed answer deltas still lost blank-line separators before append. The fix was made at the backend delta boundary rather than adding frontend guesswork, and is covered by a RED/GREEN `SupervisorServiceLogicTest` regression that joins deltas back to the original markdown answer.
+- F018.6 manual validation caught that fixing markdown separation made poor retrieved chunks more visible. The fix stays within the Composer boundary: it cleans page-like evidence snippets and filters reference fragments, rather than changing retrieval, ranking, or the multi-agent orchestration contract.
 
 ## Residual Limits
 
@@ -181,6 +196,7 @@ F018 was implemented with subagent-driven review gates after each task:
 - Non-document Plan-Execute summaries intentionally use cautious prose and evidence-gap/source-policy cautions until structured citation carry-through exists.
 - Document Composer output is still deterministic and template-based. It improves report readability and removes internal telemetry, but it is not yet an LLM writer or semantic intent classifier.
 - F018.4 administrative evidence filtering is a deterministic presentation guardrail, not semantic citation ranking. Robust evidence selection should be handled by a later structured evidence carry-through or ranking feature.
+- F018.6 evidence-shape filtering is still a guardrail over raw chunks. It can prevent obvious page/reference garbage from dominating the report, but it does not replace a future citation-aware evidence ranking pipeline.
 - `Document Composer Agent` produces document output only from the audited packet/verdict path. It does not independently retrieve or override evidence conclusions.
 - This feature does not add a dynamic skill marketplace, human approval checkpoint, long-running job queue, or cross-process agent runtime.
 
