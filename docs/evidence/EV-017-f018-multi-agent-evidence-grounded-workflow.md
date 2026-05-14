@@ -23,6 +23,7 @@ Verified capabilities:
 - Non-document Plan-Execute answers now synthesize user-facing weak-evidence/refusal text instead of returning internal research packet and audit telemetry as the final answer.
 - F018.1 follow-up keeps the scope as a bugfix, not an intent-classifier upgrade: `输出一份/输出一个/输出成 markdown 报告` now triggers the document composer path, and the frontend process model records subagent counts even when tool, retrieval, memory, and final citation counts are zero.
 - F018.2 follow-up keeps the scope on composer output quality before F019: `Document Composer Agent` now renders a user-facing report with `结论摘要`, `主要证据`, `证据不足`, and `当前判断`, and strips internal packet fields such as `documentId`, `chunkIndex`, `score`, `content`, `snippet`, `url`, and answer-mode telemetry from the report body.
+- F018.3 follow-up keeps the scope on UI presentation: assistant message content now renders explicit line breaks for markdown-style report output instead of relying only on CSS whitespace preservation, preventing headings such as `## 证据不足` from being visually glued to the previous evidence line.
 
 ## Verification Commands
 
@@ -103,7 +104,7 @@ Result:
 
 ```text
 workbench-model.test.mjs: 6 tests passed.
-f002-workbench-model.test.mjs: 29 tests passed.
+f002-workbench-model.test.mjs: 30 tests passed.
 ```
 
 Diff hygiene:
@@ -140,6 +141,7 @@ F018 was implemented with subagent-driven review gates after each task:
 - Final independent review caught that non-document `PLAN_EXECUTE` could return internal telemetry as the user answer. The fix changed final synthesis to return document bodies, weak-evidence summaries, no-evidence messages, or refusals according to the audited packet/verdict.
 - F018.1 manual validation caught two release-scope misses: `输出一份 markdown 研究报告` was treated as complex research without document composition, and the process summary could show zero tools/evidence/memory without an explicit subagent count. The fix keeps keyword routing as the MVP guardrail while making that document-output phrase and subagent visibility testable.
 - F018.2 manual validation caught that the composer path was triggered but rendered raw packet diagnostics instead of a usable report. The fix keeps F019 deferred and narrows this release to a deterministic report renderer that cleans evidence strings and preserves source-policy cautions in user-facing sections.
+- F018.3 manual validation caught that the cleaned report body still appeared flattened in the conversation. The fix renders message line breaks explicitly in the DOM so markdown-style report sections remain visually separated.
 
 ## Residual Limits
 

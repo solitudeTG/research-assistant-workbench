@@ -87,6 +87,19 @@ test("research process timeline includes projected plan execute events", async (
     assert.match(researchProcessSource, /processPlanTimelineEvent/);
 });
 
+test("assistant markdown answers render explicit line breaks instead of relying only on CSS whitespace", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const messageBodySource = source.slice(
+            source.indexOf("function messageBody"),
+            source.indexOf("function researchProcessPanel")
+    );
+
+    assert.match(source, /function messageContentElement/);
+    assert.match(messageBodySource, /messageContentElement\(/);
+    assert.doesNotMatch(messageBodySource, /textElement\("p",\s*message\.content/);
+}
+);
+
 test("session row actions render behind a compact more menu", async () => {
     const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
     const renderSessionsSource = source.slice(

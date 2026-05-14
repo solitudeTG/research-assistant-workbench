@@ -1528,7 +1528,7 @@ function messageBody(message) {
     body.className = "message-body";
     body.append(
             textElement("strong", message.role === "assistant" ? "研究回答" : "研究问题"),
-            textElement("p", message.content || (message.status === "streaming" ? "正在接收回答..." : ""), "message-content"),
+            messageContentElement(message.content || (message.status === "streaming" ? "正在接收回答..." : "")),
             textElement("span", `${message.status || "sent"} · ${formatRelativeTime(message.createdAt)}`)
     );
     if (message.role === "assistant") {
@@ -1538,6 +1538,19 @@ function messageBody(message) {
         }
     }
     return body;
+}
+
+function messageContentElement(content) {
+    const paragraph = document.createElement("p");
+    paragraph.className = "message-content";
+    const lines = String(content || "").split(/\r?\n/);
+    lines.forEach((line, index) => {
+        if (index > 0) {
+            paragraph.appendChild(document.createElement("br"));
+        }
+        paragraph.appendChild(document.createTextNode(line));
+    });
+    return paragraph;
 }
 
 function researchProcessPanel(message) {
