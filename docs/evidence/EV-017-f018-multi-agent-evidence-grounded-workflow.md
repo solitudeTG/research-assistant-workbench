@@ -24,6 +24,8 @@ Verified capabilities:
 - F018.1 follow-up keeps the scope as a bugfix, not an intent-classifier upgrade: `输出一份/输出一个/输出成 markdown 报告` now triggers the document composer path, and the frontend process model records subagent counts even when tool, retrieval, memory, and final citation counts are zero.
 - F018.2 follow-up keeps the scope on composer output quality before F019: `Document Composer Agent` now renders a user-facing report with `结论摘要`, `主要证据`, `证据不足`, and `当前判断`, and strips internal packet fields such as `documentId`, `chunkIndex`, `score`, `content`, `snippet`, `url`, and answer-mode telemetry from the report body.
 - F018.3 follow-up keeps the scope on UI presentation: assistant message content now renders explicit line breaks for markdown-style report output instead of relying only on CSS whitespace preservation, preventing headings such as `## 证据不足` from being visually glued to the previous evidence line.
+- F018.4 follow-up keeps the scope on interview-demo polish before F019: assistant report messages now render a safe markdown subset as structured DOM (`h1`, `h2`, `ul`, `li`, `p`) and `Document Composer Agent` filters administrative paper chunks such as grants, affiliations, and corresponding-author notes before choosing report evidence.
+- F018.4 also normalizes the validated demo prompt title from the raw user instruction into `近邻星干涉研究路线评估报告`, so the first viewport shows a report artifact rather than an instruction echo.
 
 ## Verification Commands
 
@@ -84,6 +86,19 @@ BUILD SUCCESS
 Tests run: 42, Failures: 0, Errors: 0, Skipped: 0
 ```
 
+F018.4 focused backend re-run on 2026-05-14:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentWorkflowDeciderTest,MultiAgentContractTest,MultiAgentSubagentTest,MultiAgentPlanExecuteLoopTest,AgentTracePublisherTest' test
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+Tests run: 43, Failures: 0, Errors: 0, Skipped: 0
+```
+
 The full closeout backend command including Postgres integration tests was also attempted on 2026-05-14 and was blocked by local Docker/Testcontainers availability, not by assertion failures:
 
 ```text
@@ -104,7 +119,7 @@ Result:
 
 ```text
 workbench-model.test.mjs: 6 tests passed.
-f002-workbench-model.test.mjs: 30 tests passed.
+f002-workbench-model.test.mjs: 31 tests passed.
 ```
 
 Diff hygiene:
@@ -142,6 +157,7 @@ F018 was implemented with subagent-driven review gates after each task:
 - F018.1 manual validation caught two release-scope misses: `输出一份 markdown 研究报告` was treated as complex research without document composition, and the process summary could show zero tools/evidence/memory without an explicit subagent count. The fix keeps keyword routing as the MVP guardrail while making that document-output phrase and subagent visibility testable.
 - F018.2 manual validation caught that the composer path was triggered but rendered raw packet diagnostics instead of a usable report. The fix keeps F019 deferred and narrows this release to a deterministic report renderer that cleans evidence strings and preserves source-policy cautions in user-facing sections.
 - F018.3 manual validation caught that the cleaned report body still appeared flattened in the conversation. The fix renders message line breaks explicitly in the DOM so markdown-style report sections remain visually separated.
+- F018.4 manual validation caught that the report still was not interview-demo quality: raw markdown markers were visible as plain text and low-value administrative chunks could dominate the main evidence section. The fix keeps the existing serial multi-agent architecture and improves only deterministic presentation/selection behavior.
 
 ## Residual Limits
 
@@ -149,6 +165,7 @@ F018 was implemented with subagent-driven review gates after each task:
 - Plan-Execute research packet evidence strings are process telemetry, not durable answer citations. The answer remains `LOCAL_WEAK_EVIDENCE` unless structured citation sources are persisted by a later feature.
 - Non-document Plan-Execute summaries intentionally use cautious prose and evidence-gap/source-policy cautions until structured citation carry-through exists.
 - Document Composer output is still deterministic and template-based. It improves report readability and removes internal telemetry, but it is not yet an LLM writer or semantic intent classifier.
+- F018.4 administrative evidence filtering is a deterministic presentation guardrail, not semantic citation ranking. Robust evidence selection should be handled by a later structured evidence carry-through or ranking feature.
 - `Document Composer Agent` produces document output only from the audited packet/verdict path. It does not independently retrieve or override evidence conclusions.
 - This feature does not add a dynamic skill marketplace, human approval checkpoint, long-running job queue, or cross-process agent runtime.
 

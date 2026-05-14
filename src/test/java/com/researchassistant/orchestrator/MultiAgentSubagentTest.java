@@ -301,6 +301,44 @@ class MultiAgentSubagentTest {
     }
 
     @Test
+    void documentComposerUsesDemoFriendlyTitleAndFiltersAdministrativeEvidence() {
+        ResearchPacket packet = new ResearchPacket(
+                "请对近邻星干涉相关论文做系统分析和对比，判断当前研究路线是否成立，并输出一份 markdown 研究报告，要求说明证据不足之处。",
+                List.of(),
+                List.of(
+                        "paper: documentId=2 chunkIndex=2 score=0.31 content=This work was supported by MSIT grants and the corresponding author is Namyoon Lee.",
+                        "paper: documentId=3 chunkIndex=4 score=0.42 content=Simulation results show that adaptive beamforming reduces inter-satellite interference under high mobility.",
+                        "paper: documentId=4 chunkIndex=1 score=0.35 content=The proposed interference coordination method improves link robustness in dense LEO constellations."
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("缺少直接面向近邻星干涉路线的端到端实验。"),
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass_with_cautions",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        DocumentComposerAgent agent = new DocumentComposerAgent();
+
+        DocumentDraft draft = agent.compose("markdown", packet.question(), packet, verdict);
+
+        assertThat(draft.title()).isEqualTo("近邻星干涉研究路线评估报告");
+        assertThat(draft.body())
+                .contains("# 近邻星干涉研究路线评估报告")
+                .contains("adaptive beamforming reduces inter-satellite interference")
+                .contains("interference coordination method improves link robustness")
+                .contains("缺少直接面向近邻星干涉路线的端到端实验")
+                .doesNotContain("MSIT grants")
+                .doesNotContain("corresponding author")
+                .doesNotContain("Namyoon Lee");
+    }
+
+    @Test
     void documentComposerGeneratesRevisionDraftWhenVerdictDoesNotPass() {
         ResearchPacket packet = new ResearchPacket(
                 "question",

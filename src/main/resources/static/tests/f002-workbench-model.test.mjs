@@ -100,6 +100,20 @@ test("assistant markdown answers render explicit line breaks instead of relying 
 }
 );
 
+test("assistant markdown reports render headings and lists as structured DOM", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const messageContentSource = source.slice(
+            source.indexOf("function messageContentElement"),
+            source.indexOf("function researchProcessPanel")
+    );
+
+    assert.match(messageContentSource, /document\.createElement\("h1"\)/);
+    assert.match(messageContentSource, /document\.createElement\("h2"\)/);
+    assert.match(messageContentSource, /document\.createElement\("ul"\)/);
+    assert.match(messageContentSource, /document\.createElement\("li"\)/);
+    assert.match(messageContentSource, /message-content--markdown/);
+});
+
 test("session row actions render behind a compact more menu", async () => {
     const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
     const renderSessionsSource = source.slice(

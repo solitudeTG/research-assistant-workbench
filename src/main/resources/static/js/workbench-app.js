@@ -1541,16 +1541,72 @@ function messageBody(message) {
 }
 
 function messageContentElement(content) {
-    const paragraph = document.createElement("p");
-    paragraph.className = "message-content";
+    const container = document.createElement("div");
+    container.className = "message-content message-content--markdown";
     const lines = String(content || "").split(/\r?\n/);
-    lines.forEach((line, index) => {
-        if (index > 0) {
-            paragraph.appendChild(document.createElement("br"));
+    let list = null;
+    let paragraphLines = [];
+
+    const flushParagraph = () => {
+        if (!paragraphLines.length) {
+            return;
         }
-        paragraph.appendChild(document.createTextNode(line));
+        const paragraph = document.createElement("p");
+        paragraphLines.forEach((line, index) => {
+            if (index > 0) {
+                paragraph.appendChild(document.createElement("br"));
+            }
+            paragraph.appendChild(document.createTextNode(line));
+        });
+        container.appendChild(paragraph);
+        paragraphLines = [];
+    };
+    const closeList = () => {
+        if (list) {
+            container.appendChild(list);
+            list = null;
+        }
+    };
+
+    lines.forEach((rawLine) => {
+        const line = rawLine.trimEnd();
+        if (!line.trim()) {
+            flushParagraph();
+            closeList();
+            return;
+        }
+        if (line.startsWith("# ")) {
+            flushParagraph();
+            closeList();
+            const heading = document.createElement("h1");
+            heading.textContent = line.slice(2).trim();
+            container.appendChild(heading);
+            return;
+        }
+        if (line.startsWith("## ")) {
+            flushParagraph();
+            closeList();
+            const heading = document.createElement("h2");
+            heading.textContent = line.slice(3).trim();
+            container.appendChild(heading);
+            return;
+        }
+        if (line.startsWith("- ")) {
+            flushParagraph();
+            if (!list) {
+                list = document.createElement("ul");
+            }
+            const item = document.createElement("li");
+            item.textContent = line.slice(2).trim();
+            list.appendChild(item);
+            return;
+        }
+        closeList();
+        paragraphLines.push(line);
     });
-    return paragraph;
+    flushParagraph();
+    closeList();
+    return container;
 }
 
 function researchProcessPanel(message) {
