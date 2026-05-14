@@ -36,6 +36,19 @@ class MultiAgentWorkflowDeciderTest {
     }
 
     @Test
+    void outputOneMarkdownReportUsesDocumentComposer() {
+        MultiAgentWorkflowDecision decision = decider.decide(
+                "请对近邻星干涉相关论文做系统分析和对比，判断当前研究路线是否成立，并输出一份 markdown 研究报告，要求说明证据不足之处。",
+                true
+        );
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.PLAN_EXECUTE);
+        assertThat(decision.requiresDeepResearch()).isTrue();
+        assertThat(decision.requiresEvidenceAudit()).isTrue();
+        assertThat(decision.requiresDocumentComposer()).isTrue();
+    }
+
+    @Test
     void explicitReviewWritingRequestUsesPlanExecute() {
         MultiAgentWorkflowDecision decision = decider.decide("请基于这些论文写一篇综述", false);
 

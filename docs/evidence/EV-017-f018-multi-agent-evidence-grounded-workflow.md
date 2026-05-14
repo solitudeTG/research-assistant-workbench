@@ -21,6 +21,7 @@ Verified capabilities:
 - Frontend model projection folds mode selection, serial plan, child agent lifecycle, audit counts, and composer metadata into `agentTraces[runId]`.
 - Plan-Execute trace evidence counts remain process telemetry only. They do not create `evidence_source` rows and do not increment final answer citation counts until structured source references are carried through a later feature.
 - Non-document Plan-Execute answers now synthesize user-facing weak-evidence/refusal text instead of returning internal research packet and audit telemetry as the final answer.
+- F018.1 follow-up keeps the scope as a bugfix, not an intent-classifier upgrade: `输出一份/输出一个/输出成 markdown 报告` now triggers the document composer path, and the frontend process model records subagent counts even when tool, retrieval, memory, and final citation counts are zero.
 
 ## Verification Commands
 
@@ -55,6 +56,19 @@ BUILD SUCCESS
 Tests run: 40, Failures: 0, Errors: 0, Skipped: 0
 ```
 
+F018.1 focused backend re-run on 2026-05-14:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentWorkflowDeciderTest,MultiAgentContractTest,MultiAgentSubagentTest,MultiAgentPlanExecuteLoopTest,AgentTracePublisherTest' test
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+Tests run: 41, Failures: 0, Errors: 0, Skipped: 0
+```
+
 The full closeout backend command including Postgres integration tests was also attempted on 2026-05-14 and was blocked by local Docker/Testcontainers availability, not by assertion failures:
 
 ```text
@@ -75,7 +89,7 @@ Result:
 
 ```text
 workbench-model.test.mjs: 6 tests passed.
-f002-workbench-model.test.mjs: 28 tests passed.
+f002-workbench-model.test.mjs: 29 tests passed.
 ```
 
 Diff hygiene:
@@ -110,6 +124,7 @@ F018 was implemented with subagent-driven review gates after each task:
 - Task 6 Trace and SSE Contract: code quality review caught synthesized post-hoc lifecycle events; fix moved lifecycle publication into `MultiAgentPlanExecuteLoop` around actual subagent calls.
 - Task 7 Frontend Trace Projection: spec review caught dropped backend audit count fields; fix preserved `unsupportedClaimCount`, `sourcePolicyIssueCount`, and `requiredRevisionCount`.
 - Final independent review caught that non-document `PLAN_EXECUTE` could return internal telemetry as the user answer. The fix changed final synthesis to return document bodies, weak-evidence summaries, no-evidence messages, or refusals according to the audited packet/verdict.
+- F018.1 manual validation caught two release-scope misses: `输出一份 markdown 研究报告` was treated as complex research without document composition, and the process summary could show zero tools/evidence/memory without an explicit subagent count. The fix keeps keyword routing as the MVP guardrail while making that document-output phrase and subagent visibility testable.
 
 ## Residual Limits
 

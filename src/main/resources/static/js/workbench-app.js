@@ -1559,6 +1559,7 @@ function researchProcessPanel(message) {
     const evidenceEvents = trace?.evidenceEvents || [];
     const answerDeltas = trace?.answerDeltas || [];
     const gaps = evidenceEvents.filter((event) => event.eventType === "evidence.gap.detected");
+    const subagentCount = Number(summary.activeSubagentCount ?? summary.subagentCount ?? 0);
 
     const section = document.createElement("section");
     section.className = `research-process${isCollapsed ? " is-collapsed" : ""}`;
@@ -1572,7 +1573,7 @@ function researchProcessPanel(message) {
     header.append(
             textElement("span", processStatusLabel(message, trace), "process-status"),
             textElement("strong", "研究过程"),
-            textElement("small", processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount)),
+            textElement("small", processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount, subagentCount)),
             textElement("span", isCollapsed ? "展开" : "收起", "process-toggle-label")
     );
     section.appendChild(header);
@@ -1583,6 +1584,7 @@ function researchProcessPanel(message) {
     const metrics = document.createElement("div");
     metrics.className = "process-metrics";
     metrics.append(
+            processMetric("子Agent", subagentCount),
             processMetric("工具", processToolCount(tools)),
             processMetric("证据", Number(summary.evidenceCount ?? retrievalHits.length)),
             processMetric("记忆", memoryCount),
@@ -1629,11 +1631,14 @@ function processStatusLabel(message, trace) {
     return "运行中";
 }
 
-function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount = memoryHits.length) {
-    if (!tools.length && !retrievalHits.length && !memoryHits.length && !answerDeltas.length) {
+function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount = memoryHits.length, subagentCount = 0) {
+    if (!subagentCount && !tools.length && !retrievalHits.length && !memoryHits.length && !answerDeltas.length) {
         return "等待后端步骤事件";
     }
     const parts = [];
+    if (subagentCount) {
+        parts.push(`${subagentCount} 个子Agent`);
+    }
     if (tools.length) {
         parts.push(`${tools.length} 个工具事件`);
     }

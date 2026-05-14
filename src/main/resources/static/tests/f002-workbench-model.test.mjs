@@ -840,6 +840,79 @@ test("plan execute trace events fold into serial multi-agent projection", () => 
     assert.deepEqual(state.evidenceSources, []);
 });
 
+test("plan execute mode keeps subagent visibility when no tools or retrieval hits are present", () => {
+    let state = createWorkbenchState({
+        currentAnswer: {
+            answerId: "answer-plan-weak",
+            text: "",
+            status: "streaming",
+            evidenceState: null,
+            outputMode: null,
+            citationCount: 0
+        }
+    });
+
+    const applyTrace = (event) => {
+        state = applySseEvent(state, {
+            runId: "run-plan-weak",
+            answerId: "answer-plan-weak",
+            ...event
+        });
+    };
+
+    applyTrace({
+        eventId: "weak-plan-created",
+        eventType: "agent.plan.created",
+        payload: {
+            actor: { agentRole: "supervisor", displayName: "Supervisor" },
+            data: {
+                mode: "PLAN_EXECUTE",
+                summary: "Research, then audit.",
+                execution: "serial",
+                steps: [
+                    { stepId: "deep-research", actorRole: "deep_research_agent", label: "Deep research" },
+                    { stepId: "audit", actorRole: "evidence_audit_agent", label: "Audit evidence" }
+                ]
+            }
+        }
+    });
+    applyTrace({
+        eventId: "weak-deep-completed",
+        eventType: "agent.step.completed",
+        payload: {
+            actor: { agentRole: "deep_research_agent", displayName: "Deep Research Agent" },
+            step: { stepId: "deep-research", label: "Deep research" },
+            data: {
+                paperEvidenceCount: 0,
+                webEvidenceCount: 0
+            }
+        }
+    });
+    applyTrace({
+        eventId: "weak-audit-completed",
+        eventType: "agent.step.completed",
+        payload: {
+            actor: { agentRole: "evidence_audit_agent", displayName: "Evidence Audit Agent" },
+            step: { stepId: "audit", label: "Audit evidence" },
+            data: {
+                verdict: "pass_with_cautions",
+                recommendedAnswerMode: "LOCAL_WEAK_EVIDENCE"
+            }
+        }
+    });
+
+    const trace = state.agentTraces["run-plan-weak"];
+    assert.equal(trace.summary.mode, "PLAN_EXECUTE");
+    assert.equal(trace.summary.subagentCount, 2);
+    assert.equal(trace.summary.activeSubagentCount, 2);
+    assert.equal(trace.summary.toolCount, 0);
+    assert.equal(trace.summary.evidenceCount, 0);
+    assert.deepEqual(Object.keys(trace.subagents), [
+        "deep_research_agent",
+        "evidence_audit_agent"
+    ]);
+});
+
 test("react mode selection does not invent child subagents", () => {
     const state = applySseEvent(createWorkbenchState(), {
         eventId: "react-mode-selected",

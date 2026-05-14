@@ -19,6 +19,9 @@ public class MultiAgentWorkflowDecider {
                 "写成",
                 "整理成",
                 "做成",
+                "输出一份",
+                "输出一个",
+                "输出成",
                 "撰写")
                 || containsSafeOutputAs(normalized);
         boolean documentProduct = containsAny(normalized,
@@ -62,7 +65,7 @@ public class MultiAgentWorkflowDecider {
         return new MultiAgentWorkflowDecision(
                 planExecute ? MultiAgentExecutionMode.PLAN_EXECUTE : MultiAgentExecutionMode.REACT,
                 reason(documentRequest, complexResearch, multiSource, externalSupplement),
-                planExecute && !documentRequest,
+                planExecute,
                 planExecute,
                 documentRequest
         );

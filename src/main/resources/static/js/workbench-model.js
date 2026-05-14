@@ -334,6 +334,8 @@ function ensureAgentTrace(state, runId) {
             memoryCount: Number(existingSummary.memoryCount ?? 0),
             weakClaims: Number(existingSummary.weakClaims ?? 0),
             requiresConfirmation: Boolean(existingSummary.requiresConfirmation),
+            subagentCount: Number(existingSummary.subagentCount ?? Object.keys(existing.subagents || {}).length),
+            activeSubagentCount: Number(existingSummary.activeSubagentCount ?? Object.keys(existing.subagents || {}).length),
             execution: existingSummary.execution || null,
             mode: existingSummary.mode || existing.mode || null,
             auditVerdict: existingSummary.auditVerdict || existing.audit?.verdict || null,
@@ -375,6 +377,13 @@ function applyPlanTrace(trace, traceEntry, data) {
         trace.summary.mode = plan.mode;
     }
     trace.summary.execution = plan.execution;
+    const plannedSubagents = new Set(plan.steps
+            .map((step) => normalizeAgentRole(step.actorRole || step.agentRole))
+            .filter(Boolean));
+    trace.summary.subagentCount = Math.max(
+            Number(trace.summary.subagentCount ?? 0),
+            plannedSubagents.size
+    );
 }
 
 function applyAgentStepTrace(trace, traceEntry, eventType, payload, data) {
@@ -423,6 +432,11 @@ function applyAgentStepTrace(trace, traceEntry, eventType, payload, data) {
         latestData: { ...(existing.latestData || {}), ...data },
         timeline: [...(existing.timeline || []), agentEntry]
     };
+    trace.summary.activeSubagentCount = Object.keys(trace.subagents).length;
+    trace.summary.subagentCount = Math.max(
+            Number(trace.summary.subagentCount ?? 0),
+            trace.summary.activeSubagentCount
+    );
 
     if (actorRole === "evidence_audit_agent" && status === "completed") {
         trace.audit = auditSummary(data);
