@@ -20,6 +20,7 @@ Verified capabilities:
 - Existing wire names are reused: `agent.plan.created` and `agent.step.*`.
 - Frontend model projection folds mode selection, serial plan, child agent lifecycle, audit counts, and composer metadata into `agentTraces[runId]`.
 - Plan-Execute trace evidence counts remain process telemetry only. They do not create `evidence_source` rows and do not increment final answer citation counts until structured source references are carried through a later feature.
+- Non-document Plan-Execute answers now synthesize user-facing weak-evidence/refusal text instead of returning internal research packet and audit telemetry as the final answer.
 
 ## Verification Commands
 
@@ -51,7 +52,7 @@ Result:
 
 ```text
 BUILD SUCCESS
-Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 40, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 The full closeout backend command including Postgres integration tests was also attempted on 2026-05-14 and was blocked by local Docker/Testcontainers availability, not by assertion failures:
@@ -108,11 +109,13 @@ F018 was implemented with subagent-driven review gates after each task:
 - Task 5 Supervisor Integration: code quality review caught a citation/evidence-source mismatch; fix made Plan-Execute evidence semantics conservative and traceable.
 - Task 6 Trace and SSE Contract: code quality review caught synthesized post-hoc lifecycle events; fix moved lifecycle publication into `MultiAgentPlanExecuteLoop` around actual subagent calls.
 - Task 7 Frontend Trace Projection: spec review caught dropped backend audit count fields; fix preserved `unsupportedClaimCount`, `sourcePolicyIssueCount`, and `requiredRevisionCount`.
+- Final independent review caught that non-document `PLAN_EXECUTE` could return internal telemetry as the user answer. The fix changed final synthesis to return document bodies, weak-evidence summaries, no-evidence messages, or refusals according to the audited packet/verdict.
 
 ## Residual Limits
 
 - F018 does not implement parallel worker runtime. Serial execution is intentional for the first release and is recorded by `execution: serial`.
 - Plan-Execute research packet evidence strings are process telemetry, not durable answer citations. The answer remains `LOCAL_WEAK_EVIDENCE` unless structured citation sources are persisted by a later feature.
+- Non-document Plan-Execute summaries intentionally use cautious prose and evidence-gap/source-policy cautions until structured citation carry-through exists.
 - `Document Composer Agent` produces document output only from the audited packet/verdict path. It does not independently retrieve or override evidence conclusions.
 - This feature does not add a dynamic skill marketplace, human approval checkpoint, long-running job queue, or cross-process agent runtime.
 

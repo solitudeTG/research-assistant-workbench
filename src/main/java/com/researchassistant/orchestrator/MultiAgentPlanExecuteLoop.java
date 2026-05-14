@@ -1,5 +1,6 @@
 package com.researchassistant.orchestrator;
 
+import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.ProjectEvidenceScope;
 import java.util.ArrayList;
 import java.util.List;
@@ -256,36 +257,103 @@ public class MultiAgentPlanExecuteLoop {
             AuditVerdict verdict,
             DocumentDraft draft
     ) {
-        StringBuilder context = new StringBuilder("question: ").append(question);
-        if (packet != null) {
-            appendLine(context, "claims", join(packet.claims()));
-            appendLine(context, "paper evidence count", Integer.toString(packet.paperEvidence().size()));
-            appendLine(context, "web evidence count", Integer.toString(packet.webEvidence().size()));
-            appendLine(context, "evidence gaps", join(packet.evidenceGaps()));
-        }
-        if (verdict != null) {
-            appendLine(context, "audit verdict", verdict.verdict());
-            appendLine(context, "recommended answer mode", verdict.recommendedAnswerMode());
-            appendLine(context, "unsupported claims", join(verdict.unsupportedClaims()));
-            appendLine(context, "source policy issues", join(verdict.sourcePolicyIssues()));
-            appendLine(context, "required revisions", join(verdict.requiredRevisions()));
-        }
         if (draft != null) {
-            appendLine(context, "document format", draft.format());
-            appendLine(context, "document title", draft.title());
-            appendLine(context, "document sections", draft.sections().stream()
-                    .map(DocumentDraft.Section::heading)
-                    .reduce((left, right) -> left + ", " + right)
-                    .orElse("none"));
+            return draft.body();
         }
-        return context.toString();
-    }
-
-    private void appendLine(StringBuilder builder, String label, String value) {
-        builder.append("\n").append(label).append(": ").append(value);
+        if (verdict != null && AnswerMode.REFUSAL.name().equals(verdict.recommendedAnswerMode())) {
+            return refusalAnswer(packet, verdict);
+        }
+        if (packet == null) {
+            return "I could not produce a supported answer from the Plan-Execute workflow.";
+        }
+        if (!packet.claims().isEmpty()) {
+            return claimsAnswer(packet, verdict);
+        }
+        if (!packet.paperEvidence().isEmpty() || !packet.webEvidence().isEmpty()) {
+            return weakEvidenceAnswer(packet, verdict);
+        }
+        return noEvidenceAnswer(packet);
     }
 
     private String join(List<String> values) {
         return values.isEmpty() ? "none" : String.join("; ", values);
+    }
+
+    private String claimsAnswer(ResearchPacket packet, AuditVerdict verdict) {
+        StringBuilder answer = new StringBuilder(
+                "Audited summary based on the available research packet. Treat this as weak evidence unless final citations are shown separately."
+        );
+        for (String claim : packet.claims()) {
+            answer.append("\n- ").append(claim);
+        }
+        appendCautions(answer, packet, verdict);
+        return answer.toString();
+    }
+
+    private String weakEvidenceAnswer(ResearchPacket packet, AuditVerdict verdict) {
+        StringBuilder answer = new StringBuilder(
+                "Based on the audited research context, I can offer only a weak-evidence summary. The workflow did not produce a claim-level conclusion that can be treated as final citation evidence:"
+        );
+        List<String> evidence = new ArrayList<>();
+        evidence.addAll(packet.paperEvidence());
+        evidence.addAll(packet.webEvidence());
+        evidence.stream()
+                .map(this::userFacingEvidence)
+                .filter(value -> !value.isBlank())
+                .limit(3)
+                .forEach(value -> answer.append("\n- ").append(value));
+        appendCautions(answer, packet, verdict);
+        return answer.toString();
+    }
+
+    private String noEvidenceAnswer(ResearchPacket packet) {
+        StringBuilder answer = new StringBuilder(
+                "I could not find enough paper or web evidence to give a supported Plan-Execute answer."
+        );
+        if (packet != null && !packet.evidenceGaps().isEmpty()) {
+            answer.append("\nEvidence gaps: ").append(join(packet.evidenceGaps()));
+        }
+        return answer.toString();
+    }
+
+    private String refusalAnswer(ResearchPacket packet, AuditVerdict verdict) {
+        StringBuilder answer = new StringBuilder(
+                "I cannot provide a supported answer from the current evidence."
+        );
+        if (verdict != null && !verdict.sourcePolicyIssues().isEmpty()) {
+            answer.append("\nSource policy issues: ").append(join(verdict.sourcePolicyIssues()));
+        }
+        if (verdict != null && !verdict.requiredRevisions().isEmpty()) {
+            answer.append("\nRequired revisions: ").append(join(verdict.requiredRevisions()));
+        }
+        if (packet != null && !packet.evidenceGaps().isEmpty()) {
+            answer.append("\nEvidence gaps: ").append(join(packet.evidenceGaps()));
+        }
+        return answer.toString();
+    }
+
+    private void appendCautions(StringBuilder answer, ResearchPacket packet, AuditVerdict verdict) {
+        if (packet != null && !packet.evidenceGaps().isEmpty()) {
+            answer.append("\nEvidence gaps: ").append(join(packet.evidenceGaps()));
+        }
+        if (verdict != null && !verdict.sourcePolicyIssues().isEmpty()) {
+            answer.append("\nSource policy cautions: ").append(join(verdict.sourcePolicyIssues()));
+        }
+        if (verdict != null && !verdict.requiredRevisions().isEmpty()) {
+            answer.append("\nRequired revisions before stronger use: ").append(join(verdict.requiredRevisions()));
+        }
+    }
+
+    private String userFacingEvidence(String evidence) {
+        if (evidence == null || evidence.isBlank()) {
+            return "";
+        }
+        for (String marker : List.of("content=", "snippet=", "summary=")) {
+            int index = evidence.indexOf(marker);
+            if (index >= 0) {
+                return evidence.substring(index + marker.length()).trim();
+            }
+        }
+        return evidence.trim();
     }
 }

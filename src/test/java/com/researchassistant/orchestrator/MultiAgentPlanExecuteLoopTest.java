@@ -205,9 +205,7 @@ class MultiAgentPlanExecuteLoopTest {
         assertThat(result.documentDraft()).isSameAs(draft);
         assertThat(result.plan().steps()).extracting(MultiAgentPlan.Step::agentRole)
                 .containsExactly("Deep Research Agent", "Evidence Audit Agent", "Document Composer Agent");
-        assertThat(result.finalSynthesisContext()).contains("audit verdict: pass");
-        assertThat(result.finalSynthesisContext()).contains("document format: markdown");
-        assertThat(result.finalSynthesisContext()).contains("document title: question");
+        assertThat(result.finalSynthesisContext()).isEqualTo("# question");
     }
 
     @Test
@@ -226,7 +224,7 @@ class MultiAgentPlanExecuteLoopTest {
     }
 
     @Test
-    void finalSynthesisContextIncludesAuditVerdictAndDocumentInfoWhenPresent() {
+    void finalSynthesisContextUsesDocumentBodyWhenPresent() {
         ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "source-10"));
         MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
                 MultiAgentExecutionMode.PLAN_EXECUTE,
@@ -255,12 +253,49 @@ class MultiAgentPlanExecuteLoopTest {
 
         MultiAgentPlanExecuteResult result = loop.run(42L, "question", scope, true, decision);
 
-        assertThat(result.finalSynthesisContext()).contains("audit verdict: pass_with_cautions");
-        assertThat(result.finalSynthesisContext()).contains("recommended answer mode: LOCAL_WEAK_EVIDENCE");
-        assertThat(result.finalSynthesisContext()).contains("source policy issues: Use local evidence only.");
-        assertThat(result.finalSynthesisContext()).contains("required revisions: Address evidence gap.");
-        assertThat(result.finalSynthesisContext()).contains("document format: markdown");
-        assertThat(result.finalSynthesisContext()).contains("document sections: Cautions");
+        assertThat(result.finalSynthesisContext()).isEqualTo("# question");
+    }
+
+    @Test
+    void nonDocumentFinalSynthesisIsUserFacingWeakEvidenceAnswer() {
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "source-10"));
+        MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                "complex_research",
+                true,
+                true,
+                false
+        );
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of(),
+                List.of("paper: documentId=10 chunkIndex=0 score=0.90 content=Paper evidence supports a cautious conclusion."),
+                List.of("web: title=Recent result url=https://example.test score=0.70 snippet=Recent web context is consistent."),
+                List.of(),
+                List.of(),
+                List.of("Citation sources are not persisted from Plan-Execute yet."),
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass_with_cautions",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of(),
+                List.of("Use as weak evidence only."),
+                List.of("Add structured citations before stronger use.")
+        );
+        when(deepResearchAgent.research(42L, "question", scope, true)).thenReturn(packet);
+        when(evidenceAuditAgent.audit(eq("question"), eq(""), eq(packet))).thenReturn(verdict);
+
+        MultiAgentPlanExecuteResult result = loop.run(42L, "question", scope, true, decision);
+
+        assertThat(result.finalSynthesisContext())
+                .contains("Based on the audited research context")
+                .contains("Paper evidence supports a cautious conclusion.")
+                .contains("Recent web context is consistent.")
+                .contains("Evidence gaps: Citation sources are not persisted from Plan-Execute yet.")
+                .contains("Source policy cautions: Use as weak evidence only.")
+                .doesNotContain("paper evidence count")
+                .doesNotContain("audit verdict");
     }
 
     private ResearchPacket packet() {
