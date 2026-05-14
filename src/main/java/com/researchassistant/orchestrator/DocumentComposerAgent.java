@@ -29,12 +29,21 @@ public class DocumentComposerAgent {
     private List<DocumentDraft.Section> passingSections(ResearchPacket packet, AuditVerdict verdict) {
         List<DocumentDraft.Section> sections = new ArrayList<>();
         sections.add(new DocumentDraft.Section(
-                "Answer Mode",
-                "Recommended answer mode: " + verdict.recommendedAnswerMode()
+                "结论摘要",
+                conclusionSummary(packet, verdict)
         ));
-        addListSection(sections, "Paper Evidence", packet.paperEvidence());
-        addListSection(sections, "Web Evidence", packet.webEvidence());
-        addListSection(sections, "Cautions", verdict.requiredRevisions());
+        sections.add(new DocumentDraft.Section(
+                "主要证据",
+                primaryEvidence(packet)
+        ));
+        sections.add(new DocumentDraft.Section(
+                "证据不足",
+                evidenceLimits(packet, verdict)
+        ));
+        sections.add(new DocumentDraft.Section(
+                "当前判断",
+                currentJudgment(verdict)
+        ));
         return sections;
     }
 
@@ -55,6 +64,63 @@ public class DocumentComposerAgent {
         if (!items.isEmpty()) {
             sections.add(new DocumentDraft.Section(heading, renderList(items)));
         }
+    }
+
+    private String conclusionSummary(ResearchPacket packet, AuditVerdict verdict) {
+        if (!packet.claims().isEmpty()) {
+            return renderList(packet.claims());
+        }
+        if (verdict.sourcePolicyIssues().isEmpty() && verdict.requiredRevisions().isEmpty()) {
+            return "当前材料通过审计，但仍应按可用证据强度谨慎使用结论。";
+        }
+        return "当前材料只支持谨慎结论；报告保留证据边界和后续补强要求。";
+    }
+
+    private String primaryEvidence(ResearchPacket packet) {
+        List<String> evidence = new ArrayList<>();
+        packet.paperEvidence().stream()
+                .map(this::userFacingEvidence)
+                .filter(value -> !value.isBlank())
+                .limit(5)
+                .forEach(evidence::add);
+        packet.webEvidence().stream()
+                .map(this::userFacingEvidence)
+                .filter(value -> !value.isBlank())
+                .limit(3)
+                .forEach(evidence::add);
+        return evidence.isEmpty()
+                ? "暂无可用于报告正文的论文或联网证据。"
+                : renderList(evidence);
+    }
+
+    private String evidenceLimits(ResearchPacket packet, AuditVerdict verdict) {
+        List<String> limits = new ArrayList<>();
+        limits.addAll(packet.evidenceGaps());
+        limits.addAll(verdict.sourcePolicyIssues());
+        limits.addAll(verdict.requiredRevisions());
+        return limits.isEmpty()
+                ? "本轮审计未记录额外证据缺口。"
+                : renderList(limits);
+    }
+
+    private String currentJudgment(AuditVerdict verdict) {
+        if (verdict.requiredRevisions().isEmpty() && verdict.sourcePolicyIssues().isEmpty()) {
+            return "可以作为当前研究阶段的审计后报告使用；后续如需强引用结论，应补充结构化 citation 证据。";
+        }
+        return "可以作为弱证据研究报告使用；在补齐证据缺口和来源限制前，不应把它当作强引用结论。";
+    }
+
+    private String userFacingEvidence(String evidence) {
+        if (evidence == null || evidence.isBlank()) {
+            return "";
+        }
+        for (String marker : List.of("content=", "snippet=", "summary=")) {
+            int index = evidence.indexOf(marker);
+            if (index >= 0) {
+                return evidence.substring(index + marker.length()).trim();
+            }
+        }
+        return evidence.trim();
     }
 
     private String renderBody(String title, List<DocumentDraft.Section> sections) {

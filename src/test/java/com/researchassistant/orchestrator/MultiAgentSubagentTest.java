@@ -259,6 +259,48 @@ class MultiAgentSubagentTest {
     }
 
     @Test
+    void documentComposerPassingOutputRendersUserFacingReportWithoutInternalPacketFields() {
+        ResearchPacket packet = new ResearchPacket(
+                "请输出一份 markdown 研究报告",
+                List.of("当前证据只能支持谨慎结论。"),
+                List.of("paper: documentId=2 chunkIndex=2 score=0.31 content=论文证据显示该路线仍需要更多仿真验证。"),
+                List.of("web: title=TowardsDataScience url=https://example.test score=0.02 snippet=外部资料只适合作为背景补充。"),
+                List.of("memory: background only"),
+                List.of(),
+                List.of("缺少直接实验或高质量本地论文证据。"),
+                AnswerMode.WEB_SUPPLEMENT.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass_with_cautions",
+                AnswerMode.WEB_SUPPLEMENT.name(),
+                List.of(),
+                List.of("联网资料只能作为补充。"),
+                List.of("补充更强的本地论文证据后再给强结论。")
+        );
+        DocumentComposerAgent agent = new DocumentComposerAgent();
+
+        DocumentDraft draft = agent.compose("markdown", "近邻星干涉研究路线评估报告", packet, verdict);
+
+        assertThat(draft.sections()).extracting(DocumentDraft.Section::heading)
+                .containsExactly("结论摘要", "主要证据", "证据不足", "当前判断");
+        assertThat(draft.body())
+                .contains("# 近邻星干涉研究路线评估报告")
+                .contains("论文证据显示该路线仍需要更多仿真验证。")
+                .contains("外部资料只适合作为背景补充。")
+                .contains("缺少直接实验或高质量本地论文证据。")
+                .contains("联网资料只能作为补充。")
+                .doesNotContain("Answer Mode")
+                .doesNotContain("Recommended answer mode")
+                .doesNotContain("documentId=")
+                .doesNotContain("chunkIndex=")
+                .doesNotContain("score=")
+                .doesNotContain("content=")
+                .doesNotContain("snippet=")
+                .doesNotContain("url=")
+                .doesNotContain("memory: background only");
+    }
+
+    @Test
     void documentComposerGeneratesRevisionDraftWhenVerdictDoesNotPass() {
         ResearchPacket packet = new ResearchPacket(
                 "question",
