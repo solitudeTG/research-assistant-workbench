@@ -104,8 +104,14 @@ public class DocumentComposerAgent {
                 .map(this::userFacingEvidenceGap)
                 .filter(value -> !value.isBlank())
                 .forEach(limits::add);
-        limits.addAll(verdict.sourcePolicyIssues());
-        limits.addAll(verdict.requiredRevisions());
+        verdict.sourcePolicyIssues().stream()
+                .map(this::userFacingEvidenceGap)
+                .filter(value -> !value.isBlank())
+                .forEach(limits::add);
+        verdict.requiredRevisions().stream()
+                .map(this::userFacingEvidenceGap)
+                .filter(value -> !value.isBlank())
+                .forEach(limits::add);
         return limits.isEmpty()
                 ? "本轮审计未记录额外证据缺口。"
                 : renderList(limits);
@@ -115,13 +121,16 @@ public class DocumentComposerAgent {
         if (gap == null || gap.isBlank()) {
             return "";
         }
-        if (gap.startsWith("Excluded ") && gap.contains("hygiene filtering")) {
+        String normalizedGap = gap.startsWith("Address evidence gap: ")
+                ? gap.substring("Address evidence gap: ".length())
+                : gap;
+        if (normalizedGap.startsWith("Excluded ") && normalizedGap.contains("hygiene filtering")) {
             return "部分候选资料因页面为空、导航页或格式噪声被排除。";
         }
-        if (gap.startsWith("Rejected ") && gap.contains("semantic gate")) {
+        if (normalizedGap.startsWith("Rejected ") && normalizedGap.contains("semantic gate")) {
             return "部分候选资料未通过语义相关性审查。";
         }
-        if (gap.equals("No evidence candidate was accepted by the evidence gate.")) {
+        if (normalizedGap.equals("No evidence candidate was accepted by the evidence gate.")) {
             return "本轮未形成可放入报告正文的强相关证据。";
         }
         return gap;

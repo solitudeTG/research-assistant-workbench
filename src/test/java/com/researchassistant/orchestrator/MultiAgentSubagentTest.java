@@ -494,6 +494,43 @@ class MultiAgentSubagentTest {
     }
 
     @Test
+    void documentComposerPassingOutputDoesNotExposeAuditWrappedEvidenceGateAccounting() {
+        ResearchPacket packet = new ResearchPacket(
+                "请对近邻星干涉相关论文做系统分析和对比，判断当前研究路线是否成立。",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass_with_cautions",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of(
+                        "Address evidence gap: Excluded 6 raw evidence candidate during hygiene filtering.",
+                        "Address evidence gap: Rejected 4 evidence candidate during semantic gate.",
+                        "Address evidence gap: No evidence candidate was accepted by the evidence gate."
+                )
+        );
+        DocumentComposerAgent agent = new DocumentComposerAgent();
+
+        DocumentDraft draft = agent.compose("markdown", packet.question(), packet, verdict);
+
+        assertThat(draft.body())
+                .contains("部分候选资料因页面为空、导航页或格式噪声被排除。")
+                .contains("部分候选资料未通过语义相关性审查。")
+                .contains("本轮未形成可放入报告正文的强相关证据。")
+                .doesNotContain("Address evidence gap")
+                .doesNotContain("hygiene filtering")
+                .doesNotContain("semantic gate")
+                .doesNotContain("evidence gate");
+    }
+
+    @Test
     void documentComposerUsesDemoFriendlyTitleAndFiltersAdministrativeEvidence() {
         ResearchPacket packet = new ResearchPacket(
                 "请对近邻星干涉相关论文做系统分析和对比，判断当前研究路线是否成立，并输出一份 markdown 研究报告，要求说明证据不足之处。",

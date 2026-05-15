@@ -31,6 +31,7 @@ Verified capabilities:
 - F018.7 follow-up fixes the deeper evidence-contract gap: Plan-Execute now separates raw retrieval candidates from report-eligible evidence via `EvidenceCurator` before audit and document composition. Empty/navigation pages, off-topic web snippets, administrative metadata, reference fragments, code/markup dumps, and overly fragmented candidates are rejected before downstream agents see the packet.
 - F018.8 reset replaces F018.7 topic-rule promotion with an explicit evidence-gate boundary. `EvidenceCurator` is hygiene-only; `EvidenceGateAgent` promotes relevant hygienic candidates before audit/composition; and reports translate internal gate accounting into user-facing evidence-limit language.
 - F018.8 also records [LL-002](../lessons/LL-002-avoid-rule-accumulation-for-ai-evidence-gates.md), so future agents do not respond to semantic-evidence failures by growing keyword rules.
+- F018.9 follow-up fixes the report-boundary miss exposed by manual validation: audit-wrapped evidence gaps such as `Address evidence gap: Rejected ... semantic gate` are now translated by `Document Composer Agent` before they enter the user-facing report.
 
 ## Verification Commands
 
@@ -215,6 +216,38 @@ Result:
 ```text
 BUILD SUCCESS
 Tests run: 71, Failures: 0, Errors: 0, Skipped: 0
+```
+
+F018.9 report-boundary RED/GREEN on 2026-05-15:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentSubagentTest#documentComposerPassingOutputDoesNotExposeAuditWrappedEvidenceGateAccounting' test
+```
+
+RED result:
+
+```text
+Report exposed raw audit-wrapped gap strings such as `Address evidence gap: Rejected 4 evidence candidate during semantic gate.`
+```
+
+GREEN result:
+
+```text
+BUILD SUCCESS
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+```
+
+F018.9 broader backend regression on 2026-05-15:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentWorkflowDeciderTest,MultiAgentContractTest,MultiAgentSubagentTest,MultiAgentPlanExecuteLoopTest,AgentTracePublisherTest,ProjectRunEventFlowTest,SupervisorServiceLogicTest' test
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+Tests run: 72, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 The full closeout backend command including Postgres integration tests was also attempted on 2026-05-14 and was blocked by local Docker/Testcontainers availability, not by assertion failures:
