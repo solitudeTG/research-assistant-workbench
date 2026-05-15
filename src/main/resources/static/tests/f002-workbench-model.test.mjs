@@ -83,6 +83,7 @@ test("research process timeline includes projected plan execute events", async (
     );
 
     assert.match(researchProcessSource, /trace\?\.timeline/);
+    assert.match(researchProcessSource, /processModeTimelineEvent/);
     assert.match(researchProcessSource, /processAgentTimelineEvent/);
     assert.match(researchProcessSource, /processPlanTimelineEvent/);
 });
@@ -727,7 +728,10 @@ test("plan execute trace events fold into serial multi-agent projection", () => 
             step: { stepId: "mode-selection", label: "Mode selection" },
             data: {
                 mode: "PLAN_EXECUTE",
-                reason: "multi-source synthesis request"
+                reason: "semantic_document_research",
+                decisionSource: "semantic",
+                fallbackReason: "simple_react_request",
+                semanticConfidence: 0.92
             }
         }
     });
@@ -825,10 +829,13 @@ test("plan execute trace events fold into serial multi-agent projection", () => 
 
     const trace = state.agentTraces["run-plan"];
     assert.equal(trace.mode, "PLAN_EXECUTE");
-    assert.equal(trace.modeReason, "multi-source synthesis request");
+    assert.equal(trace.modeReason, "semantic_document_research");
     assert.deepEqual(trace.modeSelection, {
         mode: "PLAN_EXECUTE",
-        reason: "multi-source synthesis request"
+        reason: "semantic_document_research",
+        decisionSource: "semantic",
+        fallbackReason: "simple_react_request",
+        semanticConfidence: 0.92
     });
     assert.equal(trace.plan.summary, "Research, audit, then compose.");
     assert.equal(trace.plan.execution, "serial");
@@ -951,7 +958,10 @@ test("react mode selection does not invent child subagents", () => {
             step: { stepId: "mode-selection", label: "Mode selection" },
             data: {
                 mode: "REACT",
-                reason: "single-paper question"
+                reason: "single-paper question",
+                decisionSource: "fallback",
+                fallbackReason: "single-paper question",
+                semanticConfidence: 0
             }
         }
     });
@@ -959,6 +969,13 @@ test("react mode selection does not invent child subagents", () => {
     const trace = state.agentTraces["run-react"];
     assert.equal(trace.mode, "REACT");
     assert.equal(trace.modeReason, "single-paper question");
+    assert.deepEqual(trace.modeSelection, {
+        mode: "REACT",
+        reason: "single-paper question",
+        decisionSource: "fallback",
+        fallbackReason: "single-paper question",
+        semanticConfidence: 0
+    });
     assert.deepEqual(trace.timeline, []);
     assert.deepEqual(trace.subagents, {});
     assert.equal(trace.summary.toolCount, 0);

@@ -29,7 +29,10 @@ public class AgentTracePublisher {
                 "completed",
                 payload(
                         "mode", decision.mode().name(),
-                        "reason", decision.reason()
+                        "reason", decision.reason(),
+                        "decisionSource", decision.decisionSource(),
+                        "fallbackReason", decision.fallbackReason(),
+                        "semanticConfidence", decision.semanticConfidence()
                 )
         );
     }

@@ -1,5 +1,6 @@
 package com.researchassistant.orchestrator;
 
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,5 +111,146 @@ class MultiAgentWorkflowDeciderTest {
 
         assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
         assertThat(decision.requiresDocumentComposer()).isFalse();
+    }
+    @Test
+    void semanticAdvisorCanPromoteNaturalDocumentResearchRequestWithoutKeywordRules() {
+        MultiAgentWorkflowDecider semanticDecider = new MultiAgentWorkflowDecider(
+                (question, allowWebSupplement, fallbackDecision) -> Optional.of(new SemanticWorkflowAdvice(
+                        MultiAgentExecutionMode.PLAN_EXECUTE,
+                        "semantic_document_research",
+                        true,
+                        true,
+                        true,
+                        0.92
+                ))
+        );
+
+        MultiAgentWorkflowDecision decision = semanticDecider.decide(
+                "Please evaluate whether this line of work holds and prepare a polished markdown deliverable with evidence caveats.",
+                true
+        );
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.PLAN_EXECUTE);
+        assertThat(decision.requiresDeepResearch()).isTrue();
+        assertThat(decision.requiresEvidenceAudit()).isTrue();
+        assertThat(decision.requiresDocumentComposer()).isTrue();
+        assertThat(decision.reason()).isEqualTo("semantic_document_research");
+        assertThat(decision.decisionSource()).isEqualTo("semantic");
+        assertThat(decision.fallbackReason()).isEqualTo("simple_react_request");
+        assertThat(decision.semanticConfidence()).isEqualTo(0.92);
+    }
+
+    @Test
+    void semanticAdvisorCanKeepSimpleRequestOnReact() {
+        MultiAgentWorkflowDecider semanticDecider = new MultiAgentWorkflowDecider(
+                (question, allowWebSupplement, fallbackDecision) -> Optional.of(new SemanticWorkflowAdvice(
+                        MultiAgentExecutionMode.REACT,
+                        "semantic_simple_chat",
+                        false,
+                        false,
+                        false,
+                        0.88
+                ))
+        );
+
+        MultiAgentWorkflowDecision decision = semanticDecider.decide("hello", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.requiresDeepResearch()).isFalse();
+        assertThat(decision.requiresEvidenceAudit()).isFalse();
+        assertThat(decision.requiresDocumentComposer()).isFalse();
+        assertThat(decision.decisionSource()).isEqualTo("semantic");
+    }
+
+    @Test
+    void unavailableSemanticAdvisorFallsBackToDeterministicDecision() {
+        MultiAgentWorkflowDecider semanticDecider = new MultiAgentWorkflowDecider(
+                (question, allowWebSupplement, fallbackDecision) -> Optional.empty()
+        );
+
+        MultiAgentWorkflowDecision decision = semanticDecider.decide("hello", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.reason()).isEqualTo("simple_react_request");
+        assertThat(decision.decisionSource()).isEqualTo("fallback");
+        assertThat(decision.fallbackReason()).isEqualTo("simple_react_request");
+        assertThat(decision.semanticConfidence()).isZero();
+    }
+
+    @Test
+    void lowConfidenceSemanticAdvisorFallsBackToDeterministicDecision() {
+        MultiAgentWorkflowDecider semanticDecider = new MultiAgentWorkflowDecider(
+                (question, allowWebSupplement, fallbackDecision) -> Optional.of(new SemanticWorkflowAdvice(
+                        MultiAgentExecutionMode.PLAN_EXECUTE,
+                        "low_confidence_plan",
+                        true,
+                        true,
+                        true,
+                        0.50
+                ))
+        );
+
+        MultiAgentWorkflowDecision decision = semanticDecider.decide("hello", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.decisionSource()).isEqualTo("fallback");
+        assertThat(decision.fallbackReason()).isEqualTo("simple_react_request");
+    }
+
+    @Test
+    void nonFiniteSemanticConfidenceFallsBackToDeterministicDecision() {
+        MultiAgentWorkflowDecider semanticDecider = new MultiAgentWorkflowDecider(
+                (question, allowWebSupplement, fallbackDecision) -> Optional.of(new SemanticWorkflowAdvice(
+                        MultiAgentExecutionMode.PLAN_EXECUTE,
+                        "nan_confidence_plan",
+                        true,
+                        true,
+                        true,
+                        Double.NaN
+                ))
+        );
+
+        MultiAgentWorkflowDecision decision = semanticDecider.decide("hello", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.decisionSource()).isEqualTo("fallback");
+    }
+
+    @Test
+    void outOfRangeSemanticConfidenceFallsBackToDeterministicDecision() {
+        MultiAgentWorkflowDecider semanticDecider = new MultiAgentWorkflowDecider(
+                (question, allowWebSupplement, fallbackDecision) -> Optional.of(new SemanticWorkflowAdvice(
+                        MultiAgentExecutionMode.PLAN_EXECUTE,
+                        "overconfident_plan",
+                        true,
+                        true,
+                        true,
+                        2.0
+                ))
+        );
+
+        MultiAgentWorkflowDecision decision = semanticDecider.decide("hello", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.decisionSource()).isEqualTo("fallback");
+    }
+
+    @Test
+    void inconsistentSemanticAdviceFallsBackToDeterministicDecision() {
+        MultiAgentWorkflowDecider semanticDecider = new MultiAgentWorkflowDecider(
+                (question, allowWebSupplement, fallbackDecision) -> Optional.of(new SemanticWorkflowAdvice(
+                        MultiAgentExecutionMode.PLAN_EXECUTE,
+                        "plan_without_subagent_boundary",
+                        false,
+                        false,
+                        false,
+                        0.90
+                ))
+        );
+
+        MultiAgentWorkflowDecision decision = semanticDecider.decide("hello", false);
+
+        assertThat(decision.mode()).isEqualTo(MultiAgentExecutionMode.REACT);
+        assertThat(decision.decisionSource()).isEqualTo("fallback");
     }
 }
