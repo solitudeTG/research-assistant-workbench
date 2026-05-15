@@ -11,14 +11,18 @@ import com.researchassistant.rag.RagResult;
 import com.researchassistant.websearch.WebSearchHit;
 import com.researchassistant.websearch.WebSearchPort;
 import com.researchassistant.websearch.WebSearchResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Constructor;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import org.springframework.ai.chat.client.ChatClient;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -231,14 +235,14 @@ class MultiAgentSubagentTest {
     }
 
     @Test
-    void evidenceCuratorRejectsEmptyPagesAndOffTopicWebForSatelliteInterferenceQuestion() {
+    void evidenceCuratorRejectsEmptyPagesButDoesNotMakeSemanticOffTopicDecisions() {
         ResearchPacket packet = new ResearchPacket(
                 "Assess LEO satellite interference and beamforming research route.",
                 List.of(),
                 List.of("paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations."),
                 List.of(
                         "web: title=Search result snippet=No information is available for this page. Learn why",
-                        "web: title=Ukraine update snippet=The latest news discussed Russia, Trump, and European diplomatic pressure."
+                        "web: title=Genomic diversity snippet=Genomic diversity of the African malaria vector Anopheles funestus."
                 ),
                 List.of(),
                 List.of(),
@@ -251,10 +255,114 @@ class MultiAgentSubagentTest {
 
         assertThat(curated.acceptedPaperEvidence())
                 .containsExactly("paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations.");
-        assertThat(curated.acceptedWebEvidence()).isEmpty();
+        assertThat(curated.acceptedWebEvidence())
+                .containsExactly("web: title=Genomic diversity snippet=Genomic diversity of the African malaria vector Anopheles funestus.");
         assertThat(curated.rejectedItems())
                 .extracting(CuratedEvidenceItem::rejectReason)
-                .containsExactly("EMPTY_OR_NAVIGATION_PAGE", "OFF_TOPIC");
+                .containsExactly("EMPTY_OR_NAVIGATION_PAGE");
+    }
+
+    @Test
+    void evidenceGateRejectsBiomedicalCandidatesForSatelliteInterferenceQuestion() {
+        EvidenceGateAgent gate = new HeuristicEvidenceGateAgent();
+        CuratedEvidenceSet hygienicCandidates = new CuratedEvidenceSet(List.of(
+                new CuratedEvidenceItem(
+                        "paper",
+                        "paper: content=Satellite beamforming can mitigate inter-satellite interference in dense LEO communication networks.",
+                        true,
+                        "",
+                        List.of()
+                ),
+                new CuratedEvidenceItem(
+                        "web",
+                        "web: title=Genomic diversity snippet=Genomic diversity of the African malaria vector Anopheles funestus.",
+                        true,
+                        "",
+                        List.of()
+                ),
+                new CuratedEvidenceItem(
+                        "web",
+                        "web: title=CAR-T therapy snippet=Glycan shielding enables allogeneic CAR-T therapy.",
+                        true,
+                        "",
+                        List.of()
+                )
+        ));
+
+        CuratedEvidenceSet gated = gate.gate(
+                "Assess LEO satellite interference and beamforming research route.",
+                hygienicCandidates
+        );
+
+        assertThat(gated.acceptedPaperEvidence())
+                .containsExactly("paper: content=Satellite beamforming can mitigate inter-satellite interference in dense LEO communication networks.");
+        assertThat(gated.acceptedWebEvidence()).isEmpty();
+        assertThat(gated.rejectedItems())
+                .extracting(CuratedEvidenceItem::rejectReason)
+                .containsExactly("SEMANTIC_OFF_TOPIC", "SEMANTIC_OFF_TOPIC");
+    }
+
+    @Test
+    void modelBackedEvidenceGateAcceptsOnlyModelSelectedIndexes() {
+        ChatClient chatClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("{\"acceptedIndexes\":[0]}");
+        EvidenceGateAgent gate = new ModelBackedEvidenceGateAgent(chatClient, new ObjectMapper());
+        CuratedEvidenceSet hygienicCandidates = new CuratedEvidenceSet(List.of(
+                new CuratedEvidenceItem(
+                        "paper",
+                        "paper: content=Satellite beamforming reduces inter-satellite interference.",
+                        true,
+                        "",
+                        List.of()
+                ),
+                new CuratedEvidenceItem(
+                        "web",
+                        "web: snippet=Genomic diversity of the African malaria vector.",
+                        true,
+                        "",
+                        List.of()
+                )
+        ));
+
+        CuratedEvidenceSet gated = gate.gate(
+                "Assess LEO satellite interference and beamforming research route.",
+                hygienicCandidates
+        );
+
+        assertThat(gated.acceptedPaperEvidence())
+                .containsExactly("paper: content=Satellite beamforming reduces inter-satellite interference.");
+        assertThat(gated.acceptedWebEvidence()).isEmpty();
+        assertThat(gated.rejectedItems())
+                .extracting(CuratedEvidenceItem::rejectReason)
+                .containsExactly("SEMANTIC_OFF_TOPIC");
+    }
+
+    @Test
+    void modelBackedEvidenceGateRejectsAllReviewableCandidatesWhenModelResponseIsInvalid() {
+        ChatClient chatClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("not-json");
+        EvidenceGateAgent gate = new ModelBackedEvidenceGateAgent(chatClient, new ObjectMapper());
+        CuratedEvidenceSet hygienicCandidates = new CuratedEvidenceSet(List.of(
+                new CuratedEvidenceItem(
+                        "paper",
+                        "paper: content=Satellite beamforming reduces inter-satellite interference.",
+                        true,
+                        "",
+                        List.of()
+                )
+        ));
+
+        CuratedEvidenceSet gated = gate.gate(
+                "Assess LEO satellite interference and beamforming research route.",
+                hygienicCandidates
+        );
+
+        assertThat(gated.acceptedPaperEvidence()).isEmpty();
+        assertThat(gated.rejectedItems())
+                .extracting(CuratedEvidenceItem::rejectReason)
+                .containsExactly("EVIDENCE_GATE_UNAVAILABLE");
     }
 
     @Test
@@ -346,6 +454,43 @@ class MultiAgentSubagentTest {
                 .doesNotContain("snippet=")
                 .doesNotContain("url=")
                 .doesNotContain("memory: background only");
+    }
+
+    @Test
+    void documentComposerPassingOutputDoesNotExposeInternalEvidenceGateAccounting() {
+        ResearchPacket packet = new ResearchPacket(
+                "请对近邻星干涉相关论文做系统分析和对比，判断当前研究路线是否成立。",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        "Excluded 2 raw evidence candidate during hygiene filtering.",
+                        "Rejected 3 evidence candidate during semantic gate.",
+                        "No evidence candidate was accepted by the evidence gate."
+                ),
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass_with_cautions",
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        DocumentComposerAgent agent = new DocumentComposerAgent();
+
+        DocumentDraft draft = agent.compose("markdown", packet.question(), packet, verdict);
+
+        assertThat(draft.body())
+                .contains("部分候选资料因页面为空、导航页或格式噪声被排除。")
+                .contains("部分候选资料未通过语义相关性审查。")
+                .contains("本轮未形成可放入报告正文的强相关证据。")
+                .doesNotContain("Excluded 2 raw evidence candidate")
+                .doesNotContain("Rejected 3 evidence candidate")
+                .doesNotContain("semantic gate")
+                .doesNotContain("evidence gate");
     }
 
     @Test

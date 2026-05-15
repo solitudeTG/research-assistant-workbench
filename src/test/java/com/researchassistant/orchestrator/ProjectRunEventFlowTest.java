@@ -100,6 +100,9 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
     private DeepResearchAgent deepResearchAgent;
 
     @MockBean
+    private EvidenceGateAgent evidenceGateAgent;
+
+    @MockBean
     private EvidenceAuditAgent evidenceAuditAgent;
 
     @MockBean
@@ -117,12 +120,17 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
                 null,
                 List.of()
         )).when(projectAgentToolLoop).run(any(ProjectAgentRequest.class));
+        org.mockito.Mockito.when(evidenceGateAgent.gate(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        any(CuratedEvidenceSet.class)
+                ))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @AfterEach
     void resetToolLoopSpy() {
         reset(projectAgentToolLoop, multiAgentWorkflowDecider, multiAgentPlanExecuteLoop,
-                deepResearchAgent, evidenceAuditAgent, documentComposerAgent);
+                deepResearchAgent, evidenceGateAgent, evidenceAuditAgent, documentComposerAgent);
     }
 
     @Test

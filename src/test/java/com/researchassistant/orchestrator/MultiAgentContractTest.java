@@ -95,7 +95,7 @@ class MultiAgentContractTest {
         ResearchPacket curated = packet.withEvidence(
                 List.of("curated paper"),
                 List.of(),
-                List.of("old gap", "No topic-matched evidence survived curation.")
+                List.of("old gap", "No gate-accepted evidence survived curation.")
         );
 
         assertThat(curated.question()).isEqualTo("satellite interference question");
@@ -105,7 +105,7 @@ class MultiAgentContractTest {
         assertThat(curated.memoryContext()).containsExactly("memory");
         assertThat(curated.conflicts()).containsExactly("conflict");
         assertThat(curated.evidenceGaps())
-                .containsExactly("old gap", "No topic-matched evidence survived curation.");
+                .containsExactly("old gap", "No gate-accepted evidence survived curation.");
         assertThat(curated.recommendedAnswerMode()).isEqualTo(AnswerMode.WEB_SUPPLEMENT.name());
     }
 

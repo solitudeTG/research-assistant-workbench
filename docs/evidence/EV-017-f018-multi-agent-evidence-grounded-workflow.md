@@ -29,6 +29,8 @@ Verified capabilities:
 - F018.5 follow-up fixes the remaining streaming-boundary bug from manual validation: `answer.delta` chunks now keep the paragraph separator needed for append-mode reconstruction, so report headings do not glue onto the preceding section when streamed into the conversation.
 - F018.6 follow-up fixes the evidence-quality regression exposed after markdown rendering was corrected: `Document Composer Agent` now trims reference sections, extracts abstract text from page-like chunks, and rejects reference-list fragments or lowercase mid-sentence fragments before adding report evidence.
 - F018.7 follow-up fixes the deeper evidence-contract gap: Plan-Execute now separates raw retrieval candidates from report-eligible evidence via `EvidenceCurator` before audit and document composition. Empty/navigation pages, off-topic web snippets, administrative metadata, reference fragments, code/markup dumps, and overly fragmented candidates are rejected before downstream agents see the packet.
+- F018.8 reset replaces F018.7 topic-rule promotion with an explicit evidence-gate boundary. `EvidenceCurator` is hygiene-only; `EvidenceGateAgent` promotes relevant hygienic candidates before audit/composition; and reports translate internal gate accounting into user-facing evidence-limit language.
+- F018.8 also records [LL-002](../lessons/LL-002-avoid-rule-accumulation-for-ai-evidence-gates.md), so future agents do not respond to semantic-evidence failures by growing keyword rules.
 
 ## Verification Commands
 
@@ -162,6 +164,59 @@ BUILD SUCCESS
 Tests run: 67, Failures: 0, Errors: 0, Skipped: 0
 ```
 
+F018.8 RED/GREEN reset cycle on 2026-05-15:
+
+RED result:
+
+```text
+Compilation failed because EvidenceGateAgent and HeuristicEvidenceGateAgent did not exist.
+```
+
+Focused GREEN re-run:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentSubagentTest,MultiAgentPlanExecuteLoopTest' test
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+Tests run: 26, Failures: 0, Errors: 0, Skipped: 0
+```
+
+F018.8 report-boundary RED/GREEN on 2026-05-15:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentSubagentTest#documentComposerPassingOutputDoesNotExposeInternalEvidenceGateAccounting' test
+```
+
+RED result:
+
+```text
+Report exposed raw internal gap strings such as `Excluded 2 raw evidence candidate during hygiene filtering.` and `Rejected 3 evidence candidate during semantic gate.`
+```
+
+GREEN result:
+
+```text
+BUILD SUCCESS
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+```
+
+F018.8 broader backend regression on 2026-05-15:
+
+```powershell
+& 'C:\Users\HUAWEI\.m2\wrapper\dists\apache-maven-3.9.14\ed7edd442f634ac1c1ef5ba2b61b6d690b5221091f1a8e1123f5fadcc967520d\bin\mvn.cmd' '-Dtest=MultiAgentWorkflowDeciderTest,MultiAgentContractTest,MultiAgentSubagentTest,MultiAgentPlanExecuteLoopTest,AgentTracePublisherTest,ProjectRunEventFlowTest,SupervisorServiceLogicTest' test
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+Tests run: 71, Failures: 0, Errors: 0, Skipped: 0
+```
+
 The full closeout backend command including Postgres integration tests was also attempted on 2026-05-14 and was blocked by local Docker/Testcontainers availability, not by assertion failures:
 
 ```text
@@ -186,6 +241,20 @@ f002-workbench-model.test.mjs: 31 tests passed.
 ```
 
 F018.7 frontend model re-run on 2026-05-15:
+
+```powershell
+node .\src\main\resources\static\tests\workbench-model.test.mjs
+node .\src\main\resources\static\tests\f002-workbench-model.test.mjs
+```
+
+Result:
+
+```text
+workbench-model.test.mjs: 6 tests passed.
+f002-workbench-model.test.mjs: 31 tests passed.
+```
+
+F018.8 frontend model re-run on 2026-05-15:
 
 ```powershell
 node .\src\main\resources\static\tests\workbench-model.test.mjs
@@ -246,7 +315,7 @@ F018 was implemented with subagent-driven review gates after each task:
 - Non-document Plan-Execute summaries intentionally use cautious prose and evidence-gap/source-policy cautions until structured citation carry-through exists.
 - Document Composer output is still deterministic and template-based. It improves report readability and removes internal telemetry, but it is not yet an LLM writer or semantic intent classifier.
 - F018.4 administrative evidence filtering is a deterministic presentation guardrail, not semantic citation ranking. Robust evidence selection should be handled by a later structured evidence carry-through or ranking feature.
-- F018.7 curation is deterministic and topic-keyword based. It is stronger than Composer-only filtering, but still does not replace future structured citation carry-through, embedding reranking, or LLM-based evidence critique.
+- F018.8 removes deterministic topic-keyword promotion from the current design. The production evidence gate is model-backed and conservatively rejects all candidates if it cannot parse a gate response, so a failed gate may produce weak/no-evidence output rather than leaking unrelated evidence.
 - `Document Composer Agent` produces document output only from the audited packet/verdict path. It does not independently retrieve or override evidence conclusions.
 - This feature does not add a dynamic skill marketplace, human approval checkpoint, long-running job queue, or cross-process agent runtime.
 

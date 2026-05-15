@@ -6,6 +6,7 @@ import com.researchassistant.events.InMemoryWorkbenchEventPublisher;
 import com.researchassistant.events.WorkbenchEvent;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -24,15 +25,23 @@ import static org.mockito.Mockito.when;
 class MultiAgentPlanExecuteLoopTest {
 
     private final DeepResearchAgent deepResearchAgent = mock(DeepResearchAgent.class);
+    private final EvidenceGateAgent evidenceGateAgent = mock(EvidenceGateAgent.class);
     private final EvidenceAuditAgent evidenceAuditAgent = mock(EvidenceAuditAgent.class);
     private final DocumentComposerAgent documentComposerAgent = mock(DocumentComposerAgent.class);
     private final MultiAgentPlanExecuteLoop loop = new MultiAgentPlanExecuteLoop(
             deepResearchAgent,
             new EvidenceCurator(),
+            evidenceGateAgent,
             evidenceAuditAgent,
             documentComposerAgent,
             new AgentTracePublisher(new InMemoryWorkbenchEventPublisher())
     );
+
+    @BeforeEach
+    void passThroughEvidenceGateByDefault() {
+        when(evidenceGateAgent.gate(org.mockito.ArgumentMatchers.anyString(), any(CuratedEvidenceSet.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
 
     @Test
     void complexResearchRunsDeepResearchBeforeEvidenceAuditWithoutComposer() {
@@ -145,6 +154,7 @@ class MultiAgentPlanExecuteLoopTest {
         MultiAgentPlanExecuteLoop loopWithRealAudit = new MultiAgentPlanExecuteLoop(
                 deepResearchAgent,
                 new EvidenceCurator(),
+                new HeuristicEvidenceGateAgent(),
                 realAuditAgent,
                 documentComposerAgent,
                 new AgentTracePublisher(new InMemoryWorkbenchEventPublisher())
@@ -237,7 +247,24 @@ class MultiAgentPlanExecuteLoopTest {
                 "# curated",
                 List.of()
         );
+        CuratedEvidenceSet gatedEvidence = new CuratedEvidenceSet(List.of(
+                new CuratedEvidenceItem(
+                        "paper",
+                        "paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations.",
+                        true,
+                        "",
+                        List.of()
+                ),
+                new CuratedEvidenceItem(
+                        "web",
+                        "web: title=Ukraine update snippet=The latest news discussed Russia, Trump, and European diplomatic pressure.",
+                        false,
+                        "SEMANTIC_OFF_TOPIC",
+                        List.of()
+                )
+        ));
         when(deepResearchAgent.research(42L, rawPacket.question(), scope, true)).thenReturn(rawPacket);
+        when(evidenceGateAgent.gate(eq(rawPacket.question()), any(CuratedEvidenceSet.class))).thenReturn(gatedEvidence);
         when(evidenceAuditAgent.audit(eq(rawPacket.question()), eq(""), any(ResearchPacket.class))).thenReturn(verdict);
         when(documentComposerAgent.compose(eq("markdown"), eq(rawPacket.question()), any(ResearchPacket.class), eq(verdict)))
                 .thenReturn(draft);
@@ -251,7 +278,7 @@ class MultiAgentPlanExecuteLoopTest {
         assertThat(auditPacket.getValue().paperEvidence())
                 .containsExactly("paper: content=Simulation results show adaptive beamforming reduces inter-satellite interference in LEO constellations.");
         assertThat(auditPacket.getValue().webEvidence()).isEmpty();
-        assertThat(auditPacket.getValue().evidenceGaps()).contains("Rejected 1 raw evidence candidate during curation.");
+        assertThat(auditPacket.getValue().evidenceGaps()).contains("Rejected 1 evidence candidate during semantic gate.");
         assertThat(composerPacket.getValue()).isEqualTo(auditPacket.getValue());
         assertThat(result.researchPacket()).isEqualTo(auditPacket.getValue());
     }
@@ -373,6 +400,7 @@ class MultiAgentPlanExecuteLoopTest {
         return new MultiAgentPlanExecuteLoop(
                 deepResearchAgent,
                 new EvidenceCurator(),
+                new HeuristicEvidenceGateAgent(),
                 evidenceAuditAgent,
                 documentComposerAgent,
                 new AgentTracePublisher(eventPublisher)

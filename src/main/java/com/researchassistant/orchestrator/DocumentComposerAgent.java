@@ -100,12 +100,31 @@ public class DocumentComposerAgent {
 
     private String evidenceLimits(ResearchPacket packet, AuditVerdict verdict) {
         List<String> limits = new ArrayList<>();
-        limits.addAll(packet.evidenceGaps());
+        packet.evidenceGaps().stream()
+                .map(this::userFacingEvidenceGap)
+                .filter(value -> !value.isBlank())
+                .forEach(limits::add);
         limits.addAll(verdict.sourcePolicyIssues());
         limits.addAll(verdict.requiredRevisions());
         return limits.isEmpty()
                 ? "本轮审计未记录额外证据缺口。"
                 : renderList(limits);
+    }
+
+    private String userFacingEvidenceGap(String gap) {
+        if (gap == null || gap.isBlank()) {
+            return "";
+        }
+        if (gap.startsWith("Excluded ") && gap.contains("hygiene filtering")) {
+            return "部分候选资料因页面为空、导航页或格式噪声被排除。";
+        }
+        if (gap.startsWith("Rejected ") && gap.contains("semantic gate")) {
+            return "部分候选资料未通过语义相关性审查。";
+        }
+        if (gap.equals("No evidence candidate was accepted by the evidence gate.")) {
+            return "本轮未形成可放入报告正文的强相关证据。";
+        }
+        return gap;
     }
 
     private String currentJudgment(AuditVerdict verdict) {

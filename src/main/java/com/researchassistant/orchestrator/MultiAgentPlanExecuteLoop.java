@@ -15,6 +15,7 @@ public class MultiAgentPlanExecuteLoop {
 
     private final DeepResearchAgent deepResearchAgent;
     private final EvidenceCurator evidenceCurator;
+    private final EvidenceGateAgent evidenceGateAgent;
     private final EvidenceAuditAgent evidenceAuditAgent;
     private final DocumentComposerAgent documentComposerAgent;
     private final AgentTracePublisher tracePublisher;
@@ -22,12 +23,14 @@ public class MultiAgentPlanExecuteLoop {
     public MultiAgentPlanExecuteLoop(
             DeepResearchAgent deepResearchAgent,
             EvidenceCurator evidenceCurator,
+            EvidenceGateAgent evidenceGateAgent,
             EvidenceAuditAgent evidenceAuditAgent,
             DocumentComposerAgent documentComposerAgent,
             AgentTracePublisher tracePublisher
     ) {
         this.deepResearchAgent = Objects.requireNonNull(deepResearchAgent, "deepResearchAgent");
         this.evidenceCurator = Objects.requireNonNull(evidenceCurator, "evidenceCurator");
+        this.evidenceGateAgent = Objects.requireNonNull(evidenceGateAgent, "evidenceGateAgent");
         this.evidenceAuditAgent = Objects.requireNonNull(evidenceAuditAgent, "evidenceAuditAgent");
         this.documentComposerAgent = Objects.requireNonNull(documentComposerAgent, "documentComposerAgent");
         this.tracePublisher = Objects.requireNonNull(tracePublisher, "tracePublisher");
@@ -72,7 +75,7 @@ public class MultiAgentPlanExecuteLoop {
                 publishFailed(traceContext, step, exception);
                 throw exception;
             }
-            packet = evidenceCurator.curatedPacket(question, packet);
+            packet = evidencePacket(question, packet);
             steps = completeStep(steps, "deep-research");
             publishCompleted(traceContext, stepById(steps, "deep-research"), researchPacketTraceData(packet));
         }
@@ -182,6 +185,28 @@ public class MultiAgentPlanExecuteLoop {
         return decision.requiresDeepResearch()
                 || decision.requiresEvidenceAudit()
                 || decision.requiresDocumentComposer();
+    }
+
+    private ResearchPacket evidencePacket(String question, ResearchPacket rawPacket) {
+        CuratedEvidenceSet hygienicCandidates = evidenceCurator.curate(question, rawPacket);
+        CuratedEvidenceSet gatedEvidence = evidenceGateAgent.gate(question, hygienicCandidates);
+        List<String> gaps = new ArrayList<>(rawPacket.evidenceGaps());
+        long hygieneRejected = hygienicCandidates.rejectedCount();
+        long gateRejected = gatedEvidence.rejectedItems().stream()
+                .filter(item -> "SEMANTIC_OFF_TOPIC".equals(item.rejectReason())
+                        || "EVIDENCE_GATE_UNAVAILABLE".equals(item.rejectReason()))
+                .count();
+        if (hygieneRejected > 0) {
+            gaps.add("Excluded " + hygieneRejected + " raw evidence candidate during hygiene filtering.");
+        }
+        if (gateRejected > 0) {
+            gaps.add("Rejected " + gateRejected + " evidence candidate during semantic gate.");
+        }
+        if (gatedEvidence.acceptedCount() == 0
+                && (!rawPacket.paperEvidence().isEmpty() || !rawPacket.webEvidence().isEmpty())) {
+            gaps.add("No evidence candidate was accepted by the evidence gate.");
+        }
+        return rawPacket.withEvidence(gatedEvidence.acceptedPaperEvidence(), gatedEvidence.acceptedWebEvidence(), gaps);
     }
 
     private List<MultiAgentPlan.Step> createSteps(MultiAgentWorkflowDecision decision) {
