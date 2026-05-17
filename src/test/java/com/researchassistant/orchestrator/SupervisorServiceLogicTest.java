@@ -21,6 +21,7 @@ import com.researchassistant.project.AssistantAnswerRepository;
 import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagChunk;
 import com.researchassistant.rag.RagResult;
+import java.lang.reflect.Method;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -79,6 +80,23 @@ class SupervisorServiceLogicTest {
 
     @InjectMocks
     private SupervisorService supervisorService;
+
+    @Test
+    void answerDeltasPreserveMarkdownParagraphBoundariesWhenAppended() throws Exception {
+        String answer = "# Report\n\n## Summary\nBody\n\n## Evidence\n- A";
+        Method method = SupervisorService.class.getDeclaredMethod("answerDeltas", String.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<String> deltas = (List<String>) method.invoke(supervisorService, answer);
+
+        assertThat(deltas).containsExactly(
+                "# Report\n\n",
+                "## Summary\nBody\n\n",
+                "## Evidence\n- A"
+        );
+        assertThat(String.join("", deltas)).isEqualTo(answer);
+    }
 
     @Test
     void answerReturnsCitationsForPaperRagRoute() {

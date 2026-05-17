@@ -1528,7 +1528,7 @@ function messageBody(message) {
     body.className = "message-body";
     body.append(
             textElement("strong", message.role === "assistant" ? "研究回答" : "研究问题"),
-            textElement("p", message.content || (message.status === "streaming" ? "正在接收回答..." : ""), "message-content"),
+            messageContentElement(message.content || (message.status === "streaming" ? "正在接收回答..." : "")),
             textElement("span", `${message.status || "sent"} · ${formatRelativeTime(message.createdAt)}`)
     );
     if (message.role === "assistant") {
@@ -1538,6 +1538,75 @@ function messageBody(message) {
         }
     }
     return body;
+}
+
+function messageContentElement(content) {
+    const container = document.createElement("div");
+    container.className = "message-content message-content--markdown";
+    const lines = String(content || "").split(/\r?\n/);
+    let list = null;
+    let paragraphLines = [];
+
+    const flushParagraph = () => {
+        if (!paragraphLines.length) {
+            return;
+        }
+        const paragraph = document.createElement("p");
+        paragraphLines.forEach((line, index) => {
+            if (index > 0) {
+                paragraph.appendChild(document.createElement("br"));
+            }
+            paragraph.appendChild(document.createTextNode(line));
+        });
+        container.appendChild(paragraph);
+        paragraphLines = [];
+    };
+    const closeList = () => {
+        if (list) {
+            container.appendChild(list);
+            list = null;
+        }
+    };
+
+    lines.forEach((rawLine) => {
+        const line = rawLine.trimEnd();
+        if (!line.trim()) {
+            flushParagraph();
+            closeList();
+            return;
+        }
+        if (line.startsWith("# ")) {
+            flushParagraph();
+            closeList();
+            const heading = document.createElement("h1");
+            heading.textContent = line.slice(2).trim();
+            container.appendChild(heading);
+            return;
+        }
+        if (line.startsWith("## ")) {
+            flushParagraph();
+            closeList();
+            const heading = document.createElement("h2");
+            heading.textContent = line.slice(3).trim();
+            container.appendChild(heading);
+            return;
+        }
+        if (line.startsWith("- ")) {
+            flushParagraph();
+            if (!list) {
+                list = document.createElement("ul");
+            }
+            const item = document.createElement("li");
+            item.textContent = line.slice(2).trim();
+            list.appendChild(item);
+            return;
+        }
+        closeList();
+        paragraphLines.push(line);
+    });
+    flushParagraph();
+    closeList();
+    return container;
 }
 
 function researchProcessPanel(message) {
@@ -1559,6 +1628,7 @@ function researchProcessPanel(message) {
     const evidenceEvents = trace?.evidenceEvents || [];
     const answerDeltas = trace?.answerDeltas || [];
     const gaps = evidenceEvents.filter((event) => event.eventType === "evidence.gap.detected");
+    const subagentCount = Number(summary.activeSubagentCount ?? summary.subagentCount ?? 0);
 
     const section = document.createElement("section");
     section.className = `research-process${isCollapsed ? " is-collapsed" : ""}`;
@@ -1572,7 +1642,7 @@ function researchProcessPanel(message) {
     header.append(
             textElement("span", processStatusLabel(message, trace), "process-status"),
             textElement("strong", "研究过程"),
-            textElement("small", processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount)),
+            textElement("small", processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount, subagentCount)),
             textElement("span", isCollapsed ? "展开" : "收起", "process-toggle-label")
     );
     section.appendChild(header);
@@ -1583,6 +1653,7 @@ function researchProcessPanel(message) {
     const metrics = document.createElement("div");
     metrics.className = "process-metrics";
     metrics.append(
+            processMetric("子Agent", subagentCount),
             processMetric("工具", processToolCount(tools)),
             processMetric("证据", Number(summary.evidenceCount ?? retrievalHits.length)),
             processMetric("记忆", memoryCount),
@@ -1629,11 +1700,14 @@ function processStatusLabel(message, trace) {
     return "运行中";
 }
 
-function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount = memoryHits.length) {
-    if (!tools.length && !retrievalHits.length && !memoryHits.length && !answerDeltas.length) {
+function processSummaryText(tools, retrievalHits, memoryHits, gaps, answerDeltas, memoryCount = memoryHits.length, subagentCount = 0) {
+    if (!subagentCount && !tools.length && !retrievalHits.length && !memoryHits.length && !answerDeltas.length) {
         return "等待后端步骤事件";
     }
     const parts = [];
+    if (subagentCount) {
+        parts.push(`${subagentCount} 个子Agent`);
+    }
     if (tools.length) {
         parts.push(`${tools.length} 个工具事件`);
     }
@@ -1670,7 +1744,10 @@ function processTimelineItems(trace, message) {
     const memoryHits = trace?.memoryHits || [];
     const evidenceEvents = trace?.evidenceEvents || [];
     const answerDeltas = trace?.answerDeltas || [];
+    const agentEvents = (trace?.timeline || []).filter((event) => String(event.eventType || "").startsWith("agent."));
     const orderedEvents = [
+        processPlanTimelineEvent(trace?.plan),
+        ...agentEvents.map((event, index) => processAgentTimelineEvent(event, index)),
         ...tools.map((event, index) => processToolTimelineEvent(event, index)),
         ...retrievalHits.map((event, index) => processHitTimelineEvent(event, index, "retrieval")),
         ...memoryHits.map((event, index) => processHitTimelineEvent(event, index, "memory")),
@@ -1686,6 +1763,29 @@ function processTimelineItems(trace, message) {
         }];
     }
     return orderedEvents.sort((left, right) => processEventOrder(left) - processEventOrder(right));
+}
+
+function processPlanTimelineEvent(plan) {
+    if (!plan) {
+        return null;
+    }
+    return {
+        eventType: "agent.plan.created",
+        status: "completed",
+        label: "执行计划",
+        detail: plan.summary || `${plan.steps?.length || 0} 个串行步骤`,
+        order: 0
+    };
+}
+
+function processAgentTimelineEvent(event, index) {
+    return {
+        eventType: event.eventType,
+        status: agentTimelineStatus(event),
+        label: event.label || event.actorDisplayName || agentRoleLabel(event.actorRole),
+        detail: agentTimelineDetail(event),
+        order: processEventOrderValue(event, 10 + index)
+    };
 }
 
 function processToolTimelineEvent(event, index) {
@@ -1783,6 +1883,38 @@ function toolDetail(event) {
         return `查询：${event.query}`;
     }
     return event.eventType === "tool.completed" ? "步骤已完成。" : "步骤运行中。";
+}
+
+function agentTimelineStatus(event) {
+    if (event.status === "failed") {
+        return "failed";
+    }
+    if (event.status === "completed") {
+        return "completed";
+    }
+    return "running";
+}
+
+function agentTimelineDetail(event) {
+    if (event.status === "failed") {
+        return `${event.errorType || "步骤失败"} · ${event.message || "子 Agent 未完成"}`;
+    }
+    if (event.verdict) {
+        return `审证结论：${event.verdict}`;
+    }
+    if (event.format || event.title) {
+        return [event.format, event.title].filter(Boolean).join(" · ");
+    }
+    return event.status === "completed" ? "子 Agent 步骤已完成。" : "子 Agent 步骤运行中。";
+}
+
+function agentRoleLabel(role) {
+    const labels = {
+        deep_research_agent: "Deep Research Agent",
+        evidence_audit_agent: "Evidence Audit Agent",
+        document_composer_agent: "Document Composer Agent"
+    };
+    return labels[role] || role || "子 Agent";
 }
 
 function processEvidenceItem(event) {

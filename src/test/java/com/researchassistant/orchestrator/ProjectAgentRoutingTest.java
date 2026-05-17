@@ -3,6 +3,7 @@ package com.researchassistant.orchestrator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.researchassistant.chat.dto.ProjectMessageRequest;
+import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.memory.MemoryRecallResult;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -64,6 +67,12 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
     private ProjectAgentToolLoop projectAgentToolLoop;
 
     @MockBean
+    private MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop;
+
+    @SpyBean
+    private MultiAgentWorkflowDecider multiAgentWorkflowDecider;
+
+    @MockBean
     private PlanExecuteFacade planExecuteFacade;
 
     @MockBean(answer = org.mockito.Answers.RETURNS_DEEP_STUBS)
@@ -91,10 +100,132 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         verify(paperRagService, never()).retrieve(anyLong(), anyString(), org.mockito.ArgumentMatchers.anyList(), anyInt());
         verify(webSearchPort, never()).search(anyString(), anyInt());
         verify(projectAgentToolLoop).run(org.mockito.ArgumentMatchers.any());
+        verify(multiAgentWorkflowDecider).decide("你好", true);
+        verify(multiAgentPlanExecuteLoop, never()).run(
+                anyLong(),
+                anyString(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
         assertThat(answerRow(response.answerId()))
                 .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE")
                 .containsEntry("evidence_state", "NONE")
                 .containsEntry("answer", "你好，我在。你可以问项目资料，也可以让我联网补充。");
+    }
+
+    @Test
+    void complexResearchRequestUsesPlanExecuteAndPersistsPlanAnswer() {
+        ResearchSessionRecord session = createSession();
+        String question = "Compare these papers rigorously and audit the evidence";
+        MultiAgentWorkflowDecision decision = planDecision(false);
+        doReturn(decision).when(multiAgentWorkflowDecider).decide(question, true);
+        when(multiAgentPlanExecuteLoop.run(
+                anyLong(),
+                eq(question),
+                org.mockito.ArgumentMatchers.any(),
+                eq(true),
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
+        )).thenReturn(planResult(
+                null,
+                AnswerMode.LOCAL_EVIDENCE,
+                "Audited synthesis from plan-execute."
+        ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        verify(projectAgentToolLoop, never()).run(org.mockito.ArgumentMatchers.any());
+        verify(multiAgentPlanExecuteLoop).run(
+                anyLong(),
+                eq(question),
+                org.mockito.ArgumentMatchers.any(),
+                eq(true),
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
+        );
+        assertThat(answerRow(response.answerId()))
+                .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE")
+                .containsEntry("evidence_state", "WEAK")
+                .containsEntry("answer", "Audited synthesis from plan-execute.");
+        assertThat(evidenceSourceCount(response.answerId())).isZero();
+        assertRetrievalCitationTelemetry(response.streamRunId(), response.answerId(), 0);
+    }
+
+    @Test
+    void documentFormatRequestUsesComposerOutputAsPersistedAnswer() {
+        ResearchSessionRecord session = createSession();
+        String question = "Write a Markdown report from the project evidence";
+        MultiAgentWorkflowDecision decision = planDecision(true);
+        doReturn(decision).when(multiAgentWorkflowDecider).decide(question, false);
+        DocumentDraft draft = new DocumentDraft(
+                "markdown",
+                "Project report",
+                "# Project report\n\nAudited document body.",
+                List.of(new DocumentDraft.Section("Summary", "Audited document body."))
+        );
+        when(multiAgentPlanExecuteLoop.run(
+                anyLong(),
+                eq(question),
+                org.mockito.ArgumentMatchers.any(),
+                eq(false),
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
+        )).thenReturn(planResult(
+                draft,
+                AnswerMode.LOCAL_EVIDENCE,
+                "Fallback synthesis should not be persisted when a draft exists."
+        ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), false, false, "local_first")
+        );
+
+        verify(projectAgentToolLoop, never()).run(org.mockito.ArgumentMatchers.any());
+        assertThat(answerRow(response.answerId()))
+                .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE")
+                .containsEntry("evidence_state", "WEAK")
+                .containsEntry("answer", "# Project report\n\nAudited document body.");
+        assertThat(evidenceSourceCount(response.answerId())).isZero();
+    }
+
+    @Test
+    void auditDowngradeControlsPersistedAnswerModeAndEvidenceState() {
+        ResearchSessionRecord session = createSession();
+        String question = "Compare these papers and reject unsupported claims";
+        MultiAgentWorkflowDecision decision = planDecision(false);
+        doReturn(decision).when(multiAgentWorkflowDecider).decide(question, true);
+        when(multiAgentPlanExecuteLoop.run(
+                anyLong(),
+                eq(question),
+                org.mockito.ArgumentMatchers.any(),
+                eq(true),
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
+        )).thenReturn(planResult(
+                null,
+                AnswerMode.REFUSAL,
+                "Unsupported claims must be refused."
+        ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        verify(projectAgentToolLoop, never()).run(org.mockito.ArgumentMatchers.any());
+        assertThat(answerRow(response.answerId()))
+                .containsEntry("answer_mode", "REFUSAL")
+                .containsEntry("evidence_state", "NONE")
+                .containsEntry("answer", "Unsupported claims must be refused.");
     }
 
     @Test
@@ -453,6 +584,47 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         return new ProjectAgentRun(answer, ragResult, webSearchResult, memoryRecallResult, toolsUsed);
     }
 
+    private MultiAgentWorkflowDecision planDecision(boolean documentRequest) {
+        return new MultiAgentWorkflowDecision(
+                MultiAgentExecutionMode.PLAN_EXECUTE,
+                documentRequest ? "document_composition_request" : "complex_research_request",
+                true,
+                true,
+                documentRequest
+        );
+    }
+
+    private MultiAgentPlanExecuteResult planResult(
+            DocumentDraft documentDraft,
+            AnswerMode recommendedAnswerMode,
+            String finalSynthesisContext
+    ) {
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of("Supported claim"),
+                List.of("paper: content=Supported claim"),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name()
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                recommendedAnswerMode == AnswerMode.LOCAL_EVIDENCE ? "pass" : "requires_revision",
+                recommendedAnswerMode.name(),
+                recommendedAnswerMode == AnswerMode.LOCAL_EVIDENCE ? List.of() : List.of("Unsupported claim"),
+                List.of(),
+                List.of()
+        );
+        return new MultiAgentPlanExecuteResult(
+                new MultiAgentPlan(MultiAgentExecutionMode.PLAN_EXECUTE, "test plan", List.of()),
+                packet,
+                verdict,
+                documentDraft,
+                finalSynthesisContext
+        );
+    }
+
     private ResearchSessionRecord createSession() {
         ProjectRecord project = projectRepository.createProject("F012 project", "agentic routing");
         return projectRepository.createSession(project.id(), "F012 session");
@@ -464,6 +636,15 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 from assistant_answer
                 where id = ?
                 """, answerId);
+    }
+
+    private int evidenceSourceCount(String answerId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                from evidence_source
+                where answer_id = ?
+                """, Integer.class, answerId);
+        return count == null ? 0 : count;
     }
 
     private void insertIndexedProjectSource(String projectId, long indexedDocumentId) {
@@ -483,5 +664,15 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         assertThat(payload.get("toolsUsed"))
                 .extracting(JsonNode::asText)
                 .containsExactly(expectedTools);
+    }
+
+    private void assertRetrievalCitationTelemetry(String runId, String answerId, int expectedCitationCount) {
+        WorkbenchEvent event = eventPublisher.readRunEventsAfter(runId, null).stream()
+                .filter(candidate -> "retrieval.completed".equals(candidate.eventType().wireName()))
+                .filter(candidate -> answerId.equals(candidate.answerId()))
+                .findFirst()
+                .orElseThrow();
+        JsonNode payload = objectMapper.valueToTree(event.payload());
+        assertThat(payload.get("citationCount").asInt()).isEqualTo(expectedCitationCount);
     }
 }
