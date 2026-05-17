@@ -125,6 +125,7 @@ const dom = {
     overviewStatKnowledge: document.getElementById("overview-stat-knowledge"),
     overviewStatSessions: document.getElementById("overview-stat-sessions"),
     diagnosticsRefresh: document.getElementById("diagnostics-refresh"),
+    diagnosticsScopeButtons: [...document.querySelectorAll("[data-diagnostics-scope]")],
     diagnosticsContext: document.getElementById("diagnostics-context"),
     diagnosticsSummary: document.getElementById("diagnostics-summary"),
     diagnosticsTaxonomy: document.getElementById("diagnostics-taxonomy"),
@@ -147,7 +148,10 @@ const app = {
     selectedSourceId: null,
     selectedKnowledgeEntryId: null,
     selectedDiagnosticId: null,
+    selectedDiagnosticRunKey: null,
     retrievalDiagnostics: [],
+    retrievalDiagnosticRuns: [],
+    diagnosticsScope: "answer",
     diagnosticsLoadState: "idle",
     diagnosticsError: "",
     globalKnowledge: null,
@@ -174,6 +178,14 @@ function wireEvents() {
     });
     dom.diagnosticsRefresh?.addEventListener("click", () => {
         void loadRetrievalDiagnostics({ force: true });
+    });
+    dom.diagnosticsScopeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            app.diagnosticsScope = button.dataset.diagnosticsScope || "answer";
+            app.selectedDiagnosticId = null;
+            ensureSelectedDiagnosticRun();
+            renderObservabilityWorkspace();
+        });
     });
     document.querySelector("[data-observability-refresh]")?.addEventListener("click", () => {
         void loadRetrievalDiagnostics({ force: true });
@@ -477,7 +489,9 @@ async function switchSession(sessionId) {
     closeStream();
     Object.assign(app, selectSession(app, sessionId));
     app.selectedDiagnosticId = null;
+    app.selectedDiagnosticRunKey = null;
     app.retrievalDiagnostics = [];
+    app.retrievalDiagnosticRuns = [];
     app.diagnosticsLoadState = "idle";
     app.messages = [];
     app.messageLoadState = "loading";
@@ -492,14 +506,18 @@ async function switchSession(sessionId) {
 async function loadRetrievalDiagnostics({ force = false } = {}) {
     if (app.sampleMode) {
         app.retrievalDiagnostics = sampleRetrievalDiagnostics();
+        app.retrievalDiagnosticRuns = normalizeRetrievalDiagnosticRuns({ answerRuns: [] }, app.retrievalDiagnostics);
         app.diagnosticsLoadState = "sample";
         app.diagnosticsError = "";
+        ensureSelectedDiagnosticRun();
         ensureSelectedDiagnostic();
         renderObservabilityWorkspace();
         return;
     }
     if (!hasProjectApi() || !app.activeSessionId) {
         app.retrievalDiagnostics = [];
+        app.retrievalDiagnosticRuns = [];
+        app.selectedDiagnosticRunKey = null;
         app.diagnosticsLoadState = "empty";
         app.diagnosticsError = "需要先选择真实项目会话。";
         renderObservabilityWorkspace();
@@ -514,11 +532,15 @@ async function loadRetrievalDiagnostics({ force = false } = {}) {
     try {
         const diagnostics = await getJson(`/api/projects/${encodeURIComponent(app.activeProjectId)}/sessions/${encodeURIComponent(app.activeSessionId)}/retrieval-diagnostics`);
         app.retrievalDiagnostics = normalizeRetrievalDiagnostics(diagnostics);
+        app.retrievalDiagnosticRuns = normalizeRetrievalDiagnosticRuns(diagnostics, app.retrievalDiagnostics);
         app.diagnosticsLoadState = app.retrievalDiagnostics.length ? "loaded" : "empty";
         app.diagnosticsError = "";
+        ensureSelectedDiagnosticRun();
         ensureSelectedDiagnostic();
     } catch (error) {
         app.retrievalDiagnostics = [];
+        app.retrievalDiagnosticRuns = [];
+        app.selectedDiagnosticRunKey = null;
         app.selectedDiagnosticId = null;
         app.diagnosticsLoadState = "error";
         app.diagnosticsError = error.message;
@@ -568,7 +590,9 @@ async function submitSessionDelete(sessionId) {
     if (!hasProjectApi()) {
         Object.assign(app, deleteSessionFromState(app, sessionId));
         app.selectedDiagnosticId = null;
+        app.selectedDiagnosticRunKey = null;
         app.retrievalDiagnostics = [];
+        app.retrievalDiagnosticRuns = [];
         app.diagnosticsLoadState = "idle";
         app.statusMessage = "本地样例会话已删除。";
         render();
@@ -578,7 +602,9 @@ async function submitSessionDelete(sessionId) {
         await deleteJson(buildProjectSessionDeleteUrl({ projectId: app.activeProjectId, sessionId }));
         Object.assign(app, deleteSessionFromState(app, sessionId));
         app.selectedDiagnosticId = null;
+        app.selectedDiagnosticRunKey = null;
         app.retrievalDiagnostics = [];
+        app.retrievalDiagnosticRuns = [];
         app.diagnosticsLoadState = "idle";
         app.statusMessage = "会话已删除。";
         if (app.activeSessionId) {
@@ -1570,10 +1596,12 @@ function renderObservabilityWorkspace() {
     if (!dom.diagnosticsSummary) {
         return;
     }
+    ensureSelectedDiagnosticRun();
     ensureSelectedDiagnostic();
     const session = app.sessions.find((item) => item.id === app.activeSessionId);
-    const events = app.retrievalDiagnostics || [];
+    const events = visibleRetrievalDiagnostics();
     const summary = summarizeRetrievalDiagnostics(events);
+    renderDiagnosticsScopeButtons();
     dom.diagnosticsContext.textContent = diagnosticsContextText(session, summary);
     dom.diagnosticsSummary.replaceChildren(
             diagnosticIndicator("找到多少证据", summary.coverageLabel, `${summary.returnedChunks} 个候选片段，还需确认是否可引用`),
@@ -1592,7 +1620,7 @@ function renderDiagnosticsNav() {
     if (!dom.diagnosticsNav) {
         return;
     }
-    const summary = summarizeRetrievalDiagnostics(app.retrievalDiagnostics || []);
+    const summary = summarizeRetrievalDiagnostics(visibleRetrievalDiagnostics());
     const items = [
         contextNavItem("取证概览", summary.coverageLabel, true),
         contextNavItem("检索步骤", summary.callCount),
@@ -1601,6 +1629,12 @@ function renderDiagnosticsNav() {
         contextNavItem("异常", summary.zeroHitCount)
     ];
     dom.diagnosticsNav.replaceChildren(...items);
+}
+
+function renderDiagnosticsScopeButtons() {
+    dom.diagnosticsScopeButtons.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.diagnosticsScope === app.diagnosticsScope);
+    });
 }
 
 function renderDiagnosticsVerdict(summary, events) {
@@ -1644,8 +1678,11 @@ function renderDiagnosticsEvents(events) {
         const row = document.createElement("article");
         row.className = `diagnostics-row${event.id === app.selectedDiagnosticId ? " is-selected" : ""}`;
         row.dataset.diagnosticId = event.id;
+        row.dataset.diagnosticAnswerId = event.answerId || "";
+        row.dataset.diagnosticRunId = event.runId || "";
+        row.dataset.diagnosticStepId = event.stepId || "";
         row.append(
-                textElement("strong", `第 ${event.toolCallIndex ?? "?"} 次查资料`),
+                textElement("strong", `${diagnosticQuestionLabel(event)} · 第 ${event.toolCallIndex ?? "?"} 次查资料`),
                 textElement("span", stepActionText(event)),
                 textElement("span", String(event.queryCount ?? event.retrievalQueryCount ?? 0)),
                 textElement("span", `${Number(event.returnedScopedChunkCount ?? 0)} 个片段`),
@@ -1818,13 +1855,63 @@ function normalizeRetrievalDiagnostics(payload) {
     return events.map((event, index) => normalizeRetrievalDiagnostic(event, index));
 }
 
+function normalizeRetrievalDiagnosticRuns(payload, events = []) {
+    const rawRuns = Array.isArray(payload?.answerRuns) ? payload.answerRuns : [];
+    if (rawRuns.length) {
+        return rawRuns.map((run, index) => ({
+            answerRunKey: run.answerRunKey || run.runId || run.answerId || run.messageId || `diagnostic-run-${index}`,
+            runId: run.runId || "",
+            answerId: run.answerId || "",
+            messageId: run.messageId || "",
+            question: run.question || "",
+            retrievalCalls: Number(run.retrievalCalls ?? 0),
+            zeroHitCalls: Number(run.zeroHitCalls ?? 0),
+            returnedScopedChunks: Number(run.returnedScopedChunks ?? 0)
+        }));
+    }
+    const grouped = new Map();
+    for (const event of events) {
+        const key = event.answerRunKey || event.runId || event.answerId || event.id;
+        if (!grouped.has(key)) {
+            grouped.set(key, {
+                answerRunKey: key,
+                runId: event.runId || "",
+                answerId: event.answerId || "",
+                messageId: event.messageId || "",
+                question: event.question || event.originalQuery || "",
+                retrievalCalls: 0,
+                zeroHitCalls: 0,
+                returnedScopedChunks: 0
+            });
+        }
+        const run = grouped.get(key);
+        run.retrievalCalls += 1;
+        run.zeroHitCalls += event.zeroHitReason ? 1 : 0;
+        run.returnedScopedChunks += Number(event.returnedScopedChunkCount ?? 0);
+    }
+    return [...grouped.values()];
+}
+
 function normalizeRetrievalDiagnostic(raw = {}, index) {
     const observation = raw.observation || raw.retrievalObservation || raw;
     const summary = observation.retrievalObservationSummary || raw.retrievalObservationSummary || {};
     const backendStats = normalizeBackendStats(observation.backendStats || summary.backendStats || {});
     const retrievalQueries = raw.retrievalQueries || observation.retrievalQueries || observation.rewrite?.retrievalQueries || [];
+    const runId = raw.runId || observation.runId || "";
+    const answerId = raw.answerId || observation.answerId || "";
+    const messageId = raw.messageId || observation.messageId || "";
+    const answerRunKey = raw.answerRunKey || runId || answerId || messageId || "";
     return {
         id: String(observation.observationId || raw.observationId || raw.id || raw.traceId || `diagnostic-${index}`),
+        projectId: raw.projectId || observation.projectId || "",
+        sessionId: raw.sessionId || observation.sessionId || "",
+        answerRunKey: answerRunKey || `diagnostic-run-${index}`,
+        runId,
+        answerId,
+        messageId,
+        question: raw.question || raw.answerQuestion || observation.question || observation.answerQuestion || raw.queryText || raw.query || "",
+        stepId: raw.stepId || observation.stepId || "",
+        stepLabel: raw.stepLabel || observation.stepLabel || "",
         toolName: observation.toolName || raw.toolName || "paper_rag",
         toolCallIndex: observation.toolCallIndex ?? summary.toolCallIndex ?? raw.toolCallIndex ?? index + 1,
         originalQuery: observation.originalQuery || observation.query || raw.queryText || raw.query || "",
@@ -1861,17 +1948,51 @@ function normalizeBackendStat(stat = {}) {
 }
 
 function selectedDiagnostic() {
-    return (app.retrievalDiagnostics || []).find((event) => event.id === app.selectedDiagnosticId) || app.retrievalDiagnostics?.[0] || null;
+    const events = visibleRetrievalDiagnostics();
+    return events.find((event) => event.id === app.selectedDiagnosticId) || events[0] || null;
 }
 
 function ensureSelectedDiagnostic() {
-    if (!app.retrievalDiagnostics?.length) {
+    const events = visibleRetrievalDiagnostics();
+    if (!events.length) {
         app.selectedDiagnosticId = null;
         return;
     }
-    if (!app.retrievalDiagnostics.some((event) => event.id === app.selectedDiagnosticId)) {
-        app.selectedDiagnosticId = app.retrievalDiagnostics[0].id;
+    if (!events.some((event) => event.id === app.selectedDiagnosticId)) {
+        app.selectedDiagnosticId = events[0].id;
     }
+}
+
+function visibleRetrievalDiagnostics() {
+    const events = app.retrievalDiagnostics || [];
+    if (app.diagnosticsScope !== "answer") {
+        return events;
+    }
+    ensureSelectedDiagnosticRun();
+    if (!app.selectedDiagnosticRunKey) {
+        return events;
+    }
+    const scoped = events.filter((event) => event.answerRunKey === app.selectedDiagnosticRunKey);
+    return scoped.length ? scoped : events;
+}
+
+function ensureSelectedDiagnosticRun() {
+    const runs = app.retrievalDiagnosticRuns || [];
+    if (app.diagnosticsScope !== "answer") {
+        return;
+    }
+    if (!runs.length) {
+        app.selectedDiagnosticRunKey = null;
+        return;
+    }
+    if (!runs.some((run) => run.answerRunKey === app.selectedDiagnosticRunKey)) {
+        app.selectedDiagnosticRunKey = runs[0].answerRunKey;
+    }
+}
+
+function diagnosticQuestionLabel(event) {
+    const text = event.question || event.originalQuery || event.query || "本轮回答";
+    return text.length > 18 ? `${text.slice(0, 18)}...` : text;
 }
 
 function sampleRetrievalDiagnostics() {
@@ -1879,6 +2000,11 @@ function sampleRetrievalDiagnostics() {
     return [
         {
             id: "sample-diagnostic-1",
+            answerRunKey: "sample-run-1",
+            runId: "sample-run-1",
+            answerId: "sample-answer-1",
+            messageId: "sample-message-1",
+            question: "Space-Time Beamforming 的证据是否充分？",
             toolName: "paper_rag",
             toolCallIndex: 1,
             originalQuery: "Space-Time Beamforming",
@@ -1900,6 +2026,11 @@ function sampleRetrievalDiagnostics() {
         },
         {
             id: "sample-diagnostic-2",
+            answerRunKey: "sample-run-1",
+            runId: "sample-run-1",
+            answerId: "sample-answer-1",
+            messageId: "sample-message-1",
+            question: "Space-Time Beamforming 的证据是否充分？",
             toolName: "paper_rag",
             toolCallIndex: 2,
             originalQuery: "Doppler shift diversity distinguish co-located users",

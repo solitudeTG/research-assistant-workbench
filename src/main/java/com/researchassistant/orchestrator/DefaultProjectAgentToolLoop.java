@@ -50,7 +50,8 @@ public class DefaultProjectAgentToolLoop implements ProjectAgentToolLoop {
                 webSearchPort,
                 objectMapper,
                 tracePublisher,
-                traceContext
+                traceContext,
+                request.question()
         );
         String answer = chatClient.prompt()
                 .system(systemPrompt())

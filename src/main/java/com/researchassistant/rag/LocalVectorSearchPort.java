@@ -36,15 +36,17 @@ public class LocalVectorSearchPort implements VectorSearchPort {
 
     @Override
     public List<RagChunk> search(String query, List<Long> allowedDocumentIds, int limit) {
+        return searchWithStats(query, allowedDocumentIds, limit).chunks();
+    }
+
+    @Override
+    public RetrievalSearchResult searchWithStats(String query, List<Long> allowedDocumentIds, int limit) {
         if (query == null || query.isBlank() || index.isEmpty()) {
-            return List.of();
+            return RetrievalSearchResult.empty();
         }
 
         float[] queryVector = embeddingModel.embed(query);
-        return index.values().stream()
-                .filter(candidate -> allowedDocumentIds == null
-                        || allowedDocumentIds.isEmpty()
-                        || allowedDocumentIds.contains(candidate.chunk.documentId()))
+        List<RagChunk> candidates = index.values().stream()
                 .map(candidate -> new RagChunk(
                         candidate.chunk.chunkId(),
                         candidate.chunk.documentId(),
@@ -56,8 +58,16 @@ public class LocalVectorSearchPort implements VectorSearchPort {
                         candidate.chunk.feedbackScore()))
                 .filter(chunk -> chunk.finalScore() > 0.0)
                 .sorted(Comparator.comparingDouble(RagChunk::finalScore).reversed())
+                .toList();
+        List<RagChunk> scoped = candidates.stream()
+                .filter(chunk -> allowedDocumentIds == null
+                        || allowedDocumentIds.isEmpty()
+                        || allowedDocumentIds.contains(chunk.documentId()))
+                .toList();
+        List<RagChunk> returned = scoped.stream()
                 .limit(limit)
                 .collect(Collectors.toList());
+        return new RetrievalSearchResult(returned, candidates.size(), scoped.size());
     }
 
     @Override

@@ -278,8 +278,8 @@
                 </div>
                 <div class="workspace-actions">
                     <div class="diagnostics-mode-toggle" aria-label="诊断范围">
-                        <button class="is-active" type="button" data-diagnostics-mode="session">当前会话</button>
-                        <button type="button" data-diagnostics-mode="recent" disabled title="跨运行聚合待后续补齐">最近运行</button>
+                        <button class="is-active" type="button" data-diagnostics-scope="answer">当前回答</button>
+                        <button type="button" data-diagnostics-scope="session">本会话</button>
                     </div>
                     <button id="diagnostics-refresh" class="quiet-button" type="button">刷新</button>
                 </div>
@@ -298,7 +298,7 @@
                         <select disabled><option>全部工具</option></select>
                     </div>
                     <div class="diagnostics-header-row" aria-label="检索步骤列标题">
-                        <span>步骤</span>
+                        <span>问题/步骤</span>
                         <span>系统动作</span>
                         <span>查法数</span>
                         <span>候选材料</span>

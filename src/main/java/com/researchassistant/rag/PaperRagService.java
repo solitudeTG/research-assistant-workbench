@@ -34,6 +34,15 @@ public class PaperRagService {
     }
 
     public RagResult retrieve(long sessionId, String query, List<Long> allowedDocumentIds, int limit) {
+        return retrieve(sessionId, query, allowedDocumentIds, limit, RetrievalTraceContext.empty());
+    }
+
+    public RagResult retrieve(
+            long sessionId,
+            String query,
+            List<Long> allowedDocumentIds,
+            int limit,
+            RetrievalTraceContext traceContext) {
         List<Long> normalizedAllowedDocumentIds = allowedDocumentIds == null ? List.of() : List.copyOf(allowedDocumentIds);
         QueryRewritePlan rewritePlan = queryRewriteService.rewrite(query);
         List<RagChunk> keywordHits = new ArrayList<>();
@@ -43,6 +52,8 @@ public class PaperRagService {
         long keywordDurationMs = 0L;
         long vectorDurationMs = 0L;
         long metadataDurationMs = 0L;
+        int vectorPreScopeHits = 0;
+        int vectorPostScopeHits = 0;
 
         for (String rewrittenQuery : rewritePlan.retrievalQueries()) {
             long startedAt = System.nanoTime();
@@ -50,7 +61,10 @@ public class PaperRagService {
             keywordDurationMs += elapsedMs(startedAt);
 
             startedAt = System.nanoTime();
-            vectorHits.addAll(vectorSearchPort.search(rewrittenQuery, normalizedAllowedDocumentIds, limit));
+            RetrievalSearchResult vectorResult = vectorSearchPort.searchWithStats(rewrittenQuery, normalizedAllowedDocumentIds, limit);
+            vectorHits.addAll(vectorResult.chunks());
+            vectorPreScopeHits += vectorResult.preScopeHits();
+            vectorPostScopeHits += vectorResult.postScopeHits();
             vectorDurationMs += elapsedMs(startedAt);
 
             startedAt = System.nanoTime();
@@ -71,7 +85,12 @@ public class PaperRagService {
 
         Map<String, RetrievalBackendStats> backendStats = new LinkedHashMap<>();
         backendStats.put("keyword", RetrievalBackendStats.of(queryCount, keywordHits.size(), keywordDurationMs));
-        backendStats.put("vector", RetrievalBackendStats.of(queryCount, vectorHits.size(), vectorDurationMs));
+        backendStats.put("vector", new RetrievalBackendStats(
+                queryCount,
+                vectorPreScopeHits,
+                vectorPostScopeHits,
+                vectorDurationMs
+        ));
         backendStats.put("metadata", RetrievalBackendStats.of(queryCount, metadataHits.size(), metadataDurationMs));
         RetrievalObservation observation = RetrievalObservation.builder(query, normalizedAllowedDocumentIds, limit)
                 .rewritePlan(rewritePlan)
@@ -79,18 +98,31 @@ public class PaperRagService {
                 .mergedCandidateCount(merged.size())
                 .rerankedChunkCount(reranked.size())
                 .returnedScopedChunkCount(reranked.size())
-                .zeroHitReason(classifyZeroHit(keywordHits, vectorHits, metadataHits, merged, reranked, query))
+                .zeroHitReason(classifyZeroHit(
+                        keywordHits,
+                        vectorHits,
+                        metadataHits,
+                        merged,
+                        reranked,
+                        query,
+                        vectorPreScopeHits,
+                        vectorPostScopeHits
+                ))
                 .build();
+
+        Map<String, Object> traceFilters = new LinkedHashMap<>();
+        traceFilters.put("documentIds", normalizedAllowedDocumentIds);
+        traceFilters.put("rewrittenQueries", rewritePlan.retrievalQueries());
+        traceFilters.put("keywords", rewritePlan.keywords());
+        traceFilters.put("rewriteStrategy", rewritePlan.strategy());
+        if (traceContext != null) {
+            traceFilters.putAll(traceContext.toMetadata());
+        }
 
         retrievalTraceRepository.save(
                 sessionId,
                 query,
-                Map.of(
-                        "documentIds", normalizedAllowedDocumentIds,
-                        "rewrittenQueries", rewritePlan.retrievalQueries(),
-                        "keywords", rewritePlan.keywords(),
-                        "rewriteStrategy", rewritePlan.strategy()
-                ),
+                traceFilters,
                 mergeForTrace(keywordHits, vectorHits, metadataHits),
                 Map.of(
                         "chunks", reranked,
@@ -107,12 +139,17 @@ public class PaperRagService {
             List<RagChunk> metadataHits,
             Map<Long, RagChunk> merged,
             List<RagChunk> reranked,
-            String query) {
+            String query,
+            int vectorPreScopeHits,
+            int vectorPostScopeHits) {
         if (query == null || query.isBlank()) {
             return ZeroHitReason.QUERY_EMPTY_OR_INVALID;
         }
         if (!reranked.isEmpty()) {
             return null;
+        }
+        if (vectorPreScopeHits > vectorPostScopeHits && vectorPostScopeHits == 0) {
+            return ZeroHitReason.SCOPE_FILTERED_EMPTY;
         }
         if (keywordHits.isEmpty() && vectorHits.isEmpty() && metadataHits.isEmpty()) {
             return ZeroHitReason.NO_BACKEND_HITS;

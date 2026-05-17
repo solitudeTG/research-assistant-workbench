@@ -44,12 +44,17 @@ public class PgVectorSearchPort implements VectorSearchPort {
 
     @Override
     public List<RagChunk> search(String query, List<Long> allowedDocumentIds, int limit) {
+        return searchWithStats(query, allowedDocumentIds, limit).chunks();
+    }
+
+    @Override
+    public RetrievalSearchResult searchWithStats(String query, List<Long> allowedDocumentIds, int limit) {
         List<Document> documents = vectorStore.similaritySearch(SearchRequest.builder()
                 .query(query)
                 .topK(Math.max(limit * 3, limit))
                 .build());
         if (documents == null) {
-            return List.of();
+            return RetrievalSearchResult.empty();
         }
 
         List<RagChunk> chunks = documents.stream()
@@ -60,10 +65,12 @@ public class PgVectorSearchPort implements VectorSearchPort {
                         document.getText(),
                         document.getScore() == null ? 0.0 : document.getScore()
                 ))
+                .collect(Collectors.toList());
+        List<RagChunk> scopedChunks = chunks.stream()
                 .filter(chunk -> allowedDocumentIds == null || allowedDocumentIds.isEmpty() || allowedDocumentIds.contains(chunk.documentId()))
                 .collect(Collectors.toList());
-        Map<Long, Double> feedbackScores = loadFeedbackScores(chunks);
-        return chunks.stream()
+        Map<Long, Double> feedbackScores = loadFeedbackScores(scopedChunks);
+        List<RagChunk> returned = scopedChunks.stream()
                 .map(chunk -> {
                     double feedbackScore = feedbackScores.getOrDefault(chunk.chunkId(), 0.0);
                     return new RagChunk(
@@ -78,6 +85,7 @@ public class PgVectorSearchPort implements VectorSearchPort {
                 .sorted(java.util.Comparator.comparingDouble(RagChunk::finalScore).reversed())
                 .limit(limit)
                 .collect(Collectors.toList());
+        return new RetrievalSearchResult(returned, chunks.size(), scopedChunks.size());
     }
 
     private Map<Long, Double> loadFeedbackScores(List<RagChunk> chunks) {

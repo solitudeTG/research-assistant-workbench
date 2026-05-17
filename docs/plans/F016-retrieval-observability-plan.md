@@ -2,7 +2,7 @@
 id: PLAN-F016
 doc_kind: plan
 status: active
-updated: 2026-05-12
+updated: 2026-05-17
 feature_ids: [F016]
 ---
 # F016 Retrieval Observability Implementation Plan
@@ -53,7 +53,7 @@ Likely files:
 ## Task 1: Characterize Current Zero-Hit Behavior
 
 - [x] Add focused tests around current `PaperRagService.retrieve(...)` behavior for empty backend hits.
-- [ ] Add a test showing vector pre-scope hits can become zero after allowed document filtering.
+- [x] Add a test showing vector pre-scope hits can become zero after allowed document filtering.
 - [x] Add a test showing `ProjectAgentTools.paperRag(...)` currently only publishes a free-text `resultSummary`.
 - [x] Run:
 
@@ -82,7 +82,7 @@ mvn -Dtest=PaperRagServiceTest test
 - [x] Extend `QueryRewritePlan` with `strategy` and optional `fallbackReason`.
 - [x] Keep existing `originalOnly(...)` behavior compatible.
 - [x] Make `QueryRewriteService` return observable `original_only` when rewrite fails.
-- [ ] Test non-CJK original-only and blank query.
+- [x] Test non-CJK original-only and blank query.
 - [x] Test CJK rewrite and rewrite failure fallback.
 
 Verification:
@@ -96,9 +96,16 @@ mvn -Dtest=QueryRewriteServiceTest test
 - [x] In `PaperRagService`, collect stats per backend across rewritten queries.
 - [x] Add local vector index warmup for restart recovery when using `LocalVectorSearchPort`.
 - [ ] Track true keyword, vector, and metadata pre/post scope counts.
-- [ ] For vector search, introduce a result shape that can distinguish pre-scope candidates from scoped returned chunks.
+- [x] For vector search, introduce a result shape that can distinguish pre-scope candidates from scoped returned chunks.
 - [ ] Avoid changing ranking semantics unless tests prove the existing behavior must change.
 - [x] Store merged/reranked/returned counts in observation.
+
+2026-05-17 update:
+
+- Vector retrieval now returns `RetrievalSearchResult`, exposing pre-scope candidates, post-scope candidates, and returned chunks.
+- `LocalVectorSearchPort` and `PgVectorSearchPort` count vector candidates before project-scope filtering and after filtering, while preserving the existing `search(...)` compatibility method.
+- `PaperRagService` records vector pre/post counts and classifies vector-only pre-scope hits with zero scoped chunks as `SCOPE_FILTERED_EMPTY`.
+- Keyword and metadata pre/post distinction remains a future refinement because their repositories still apply scope internally.
 
 Verification:
 
@@ -141,9 +148,16 @@ mvn -Dtest=ProjectAgentToolsTest,ProjectRunEventFlowTest test
 
 ## Task 7: Link Observations to Final Citations
 
-- [ ] Ensure final paper evidence/citation records carry `chunkId`, `documentId`, `sourceId`, `runId`, and `answerId`.
-- [ ] Add `toolCallIndex` or `retrievalObservationId` when feasible.
-- [ ] Test that final citations can be traced back to a retrieval observation.
+- [x] Ensure final paper evidence/citation records carry `chunkId`, `documentId`, `sourceId`, `runId`, and `answerId`.
+- [x] Add `toolCallIndex` to persisted retrieval diagnostics context; a dedicated `retrievalObservationId` remains deferred until exact citation-to-call linkage is required.
+- [x] Test that final citations can be traced back to the answer/run retrieval event context.
+
+2026-05-17 update:
+
+- Paper evidence metadata now carries `answerId`, `runId`, `origin`, and `tool` in addition to `documentId`, `chunkId`, and `chunkIndex`.
+- `sourceId` remains the normalized `evidence_source.source_id` column, avoiding duplicated metadata.
+- This links final citations to the same `runId`/`answerId` context used by `retrieval.completed`; a dedicated observation id for exact citation-to-call linkage remains deferred.
+- `ProjectAgentTools.paperRag(...)` now passes `runId`, `messageId`, `answerId`, original answer question, and `toolCallIndex` into `PaperRagService` so each persisted `retrieval_trace` row can be attributed to an Answer Run.
 
 Verification:
 
@@ -169,6 +183,8 @@ mvn -Dtest=ProjectAgentToolsTest test
 - [x] If the frontend or manual diagnosis needs read access, add a project-scoped read-only endpoint.
 - [x] Keep it behind existing project/session/run path boundaries.
 - [x] Return summaries by default; full details only when explicitly requested.
+- [x] Return additive Answer Run attribution (`answerRunKey`, `runId`, `answerId`, `messageId`, `question`, `toolCallIndex`) for each retrieval row.
+- [x] Return session-level `answerRuns` aggregation so the UI can switch between the latest/current answer and the whole session without a new endpoint.
 
 Candidate endpoint:
 
@@ -180,6 +196,19 @@ Verification:
 
 ```powershell
 mvn -Dtest=RetrievalDiagnosticsControllerTest,TraceControllerTest test
+```
+
+2026-05-17 update:
+
+- `RetrievalTraceContext` keeps the legacy `PaperRagService.retrieve(...)` contract intact while allowing Project Agent calls to attach answer/run metadata to `filters_json`.
+- `RetrievalDiagnosticsService` now groups session diagnostics by Answer Run and exposes `summary.answerRunCount` plus an additive `answerRuns` array.
+- The Observability workspace now defaults to `当前回答`, supports `本会话` aggregation from the same session diagnostics payload, and labels each retrieval row with the question/step context.
+
+Verification:
+
+```powershell
+mvn -Dtest=RetrievalDiagnosticsControllerTest,ProjectAgentToolsTest test
+node --test src/main/resources/static/tests/f002-workbench-model.test.mjs
 ```
 
 ## Task 9: Evidence and Closeout
@@ -203,7 +232,7 @@ git diff --check
 
 - Whether to start with extended `retrieval_trace` JSON or create a dedicated `retrieval_observation` table.
 - Whether scope-aware vector filtering should be part of F016 implementation or a follow-up optimization Feature after metrics prove the problem.
-- Whether UI consumption belongs to F016 or a follow-up UI Feature. Default recommendation: F016 produces backend observation and events; UI polish follows separately.
+- Whether a future cross-session trend dashboard needs a dedicated `retrieval_observation` table. Current Answer Run and Session aggregation stays JSON-backed through `retrieval_trace`.
 - Whether local deployments should keep using warmed in-memory vector search, or move to a durable vector store before broader retrieval tuning.
 
 ## Rollback

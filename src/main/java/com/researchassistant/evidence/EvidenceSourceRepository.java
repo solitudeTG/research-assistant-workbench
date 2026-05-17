@@ -244,6 +244,7 @@ public class EvidenceSourceRepository {
         citationMeta.put("documentId", chunk.documentId());
         citationMeta.put("chunkId", chunk.chunkId());
         citationMeta.put("chunkIndex", chunk.chunkIndex());
+        addAnswerLink(citationMeta, projectId, answerId, "paper_rag", "paper_rag_retrieve");
 
         return jdbcTemplate.queryForObject("""
                 insert into evidence_source(
@@ -281,6 +282,7 @@ public class EvidenceSourceRepository {
         citationMeta.put("chunkId", source.chunkId());
         citationMeta.put("chunkIndex", source.chunkIndex());
         citationMeta.put("origin", "plan_execute");
+        addAnswerLink(citationMeta, projectId, answerId, "plan_execute", "plan_executor");
 
         return jdbcTemplate.queryForObject("""
                 insert into evidence_source(
@@ -381,6 +383,27 @@ public class EvidenceSourceRepository {
                 fromJsonMap(resultSet.getString("citation_meta_json")),
                 resultSet.getObject("created_at", OffsetDateTime.class)
         ), evidenceId, projectId, answerId, snippet, snippet, strength, strength, source.score(), toJson(citationMeta));
+    }
+
+    private void addAnswerLink(
+            Map<String, Object> citationMeta,
+            String projectId,
+            String answerId,
+            String origin,
+            String tool) {
+        citationMeta.put("answerId", answerId);
+        List<String> runIds = jdbcTemplate.query("""
+                select run_id
+                from assistant_answer
+                where project_id = ?
+                  and id = ?
+                limit 1
+                """, (resultSet, rowNum) -> resultSet.getString("run_id"), projectId, answerId);
+        if (!runIds.isEmpty() && runIds.get(0) != null && !runIds.get(0).isBlank()) {
+            citationMeta.put("runId", runIds.get(0));
+        }
+        citationMeta.put("origin", origin);
+        citationMeta.put("tool", tool);
     }
 
     private String strength(double score) {

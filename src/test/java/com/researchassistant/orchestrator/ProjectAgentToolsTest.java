@@ -13,6 +13,7 @@ import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagChunk;
 import com.researchassistant.rag.RagResult;
 import com.researchassistant.rag.RetrievalObservation;
+import com.researchassistant.rag.RetrievalTraceContext;
 import com.researchassistant.rag.ZeroHitReason;
 import com.researchassistant.websearch.WebSearchHit;
 import com.researchassistant.websearch.WebSearchPort;
@@ -23,6 +24,10 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -39,7 +44,7 @@ class ProjectAgentToolsTest {
     void paperRagToolPublishesCalledAndCompletedTraceEvents() {
         InMemoryWorkbenchEventPublisher publisher = new InMemoryWorkbenchEventPublisher();
         ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
-        when(paperRagService.retrieve(42L, "multi agent", List.of(10L), 5))
+        when(paperRagService.retrieve(eq(42L), eq("multi agent"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class)))
                 .thenReturn(ragResult(
                         "multi agent",
                         List.of(10L),
@@ -63,7 +68,7 @@ class ProjectAgentToolsTest {
     @Test
     void paperRagToolStillReturnsWhenTracePublisherFails() throws Exception {
         ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
-        when(paperRagService.retrieve(42L, "multi agent", List.of(10L), 5))
+        when(paperRagService.retrieve(eq(42L), eq("multi agent"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class)))
                 .thenReturn(new RagResult(
                         "multi agent",
                         List.of(10L),
@@ -73,7 +78,7 @@ class ProjectAgentToolsTest {
 
         String payload = tools.paperRag("multi agent", 5);
 
-        verify(paperRagService).retrieve(42L, "multi agent", List.of(10L), 5);
+        verify(paperRagService).retrieve(eq(42L), eq("multi agent"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class));
         assertThat(tools.toolsUsed()).containsExactly("paper_rag");
         assertThat(objectMapper.readTree(payload).get("chunks")).hasSize(1);
     }
@@ -103,7 +108,7 @@ class ProjectAgentToolsTest {
     @Test
     void paperRagToolCallsPaperRagServiceAndFiltersProjectScope() throws Exception {
         ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
-        when(paperRagService.retrieve(42L, "核心方法", List.of(10L), 5))
+        when(paperRagService.retrieve(eq(42L), eq("核心方法"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class)))
                 .thenReturn(new RagResult(
                         "核心方法",
                         List.of(10L),
@@ -116,7 +121,7 @@ class ProjectAgentToolsTest {
 
         String payload = tools.paperRag("核心方法", 5);
 
-        verify(paperRagService).retrieve(42L, "核心方法", List.of(10L), 5);
+        verify(paperRagService).retrieve(eq(42L), eq("核心方法"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class));
         assertThat(tools.toolsUsed()).containsExactly("paper_rag");
         assertThat(tools.ragResult().chunks()).extracting(RagChunk::documentId).containsExactly(10L);
         JsonNode json = objectMapper.readTree(payload);
@@ -127,7 +132,7 @@ class ProjectAgentToolsTest {
     @Test
     void paperRagToolReusesDuplicateQueryWithinOneAgentRun() throws Exception {
         ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
-        when(paperRagService.retrieve(42L, "same query", List.of(10L), 5))
+        when(paperRagService.retrieve(eq(42L), eq("same query"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class)))
                 .thenReturn(ragResult(
                         "same query",
                         List.of(10L),
@@ -138,7 +143,7 @@ class ProjectAgentToolsTest {
         String firstPayload = tools.paperRag("same query", 5);
         String secondPayload = tools.paperRag("  same   query  ", 5);
 
-        verify(paperRagService, times(1)).retrieve(42L, "same query", List.of(10L), 5);
+        verify(paperRagService, times(1)).retrieve(eq(42L), eq("same query"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class));
         assertThat(objectMapper.readTree(secondPayload).get("deduplicated").asBoolean()).isTrue();
         assertThat(objectMapper.readTree(secondPayload).get("chunks")).hasSize(1);
         assertThat(objectMapper.readTree(firstPayload).get("chunks")).hasSize(1);
@@ -147,7 +152,7 @@ class ProjectAgentToolsTest {
     @Test
     void paperRagToolStopsCallingBackendAfterRunBudgetIsExhausted() throws Exception {
         ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
-        when(paperRagService.retrieve(org.mockito.ArgumentMatchers.eq(42L), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(List.of(10L)), org.mockito.ArgumentMatchers.eq(5)))
+        when(paperRagService.retrieve(eq(42L), anyString(), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class)))
                 .thenAnswer(invocation -> ragResult(
                         invocation.getArgument(1),
                         List.of(10L),
@@ -160,10 +165,39 @@ class ProjectAgentToolsTest {
         tools.paperRag("query three", 5);
         String fourthPayload = tools.paperRag("query four", 5);
 
-        verify(paperRagService, times(3)).retrieve(org.mockito.ArgumentMatchers.eq(42L), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(List.of(10L)), org.mockito.ArgumentMatchers.eq(5));
+        verify(paperRagService, times(3)).retrieve(eq(42L), anyString(), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class));
         JsonNode json = objectMapper.readTree(fourthPayload);
         assertThat(json.get("skipped").asBoolean()).isTrue();
         assertThat(json.get("reason").asText()).isEqualTo("paper_rag_budget_exhausted");
+    }
+
+    @Test
+    void paperRagToolPassesAnswerRunContextToRetrievalTrace() {
+        ProjectEvidenceScope scope = new ProjectEvidenceScope(List.of(10L), Map.of(10L, "src-10"));
+        when(paperRagService.retrieve(eq(42L), eq("multi agent"), eq(List.of(10L)), eq(5), any(RetrievalTraceContext.class)))
+                .thenReturn(ragResult(
+                        "multi agent",
+                        List.of(10L),
+                        List.of(new RagChunk(1L, 10L, 0, "Scoped project evidence.", 0.91))
+                ));
+        ProjectAgentTools tools = tools(scope);
+
+        tools.paperRag("multi agent", 5);
+
+        verify(paperRagService).retrieve(
+                eq(42L),
+                eq("multi agent"),
+                eq(List.of(10L)),
+                eq(5),
+                argThat(context ->
+                        "project-trace".equals(context.projectId())
+                                && "session-trace".equals(context.sessionId())
+                                && "run-trace".equals(context.runId())
+                                && "msg-trace".equals(context.messageId())
+                                && "ans-trace".equals(context.answerId())
+                                && "What does the project evidence support?".equals(context.answerQuestion())
+                                && context.toolCallIndex() == 1
+                ));
     }
 
     @Test
@@ -209,7 +243,8 @@ class ProjectAgentToolsTest {
                 webSearchPort,
                 objectMapper,
                 new AgentTracePublisher(publisher),
-                new AgentTraceContext("project-trace", "session-trace", "run-trace", "msg-trace", "ans-trace")
+                new AgentTraceContext("project-trace", "session-trace", "run-trace", "msg-trace", "ans-trace"),
+                "What does the project evidence support?"
         );
     }
 

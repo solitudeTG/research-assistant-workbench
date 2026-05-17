@@ -304,14 +304,23 @@ test("observability workspace explains retrieval diagnostics as research evidenc
     const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
 
     assert.match(html, /aria-label="回答取证诊断工作区"/);
-    assert.match(html, /data-diagnostics-mode="session"[\s\S]*当前会话/);
-    assert.match(html, /data-diagnostics-mode="recent"[^>]*disabled[^>]*title="跨运行聚合待后续补齐"[\s\S]*最近运行/);
+    assert.match(html, /data-diagnostics-scope="answer"[\s\S]*当前回答/);
+    assert.match(html, /data-diagnostics-scope="session"[\s\S]*本会话/);
+    assert.doesNotMatch(html, /data-diagnostics-mode="recent"/);
     assert.match(html, /id="diagnostics-verdict"/);
     assert.match(html, /aria-label="取证概览说明"/);
     assert.match(html, /aria-label="检索步骤列标题"/);
     assert.match(html, /aria-label="检索步骤含义"/);
 
     assert.match(source, /diagnosticsContextText\(session,\s*summary\)/);
+    assert.match(source, /diagnosticsScope:\s*"answer"/);
+    assert.match(source, /diagnosticsScopeButtons:\s*\[\.\.\.document\.querySelectorAll\("\[data-diagnostics-scope\]"\)\]/);
+    assert.match(source, /function visibleRetrievalDiagnostics\(\)/);
+    assert.match(source, /event\.answerRunKey === app\.selectedDiagnosticRunKey/);
+    assert.match(source, /const answerRunKey = raw\.answerRunKey/);
+    assert.match(source, /question:\s*raw\.question/);
+    assert.match(source, /row\.dataset\.diagnosticAnswerId/);
+    assert.match(source, /diagnosticQuestionLabel\(event\)/);
     assert.match(source, /diagnosticMeaningLabel\(event\)/);
     assert.match(source, /backendSummaryLabel\(event\.backendStats\)/);
     assert.match(source, /evidenceGapText\(event\)/);

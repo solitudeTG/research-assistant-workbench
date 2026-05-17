@@ -39,18 +39,15 @@ class PaperRagServiceTest {
     void hybridRetrievalMergesKeywordAndVectorSignals() {
         String query = "How does attention help sequence modeling?";
         List<Long> allowedDocumentIds = List.of(1L);
-        QueryRewritePlan rewritePlan = QueryRewritePlan.from(
-                query,
-                "How does attention help sequence modeling?",
-                List.of("attention", "sequence modeling")
-        );
+        QueryRewritePlan rewritePlan = QueryRewritePlan.originalOnly(query);
 
         RagChunk keywordHit = new RagChunk(11L, 1L, 0, "Attention improves sequence modeling", 0.75);
         RagChunk vectorHit = new RagChunk(11L, 1L, 0, "Attention improves sequence modeling", 0.95);
 
         when(queryRewriteService.rewrite(query)).thenReturn(rewritePlan);
         when(keywordSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of(keywordHit));
-        when(vectorSearchPort.search(query, allowedDocumentIds, 5)).thenReturn(List.of(vectorHit));
+        when(vectorSearchPort.searchWithStats(query, allowedDocumentIds, 5))
+                .thenReturn(RetrievalSearchResult.scoped(List.of(vectorHit)));
         when(metadataSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
 
         RagResult result = paperRagService.retrieve(42L, query, allowedDocumentIds, 5);
@@ -83,9 +80,12 @@ class PaperRagServiceTest {
                 .thenReturn(List.of(englishKeywordHit));
         when(keywordSearchRepository.search("satellite selection beamforming", allowedDocumentIds, 5))
                 .thenReturn(List.of());
-        when(vectorSearchPort.search("这篇论文研究了什么？", allowedDocumentIds, 5)).thenReturn(List.of());
-        when(vectorSearchPort.search("What problem does this paper study?", allowedDocumentIds, 5)).thenReturn(List.of());
-        when(vectorSearchPort.search("satellite selection beamforming", allowedDocumentIds, 5)).thenReturn(List.of());
+        when(vectorSearchPort.searchWithStats("这篇论文研究了什么？", allowedDocumentIds, 5))
+                .thenReturn(RetrievalSearchResult.empty());
+        when(vectorSearchPort.searchWithStats("What problem does this paper study?", allowedDocumentIds, 5))
+                .thenReturn(RetrievalSearchResult.empty());
+        when(vectorSearchPort.searchWithStats("satellite selection beamforming", allowedDocumentIds, 5))
+                .thenReturn(RetrievalSearchResult.empty());
         when(metadataSearchRepository.search("这篇论文研究了什么？", allowedDocumentIds, 5)).thenReturn(List.of());
         when(metadataSearchRepository.search("What problem does this paper study?", allowedDocumentIds, 5)).thenReturn(List.of());
         when(metadataSearchRepository.search("satellite selection beamforming", allowedDocumentIds, 5))
@@ -110,7 +110,8 @@ class PaperRagServiceTest {
 
         when(queryRewriteService.rewrite(query)).thenReturn(rewritePlan);
         when(keywordSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
-        when(vectorSearchPort.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+        when(vectorSearchPort.searchWithStats(query, allowedDocumentIds, 5))
+                .thenReturn(RetrievalSearchResult.empty());
         when(metadataSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
 
         RagResult result = paperRagService.retrieve(8L, query, allowedDocumentIds, 5);
@@ -119,6 +120,26 @@ class PaperRagServiceTest {
         assertThat(result.observation().zeroHitReason()).isEqualTo(ZeroHitReason.NO_BACKEND_HITS);
         assertThat(result.observation().backendStats().get("keyword").postScopeHits()).isZero();
         assertThat(result.observation().returnedScopedChunkCount()).isZero();
+    }
+
+    @Test
+    void observationClassifiesScopeFilteredEmptyWhenVectorHasOnlyPreScopeHits() {
+        String query = "globally similar but outside project";
+        List<Long> allowedDocumentIds = List.of(7L);
+        QueryRewritePlan rewritePlan = QueryRewritePlan.originalOnly(query);
+
+        when(queryRewriteService.rewrite(query)).thenReturn(rewritePlan);
+        when(keywordSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+        when(vectorSearchPort.searchWithStats(query, allowedDocumentIds, 5))
+                .thenReturn(new RetrievalSearchResult(List.of(), 3, 0));
+        when(metadataSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+
+        RagResult result = paperRagService.retrieve(8L, query, allowedDocumentIds, 5);
+
+        assertThat(result.chunks()).isEmpty();
+        assertThat(result.observation().zeroHitReason()).isEqualTo(ZeroHitReason.SCOPE_FILTERED_EMPTY);
+        assertThat(result.observation().backendStats().get("vector").preScopeHits()).isEqualTo(3);
+        assertThat(result.observation().backendStats().get("vector").postScopeHits()).isZero();
     }
 
     @Test
@@ -145,7 +166,8 @@ class PaperRagServiceTest {
 
         when(queryRewriteService.rewrite(query)).thenReturn(rewritePlan);
         when(keywordSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of(feedbackBoostedHit));
-        when(vectorSearchPort.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+        when(vectorSearchPort.searchWithStats(query, allowedDocumentIds, 5))
+                .thenReturn(RetrievalSearchResult.empty());
         when(metadataSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
 
         RagResult result = paperRagService.retrieve(42L, query, allowedDocumentIds, 5);

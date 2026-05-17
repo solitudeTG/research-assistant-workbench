@@ -4,6 +4,7 @@ import com.researchassistant.ingest.DocumentRepository;
 import com.researchassistant.ingest.DocumentChunkRepository;
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.rag.RagChunk;
+import com.researchassistant.rag.RetrievalSearchResult;
 import com.researchassistant.support.PostgresIntegrationTest;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -74,15 +75,15 @@ class Phase1HappyPathTest extends PostgresIntegrationTest {
                 .extracting(document -> document.status())
                 .isEqualTo(DocumentStatus.INDEXED);
         assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
-        when(vectorSearchPort.search(anyString(), eq(List.of(documentId)), eq(5)))
-                .thenReturn(documentChunkRepository.findByDocumentId(documentId).stream()
+        when(vectorSearchPort.searchWithStats(anyString(), eq(List.of(documentId)), eq(5)))
+                .thenReturn(RetrievalSearchResult.scoped(documentChunkRepository.findByDocumentId(documentId).stream()
                         .map(chunk -> new RagChunk(
                                 chunk.id(),
                                 chunk.documentId(),
                                 chunk.chunkIndex(),
                                 chunk.content(),
                                 2.0))
-                        .toList());
+                        .toList()));
 
         String requestBody = """
                 {
