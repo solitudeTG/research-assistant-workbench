@@ -30,6 +30,18 @@ This file records active engineering state that future sessions must be able to 
 - Current intent: no active F002 implementation remains. Future work should be opened as separate Features from known limitations, not by expanding F011.
 - Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
+## Future Optimization Candidates
+
+### L2 Project Knowledge Semantic Retrieval
+
+- Status: proposed / not started
+- Source: 2026-05-17 user review of the Cognition workspace and L2 confirmed knowledge behavior.
+- Current behavior: confirmed `knowledge_entry` records enter project answers as L2/project knowledge context by recency. `SupervisorService.MAX_TRACE_HITS` is `5`, and `KnowledgeBoardRepository.listConfirmedProjectKnowledge(...)` selects non-archived `evidence_status='confirmed'` entries ordered by `updated_at desc, created_at desc, id desc`.
+- Problem: "latest 5" is a safe bounded default, but recency is not the same as relevance. It helps immediate follow-up questions after the user confirms knowledge, but it can miss older important knowledge and can inject recently edited but unrelated entries in long-running projects.
+- Desired capability: upgrade L2 confirmed project knowledge from recency-only injection to context-only Memory RAG. Rank confirmed project knowledge with a bounded hybrid score such as semantic relevance + importance/evidence confidence + recency, keep topK bounded, and trace exactly which L2 entries were injected.
+- Boundary: this is not Paper RAG and must not become citation evidence. Retrieved L2 project knowledge remains `contextOnly=true`, `sourceType=project_knowledge`, and should be displayed separately from paper/web evidence.
+- Non-goals: do not auto-confirm knowledge candidates, do not treat L2 entries as final citations, and do not refactor Paper RAG as part of this optimization. A future implementation should first decide whether to reuse existing vector infrastructure or add a small dedicated index for `knowledge_entry`.
+
 ## Recently Completed
 
 ### F016 Retrieval Observability
