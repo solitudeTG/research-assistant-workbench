@@ -1,10 +1,10 @@
 ---
 id: F018
 doc_kind: feature
-status: active
+status: completed
 owner: codex
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-15
 parent_feature: F002
 ---
 # Multi-Agent Evidence-Grounded Workflow
@@ -83,7 +83,13 @@ Vision Gate Entry:
 
 - Spec: [F018-multi-agent-evidence-grounded-workflow-spec.md](../specs/F018-multi-agent-evidence-grounded-workflow-spec.md)
 - Plan: [F018-multi-agent-evidence-grounded-workflow-plan.md](../plans/F018-multi-agent-evidence-grounded-workflow-plan.md)
+- Spec Update: [F018.7-evidence-curation-contract-spec.md](../specs/F018.7-evidence-curation-contract-spec.md)
+- Plan Update: [F018.7-evidence-curation-contract-plan.md](../plans/F018.7-evidence-curation-contract-plan.md)
+- Spec Reset: [F018.8-evidence-gate-reset-spec.md](../specs/F018.8-evidence-gate-reset-spec.md)
+- Plan Reset: [F018.8-evidence-gate-reset-plan.md](../plans/F018.8-evidence-gate-reset-plan.md)
 - ADR: [ADR-005-supervisor-led-serial-multi-agent-workflow.md](../decisions/ADR-005-supervisor-led-serial-multi-agent-workflow.md)
+- Lesson: [LL-002-avoid-rule-accumulation-for-ai-evidence-gates.md](../lessons/LL-002-avoid-rule-accumulation-for-ai-evidence-gates.md)
+- Evidence: [EV-017-f018-multi-agent-evidence-grounded-workflow.md](../evidence/EV-017-f018-multi-agent-evidence-grounded-workflow.md)
 - Parent Feature: [F002-next-generation-research-workbench.md](F002-next-generation-research-workbench.md)
 - Related Feature: [F013-main-agent-tool-calling-loop.md](F013-main-agent-tool-calling-loop.md)
 - Related Feature: [F015-agent-trace-live-sse.md](F015-agent-trace-live-sse.md)
@@ -92,3 +98,17 @@ Vision Gate Entry:
 ## 下一步
 
 按 linked plan 先实现后端最小多 Agent contract 和 focused tests，再扩展 trace projection 与前端研究过程 UI。第一期实现完成前，不得在 UI 中声称并发子 Agent。
+
+## Completion Update
+
+2026-05-14: F018 scoped first release is complete. Simple questions stay on ReAct; complex research and document-output requests route through serial Plan-Execute; `Deep Research Agent`, `Evidence Audit Agent`, and `Document Composer Agent` have explicit backend boundaries; live subagent lifecycle events are emitted from `MultiAgentPlanExecuteLoop`; and the frontend research-process model/UI projects only real trace events.
+
+Residual boundary: Plan-Execute research packet evidence strings are process telemetry only. They are not persisted as `evidence_source` rows and do not increase final answer citation counts until a later feature carries structured source references through the Plan-Execute result.
+
+2026-05-15: F018 reopened for F018.7 after manual validation showed that raw web candidates could still leak unrelated snippets into the report. The accepted direction is an internal `EvidenceCurator` contract between `Deep Research Agent` and downstream audit/composition. This keeps the visible three-subagent workflow stable while separating raw retrieval candidates from report-eligible evidence.
+
+2026-05-15: F018.7 completed. `EvidenceCurator` now rejects empty/navigation pages, off-topic web snippets, administrative metadata, reference fragments, code/markup dumps, and overly fragmented candidates before audit/composition. Downstream agents receive a curated `ResearchPacket`; the visible multi-agent workflow remains the same three serial subagents.
+
+2026-05-15: F018.8 reset opened after validation showed F018.7 was still over-relying on deterministic topic rules. The new direction keeps `EvidenceCurator` as a hygiene filter only and moves semantic promotion of candidates into an `EvidenceGateAgent` boundary before audit/composition.
+
+2026-05-15: F018.8 completed. `EvidenceCurator` no longer owns semantic relevance; `EvidenceGateAgent` now promotes hygienic candidates before audit/composition, and report output translates internal gate accounting into user-facing evidence-limit language. [LL-002](../lessons/LL-002-avoid-rule-accumulation-for-ai-evidence-gates.md) captures the rule-accumulation failure mode.

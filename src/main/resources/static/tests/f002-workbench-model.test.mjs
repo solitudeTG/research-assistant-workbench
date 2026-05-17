@@ -75,6 +75,45 @@ test("research process UI labels are not mojibake", async () => {
     assert.doesNotMatch(researchProcessSource, /灞曞紑|鏀惰捣|宸ュ叿浜嬩欢|璇佹嵁鍛戒腑|璁板繂|杈圭晫|鐮旂┒/);
 });
 
+test("research process timeline includes projected plan execute events", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const researchProcessSource = source.slice(
+            source.indexOf("function processTimelineItems"),
+            source.indexOf("function updateAssistantMessage")
+    );
+
+    assert.match(researchProcessSource, /trace\?\.timeline/);
+    assert.match(researchProcessSource, /processAgentTimelineEvent/);
+    assert.match(researchProcessSource, /processPlanTimelineEvent/);
+});
+
+test("assistant markdown answers render explicit line breaks instead of relying only on CSS whitespace", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const messageBodySource = source.slice(
+            source.indexOf("function messageBody"),
+            source.indexOf("function researchProcessPanel")
+    );
+
+    assert.match(source, /function messageContentElement/);
+    assert.match(messageBodySource, /messageContentElement\(/);
+    assert.doesNotMatch(messageBodySource, /textElement\("p",\s*message\.content/);
+}
+);
+
+test("assistant markdown reports render headings and lists as structured DOM", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const messageContentSource = source.slice(
+            source.indexOf("function messageContentElement"),
+            source.indexOf("function researchProcessPanel")
+    );
+
+    assert.match(messageContentSource, /document\.createElement\("h1"\)/);
+    assert.match(messageContentSource, /document\.createElement\("h2"\)/);
+    assert.match(messageContentSource, /document\.createElement\("ul"\)/);
+    assert.match(messageContentSource, /document\.createElement\("li"\)/);
+    assert.match(messageContentSource, /message-content--markdown/);
+});
+
 test("session row actions render behind a compact more menu", async () => {
     const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
     const renderSessionsSource = source.slice(
@@ -657,6 +696,303 @@ test("memory.completed hit count contributes to trace summary when hit rows are 
     });
 
     assert.equal(state.agentTraces["run-memory"].summary.memoryCount, 1);
+});
+
+test("plan execute trace events fold into serial multi-agent projection", () => {
+    let state = createWorkbenchState({
+        currentAnswer: {
+            answerId: "answer-plan",
+            text: "",
+            status: "streaming",
+            evidenceState: null,
+            outputMode: null,
+            citationCount: 0
+        },
+        evidenceSources: []
+    });
+
+    const applyTrace = (event) => {
+        state = applySseEvent(state, {
+            runId: "run-plan",
+            answerId: "answer-plan",
+            ...event
+        });
+    };
+
+    applyTrace({
+        eventId: "mode-selected",
+        eventType: "agent.step.completed",
+        payload: {
+            actor: { agentRole: "supervisor", displayName: "Supervisor" },
+            step: { stepId: "mode-selection", label: "Mode selection" },
+            data: {
+                mode: "PLAN_EXECUTE",
+                reason: "multi-source synthesis request"
+            }
+        }
+    });
+    applyTrace({
+        eventId: "plan-created",
+        eventType: "agent.plan.created",
+        payload: {
+            actor: { agentRole: "supervisor", displayName: "Supervisor" },
+            data: {
+                mode: "PLAN_EXECUTE",
+                summary: "Research, audit, then compose.",
+                execution: "serial",
+                steps: [
+                    { stepId: "deep-research", actorRole: "deep_research_agent", label: "Deep research" },
+                    { stepId: "audit", actorRole: "evidence_audit_agent", label: "Audit evidence" },
+                    { stepId: "compose", actorRole: "document_composer_agent", label: "Compose document" }
+                ]
+            }
+        }
+    });
+    applyTrace({
+        eventId: "deep-started",
+        eventType: "agent.step.started",
+        sequence: 3,
+        payload: {
+            actor: { agentRole: "deep_research_agent", displayName: "Deep Research Agent" },
+            step: { stepId: "deep-research", label: "Deep research" },
+            data: {
+                paperEvidenceCount: 4,
+                webEvidenceCount: 2
+            }
+        }
+    });
+    applyTrace({
+        eventId: "deep-completed",
+        eventType: "agent.step.completed",
+        sequence: 4,
+        payload: {
+            actor: { agentRole: "deep_research_agent", displayName: "Deep Research Agent" },
+            step: { stepId: "deep-research", label: "Deep research" },
+            data: {
+                paperEvidenceCount: 4,
+                webEvidenceCount: 2
+            }
+        }
+    });
+    applyTrace({
+        eventId: "audit-started",
+        eventType: "agent.step.started",
+        sequence: 5,
+        payload: {
+            actor: { agentRole: "evidence_audit_agent", displayName: "Evidence Audit Agent" },
+            step: { stepId: "audit", label: "Audit evidence" }
+        }
+    });
+    applyTrace({
+        eventId: "audit-completed",
+        eventType: "agent.step.completed",
+        sequence: 6,
+        payload: {
+            actor: { agentRole: "evidence_audit_agent", displayName: "Evidence Audit Agent" },
+            step: { stepId: "audit", label: "Audit evidence" },
+            data: {
+                verdict: "pass_with_cautions",
+                recommendedAnswerMode: "LOCAL_WEAK_EVIDENCE",
+                unsupportedClaimCount: 2,
+                sourcePolicyIssueCount: 1,
+                requiredRevisionCount: 3
+            }
+        }
+    });
+    applyTrace({
+        eventId: "composer-started",
+        eventType: "agent.step.started",
+        sequence: 7,
+        payload: {
+            actor: { agentRole: "document_composer_agent", displayName: "Document Composer Agent" },
+            step: { stepId: "compose", label: "Compose document" }
+        }
+    });
+    applyTrace({
+        eventId: "composer-completed",
+        eventType: "agent.step.completed",
+        sequence: 8,
+        payload: {
+            actor: { agentRole: "document_composer_agent", displayName: "Document Composer Agent" },
+            step: { stepId: "compose", label: "Compose document" },
+            data: {
+                format: "markdown",
+                title: "Grounded Research Brief",
+                sectionCount: 5
+            }
+        }
+    });
+
+    const trace = state.agentTraces["run-plan"];
+    assert.equal(trace.mode, "PLAN_EXECUTE");
+    assert.equal(trace.modeReason, "multi-source synthesis request");
+    assert.deepEqual(trace.modeSelection, {
+        mode: "PLAN_EXECUTE",
+        reason: "multi-source synthesis request"
+    });
+    assert.equal(trace.plan.summary, "Research, audit, then compose.");
+    assert.equal(trace.plan.execution, "serial");
+    assert.equal(trace.plan.steps.length, 3);
+    assert.equal(trace.summary.execution, "serial");
+    assert.deepEqual(
+            trace.timeline.map((event) => `${event.actorRole}:${event.status}`),
+            [
+                "deep_research_agent:started",
+                "deep_research_agent:completed",
+                "evidence_audit_agent:started",
+                "evidence_audit_agent:completed",
+                "document_composer_agent:started",
+                "document_composer_agent:completed"
+            ]
+    );
+    assert.deepEqual(Object.keys(trace.subagents), [
+        "deep_research_agent",
+        "evidence_audit_agent",
+        "document_composer_agent"
+    ]);
+    assert.equal(trace.subagents.deep_research_agent.status, "completed");
+    assert.equal(trace.subagents.evidence_audit_agent.timeline.length, 2);
+    assert.equal(trace.audit.verdict, "pass_with_cautions");
+    assert.equal(trace.audit.recommendedAnswerMode, "LOCAL_WEAK_EVIDENCE");
+    assert.deepEqual(trace.audit.counts, {
+        unsupportedClaimCount: 2,
+        sourcePolicyIssueCount: 1,
+        requiredRevisionCount: 3
+    });
+    assert.equal(trace.document.format, "markdown");
+    assert.equal(trace.document.title, "Grounded Research Brief");
+    assert.equal(trace.document.sectionCount, 5);
+    assert.equal(trace.summary.evidenceCount, 0);
+    assert.equal(state.currentAnswer.citationCount, 0);
+    assert.deepEqual(state.evidenceSources, []);
+});
+
+test("plan execute mode keeps subagent visibility when no tools or retrieval hits are present", () => {
+    let state = createWorkbenchState({
+        currentAnswer: {
+            answerId: "answer-plan-weak",
+            text: "",
+            status: "streaming",
+            evidenceState: null,
+            outputMode: null,
+            citationCount: 0
+        }
+    });
+
+    const applyTrace = (event) => {
+        state = applySseEvent(state, {
+            runId: "run-plan-weak",
+            answerId: "answer-plan-weak",
+            ...event
+        });
+    };
+
+    applyTrace({
+        eventId: "weak-plan-created",
+        eventType: "agent.plan.created",
+        payload: {
+            actor: { agentRole: "supervisor", displayName: "Supervisor" },
+            data: {
+                mode: "PLAN_EXECUTE",
+                summary: "Research, then audit.",
+                execution: "serial",
+                steps: [
+                    { stepId: "deep-research", actorRole: "deep_research_agent", label: "Deep research" },
+                    { stepId: "audit", actorRole: "evidence_audit_agent", label: "Audit evidence" }
+                ]
+            }
+        }
+    });
+    applyTrace({
+        eventId: "weak-deep-completed",
+        eventType: "agent.step.completed",
+        payload: {
+            actor: { agentRole: "deep_research_agent", displayName: "Deep Research Agent" },
+            step: { stepId: "deep-research", label: "Deep research" },
+            data: {
+                paperEvidenceCount: 0,
+                webEvidenceCount: 0
+            }
+        }
+    });
+    applyTrace({
+        eventId: "weak-audit-completed",
+        eventType: "agent.step.completed",
+        payload: {
+            actor: { agentRole: "evidence_audit_agent", displayName: "Evidence Audit Agent" },
+            step: { stepId: "audit", label: "Audit evidence" },
+            data: {
+                verdict: "pass_with_cautions",
+                recommendedAnswerMode: "LOCAL_WEAK_EVIDENCE"
+            }
+        }
+    });
+
+    const trace = state.agentTraces["run-plan-weak"];
+    assert.equal(trace.summary.mode, "PLAN_EXECUTE");
+    assert.equal(trace.summary.subagentCount, 2);
+    assert.equal(trace.summary.activeSubagentCount, 2);
+    assert.equal(trace.summary.toolCount, 0);
+    assert.equal(trace.summary.evidenceCount, 0);
+    assert.deepEqual(Object.keys(trace.subagents), [
+        "deep_research_agent",
+        "evidence_audit_agent"
+    ]);
+});
+
+test("react mode selection does not invent child subagents", () => {
+    const state = applySseEvent(createWorkbenchState(), {
+        eventId: "react-mode-selected",
+        eventType: "agent.step.completed",
+        runId: "run-react",
+        answerId: "answer-react",
+        payload: {
+            actor: { agentRole: "supervisor", displayName: "Supervisor" },
+            step: { stepId: "mode-selection", label: "Mode selection" },
+            data: {
+                mode: "REACT",
+                reason: "single-paper question"
+            }
+        }
+    });
+
+    const trace = state.agentTraces["run-react"];
+    assert.equal(trace.mode, "REACT");
+    assert.equal(trace.modeReason, "single-paper question");
+    assert.deepEqual(trace.timeline, []);
+    assert.deepEqual(trace.subagents, {});
+    assert.equal(trace.summary.toolCount, 0);
+});
+
+test("failed plan execute subagent is grouped by actor and duplicate ids are ignored", () => {
+    let state = createWorkbenchState();
+    const failedEvent = {
+        eventId: "audit-failed",
+        eventType: "agent.step.failed",
+        runId: "run-failed",
+        answerId: "answer-failed",
+        sequence: 9,
+        payload: {
+            actor: { agentRole: "evidence_audit_agent", displayName: "Evidence Audit Agent" },
+            step: { stepId: "audit", label: "Audit evidence" },
+            data: {
+                errorType: "AuditUnavailable",
+                recoverable: true
+            }
+        }
+    };
+
+    state = applySseEvent(state, failedEvent);
+    state = applySseEvent(state, failedEvent);
+
+    const trace = state.agentTraces["run-failed"];
+    assert.equal(trace.timeline.length, 1);
+    assert.equal(trace.timeline[0].actorRole, "evidence_audit_agent");
+    assert.equal(trace.timeline[0].status, "failed");
+    assert.equal(trace.timeline[0].errorType, "AuditUnavailable");
+    assert.equal(trace.subagents.evidence_audit_agent.status, "failed");
+    assert.equal(trace.subagents.evidence_audit_agent.timeline.length, 1);
+    assert.deepEqual(state.processedEventIds, ["audit-failed"]);
 });
 
 test("candidate action helpers keep candidate edits local to candidate state", () => {
