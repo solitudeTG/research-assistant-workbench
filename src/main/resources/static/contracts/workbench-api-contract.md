@@ -1,42 +1,68 @@
 # Research Workbench Frontend Contract
 
-This note exists only to guide the static workbench UI. It does not change backend behavior.
+This contract documents the F002 project API and SSE surface consumed by the static F010 workbench UI.
 
-## Live endpoints consumed today
+## Primary F002 API
 
 - `GET /api/system/ping`
-  - Purpose: lightweight connectivity indicator in the top bar.
-- `GET /api/documents`
-  - Purpose: populate the document library rail.
-- `POST /api/documents/upload`
-  - Purpose: upload a paper into the workspace.
-- `GET /api/documents/{documentId}`
-  - Purpose: poll indexing state after upload.
-- `GET /api/documents/{documentId}/analysis`
-  - Purpose: populate the structured analysis inspector when available.
-- `GET /api/chat/stream?sessionKey=...&question=...&documentId=...`
-  - Purpose: stream the answer tokens and final payload.
+  - Used for the top-bar connectivity indicator.
+- `GET /api/projects`
+  - Loads the project list. F010 uses the first available project and falls back to an empty sample state when no project exists.
+- `GET /api/projects/{projectId}/sessions`
+  - Loads project research sessions.
+- `POST /api/projects/{projectId}/sessions`
+  - Creates a lightweight research session from the left column.
+- `GET /api/projects/{projectId}/sources`
+  - Populates the left source library.
+- `POST /api/projects/{projectId}/sources`
+  - Imports a file into the project source library.
+- `POST /api/projects/{projectId}/sessions/{sessionId}/messages`
+  - Sends the center composer question and returns `messageId`, `answerId`, `streamRunId`, and `sseUrl`.
+- `GET /api/projects/{projectId}/knowledge-board`
+  - Populates the right knowledge board sections.
+- `GET /api/projects/{projectId}/candidates`
+  - Populates the candidate confirmation view.
+- `POST /api/projects/{projectId}/candidates/{candidateId}/accept`
+- `POST /api/projects/{projectId}/candidates/{candidateId}/mark-unverified`
+- `POST /api/projects/{projectId}/candidates/{candidateId}/ignore`
+  - Updates candidate status. Accepted candidates are expected to become knowledge entries through the F008 backend path.
 
-## SSE events handled now
+## SSE Stream
 
-- `heartbeat`
-  - Current backend already emits this event.
-- `message`
-  - Current backend already emits token chunks through this event.
-- `done`
-  - Current backend already emits the final `ChatResponse` payload.
+The project message response supplies:
 
-## Optional future SSE events already wired in the frontend
+```text
+/api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events
+```
 
-- `retrieval-start`
-- `retrieval-step`
-- `telemetry`
-- `error`
+F010 listens for these F002 event names:
 
-If the backend starts emitting any of the events above, the static workbench will render them into the right-side trace and telemetry panels without requiring a layout rewrite.
+- `run.started`
+- `retrieval.started`
+- `retrieval.completed`
+- `evidence.evaluated`
+- `answer.delta`
+- `answer.completed`
+- `run.completed`
+- `run.failed`
+- `source.status.changed`
+- `candidate.created`
+- `knowledge.entry.created`
 
-## Intentional graceful degradations
+The frontend stores processed `eventId` values and ignores duplicate SSE events. `candidate.created` only adds a pending candidate; only `knowledge.entry.created` updates the confirmed knowledge board.
 
-- Session history is stored in browser `localStorage` until backend session APIs exist.
-- The current workbench pins a single active document because SSE chat currently accepts one `documentId`.
-- Missing document analysis returns empty-state cards instead of a fatal error.
+## Compatibility Functions
+
+The static app keeps clearly named compatibility functions for legacy demo endpoints:
+
+- `compatibilityListLegacyDocuments`
+- `compatibilityUploadLegacyDocument`
+- `compatibilitySendLegacyChatStream`
+
+These functions are fallback paths only. The main workbench flow is project-scoped F002 API plus run SSE.
+
+## Deliberate F010 Limits
+
+- F010 does not implement backend APIs, broad search, web retrieval, account preferences, or multi-tenant UI.
+- F010 does not invent source-scoped live SSE beyond the existing F002 run event projection.
+- F010 keeps missing backend data as empty/sample UI state instead of blocking the static workbench.

@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 
 import {
     applyStreamEvent,
+    buildProjectSessionDeleteUrl,
     buildAnalysisViewModel,
+    calculateRestoredScrollTop,
+    createWorkbenchState,
+    deleteSessionFromState,
     normalizeDocument
 } from "../js/workbench-model.js";
 
@@ -61,4 +65,65 @@ test("applyStreamEvent supports current SSE events and richer trace updates", ()
     assert.equal(state.telemetry.status, "done");
     assert.equal(state.telemetry.answerMode, "LOCAL_EVIDENCE");
     assert.equal(state.citations[0].chunkId, 3);
+});
+
+test("buildProjectSessionDeleteUrl builds the project scoped delete endpoint", () => {
+    assert.equal(
+            buildProjectSessionDeleteUrl({ projectId: "p 1", sessionId: "s/2" }),
+            "/api/projects/p%201/sessions/s%2F2"
+    );
+});
+
+test("deleteSessionFromState removes active session and selects the next one", () => {
+    const state = createWorkbenchState({
+        activeProjectId: "p1",
+        activeSessionId: "s1",
+        sessions: [
+            { id: "s1", title: "First" },
+            { id: "s2", title: "Second" }
+        ],
+        messages: [{ id: "m1" }],
+        evidenceSources: [{ id: "e1" }],
+        candidates: [{ id: "c1", sessionId: "s1" }],
+        activeAnswerContext: { answerId: "a1" },
+        currentAnswer: {
+            answerId: "a1",
+            text: "answer",
+            status: "completed",
+            evidenceState: "WEAK",
+            outputMode: "LOCAL_WEAK_EVIDENCE",
+            citationCount: 1
+        },
+        agentTraces: { run1: { summary: { toolCount: 1 } } },
+        processedEventIds: ["evt-1"]
+    });
+
+    const next = deleteSessionFromState(state, "s1");
+
+    assert.equal(next.activeSessionId, "s2");
+    assert.deepEqual(next.sessions.map((session) => session.id), ["s2"]);
+    assert.deepEqual(next.messages, []);
+    assert.deepEqual(next.evidenceSources, []);
+    assert.deepEqual(next.activeAnswerContext, null);
+    assert.deepEqual(next.candidates, []);
+    assert.equal(next.currentAnswer.status, "idle");
+    assert.deepEqual(next.agentTraces, {});
+    assert.deepEqual(next.processedEventIds, []);
+});
+
+test("calculateRestoredScrollTop preserves latest conversation position after content height changes", () => {
+    assert.equal(
+            calculateRestoredScrollTop(
+                    { scrollTop: 700, scrollHeight: 1000, clientHeight: 260 },
+                    820
+            ),
+            520
+    );
+    assert.equal(
+            calculateRestoredScrollTop(
+                    { scrollTop: 40, scrollHeight: 1000, clientHeight: 260 },
+                    820
+            ),
+            0
+    );
 });

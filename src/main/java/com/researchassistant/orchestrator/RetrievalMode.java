@@ -4,5 +4,6 @@ public enum RetrievalMode {
     NO_RETRIEVAL,
     MEMORY_RECALL_ONLY,
     PAPER_RAG_ONLY,
-    MEMORY_THEN_PAPER
+    MEMORY_THEN_PAPER,
+    WEB_SUPPLEMENT
 }

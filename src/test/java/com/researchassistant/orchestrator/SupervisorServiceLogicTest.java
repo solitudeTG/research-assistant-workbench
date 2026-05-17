@@ -5,6 +5,7 @@ import com.researchassistant.chat.dto.ChatResponse;
 import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.EvidenceBoundaryService;
 import com.researchassistant.evidence.EvidenceLevel;
+import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.ingest.model.ResearchDocument;
 import com.researchassistant.memory.ExplicitMemoryService;
@@ -16,6 +17,7 @@ import com.researchassistant.memory.MemoryRecallResult;
 import com.researchassistant.memory.WorkingMemory;
 import com.researchassistant.memory.WorkingMemoryService;
 import com.researchassistant.orchestrator.support.DocumentMetadataService;
+import com.researchassistant.project.AssistantAnswerRepository;
 import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagChunk;
 import com.researchassistant.rag.RagResult;
@@ -68,6 +70,12 @@ class SupervisorServiceLogicTest {
 
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private ChatClient chatClient;
+
+    @Mock
+    private WorkbenchEventPublisher eventPublisher;
+
+    @Mock
+    private AssistantAnswerRepository assistantAnswerRepository;
 
     @InjectMocks
     private SupervisorService supervisorService;

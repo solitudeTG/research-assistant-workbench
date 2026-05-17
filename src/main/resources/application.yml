@@ -6,6 +6,9 @@ management:
     web:
       exposure:
         include: health,info
+  health:
+    redis:
+      enabled: ${MANAGEMENT_HEALTH_REDIS_ENABLED:false}
 
 spring:
   servlet:
@@ -44,3 +47,9 @@ spring:
 app:
   storage:
     root: ${APP_STORAGE_ROOT:./storage}
+  web-search:
+    tavily:
+      api-key: ${TAVILY_API_KEY:}
+      base-url: ${TAVILY_BASE_URL:https://api.tavily.com}
+      max-results: ${TAVILY_MAX_RESULTS:5}
+      search-depth: ${TAVILY_SEARCH_DEPTH:basic}

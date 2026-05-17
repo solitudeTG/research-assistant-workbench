@@ -3,11 +3,13 @@ package com.researchassistant.ingest;
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.ingest.model.FailureStage;
 import com.researchassistant.ingest.model.ResearchDocument;
+import com.researchassistant.ingest.model.SourceDocument;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -49,6 +51,43 @@ public class DocumentRepository {
                    total_chunks, total_tokens,
                    created_at, updated_at
             from research_document
+            order by updated_at desc, id desc
+            """;
+
+    private static final String INSERT_SOURCE_SQL = """
+            insert into source_document (id, project_id, type, title, uri, status)
+            values (?, ?, ?, ?, ?, ?)
+            """;
+
+    private static final String UPDATE_SOURCE_STATUS_SQL = """
+            update source_document
+            set status = ?,
+                failure_stage = ?,
+                error_message = ?
+            where project_id = ?
+              and id = ?
+            """;
+
+    private static final String LINK_SOURCE_INDEXED_DOCUMENT_SQL = """
+            update source_document
+            set indexed_document_id = ?
+            where project_id = ?
+              and id = ?
+            """;
+
+    private static final String FIND_SOURCE_SQL = """
+            select id, project_id, type, title, uri, status, failure_stage, error_message,
+                   deposited_knowledge_count, created_at, updated_at
+            from source_document
+            where project_id = ?
+              and id = ?
+            """;
+
+    private static final String LIST_SOURCES_SQL = """
+            select id, project_id, type, title, uri, status, failure_stage, error_message,
+                   deposited_knowledge_count, created_at, updated_at
+            from source_document
+            where project_id = ?
             order by updated_at desc, id desc
             """;
 
@@ -127,8 +166,54 @@ public class DocumentRepository {
         jdbcTemplate.update(UPDATE_STATS_SQL, totalChunks, totalTokens, documentId);
     }
 
+    public SourceDocument insertSource(String projectId, String type, String title, String uri, String status) {
+        String sourceId = UUID.randomUUID().toString();
+        jdbcTemplate.update(INSERT_SOURCE_SQL, sourceId, projectId, type, title, uri, status);
+        return findSource(projectId, sourceId)
+                .orElseThrow(() -> new IllegalStateException("Failed to insert source document"));
+    }
+
+    public void updateSourceStatus(
+            String projectId,
+            String sourceId,
+            String status,
+            String failureStage,
+            String errorMessage) {
+        jdbcTemplate.update(UPDATE_SOURCE_STATUS_SQL, status, failureStage, errorMessage, projectId, sourceId);
+    }
+
+    public void linkSourceIndexedDocument(String projectId, String sourceId, long indexedDocumentId) {
+        jdbcTemplate.update(LINK_SOURCE_INDEXED_DOCUMENT_SQL, indexedDocumentId, projectId, sourceId);
+    }
+
+    public Optional<SourceDocument> findSource(String projectId, String sourceId) {
+        return jdbcTemplate.query(FIND_SOURCE_SQL, (resultSet, rowNum) -> mapSource(resultSet), projectId, sourceId)
+                .stream()
+                .findFirst();
+    }
+
+    public List<SourceDocument> listSources(String projectId) {
+        return jdbcTemplate.query(LIST_SOURCES_SQL, (resultSet, rowNum) -> mapSource(resultSet), projectId);
+    }
+
     private FailureStage mapFailureStage(String value) {
         return value == null ? null : FailureStage.valueOf(value);
+    }
+
+    private SourceDocument mapSource(java.sql.ResultSet resultSet) throws java.sql.SQLException {
+        return new SourceDocument(
+                resultSet.getString("id"),
+                resultSet.getString("project_id"),
+                resultSet.getString("type"),
+                resultSet.getString("title"),
+                resultSet.getString("uri"),
+                resultSet.getString("status"),
+                resultSet.getString("failure_stage"),
+                resultSet.getString("error_message"),
+                resultSet.getInt("deposited_knowledge_count"),
+                resultSet.getObject("created_at", OffsetDateTime.class),
+                resultSet.getObject("updated_at", OffsetDateTime.class)
+        );
     }
 
 }

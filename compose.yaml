@@ -37,6 +37,10 @@ services:
       AI_VECTORSTORE_TYPE: ${AI_VECTORSTORE_TYPE:-none}
       AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-3-small}
       AI_EMBEDDINGS_PATH: ${AI_EMBEDDINGS_PATH:-/embeddings}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_BASE_URL: ${TAVILY_BASE_URL:-https://api.tavily.com}
+      TAVILY_MAX_RESULTS: ${TAVILY_MAX_RESULTS:-5}
+      TAVILY_SEARCH_DEPTH: ${TAVILY_SEARCH_DEPTH:-basic}
       APP_STORAGE_ROOT: /app/storage
     ports:
       - "8080:8080"
