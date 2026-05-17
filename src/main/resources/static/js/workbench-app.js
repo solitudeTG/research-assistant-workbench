@@ -1746,6 +1746,7 @@ function processTimelineItems(trace, message) {
     const answerDeltas = trace?.answerDeltas || [];
     const agentEvents = (trace?.timeline || []).filter((event) => String(event.eventType || "").startsWith("agent."));
     const orderedEvents = [
+        processModeTimelineEvent(trace?.modeSelection),
         processPlanTimelineEvent(trace?.plan),
         ...agentEvents.map((event, index) => processAgentTimelineEvent(event, index)),
         ...tools.map((event, index) => processToolTimelineEvent(event, index)),
@@ -1775,6 +1776,25 @@ function processPlanTimelineEvent(plan) {
         label: "执行计划",
         detail: plan.summary || `${plan.steps?.length || 0} 个串行步骤`,
         order: 0
+    };
+}
+
+function processModeTimelineEvent(modeSelection) {
+    if (!modeSelection?.mode) {
+        return null;
+    }
+    const details = [
+        modeSelection.reason,
+        modeSelection.decisionSource ? `来源: ${modeSelection.decisionSource}` : "",
+        modeSelection.semanticConfidence ? `置信度: ${modeSelection.semanticConfidence}` : "",
+        modeSelection.fallbackReason ? `兜底: ${modeSelection.fallbackReason}` : ""
+    ].filter(Boolean);
+    return {
+        eventType: "agent.step.completed",
+        status: "completed",
+        label: "模式决策",
+        detail: details.join(" | "),
+        order: -1
     };
 }
 

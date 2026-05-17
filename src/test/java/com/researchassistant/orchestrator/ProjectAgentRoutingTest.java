@@ -113,6 +113,7 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 .containsEntry("answer_mode", "LOCAL_WEAK_EVIDENCE")
                 .containsEntry("evidence_state", "NONE")
                 .containsEntry("answer", "你好，我在。你可以问项目资料，也可以让我联网补充。");
+        assertModeSelection(response.streamRunId(), response.answerId(), "REACT", "fallback");
     }
 
     @Test
@@ -674,5 +675,22 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 .orElseThrow();
         JsonNode payload = objectMapper.valueToTree(event.payload());
         assertThat(payload.get("citationCount").asInt()).isEqualTo(expectedCitationCount);
+    }
+
+    private void assertModeSelection(String runId, String answerId, String expectedMode, String expectedDecisionSource) {
+        WorkbenchEvent event = eventPublisher.readRunEventsAfter(runId, null).stream()
+                .filter(candidate -> "agent.step.completed".equals(candidate.eventType().wireName()))
+                .filter(candidate -> answerId.equals(candidate.answerId()))
+                .filter(candidate -> {
+                    JsonNode payload = objectMapper.valueToTree(candidate.payload());
+                    return "mode-selection".equals(payload.get("step").get("stepId").asText());
+                })
+                .findFirst()
+                .orElseThrow();
+        JsonNode data = objectMapper.valueToTree(event.payload()).get("data");
+        assertThat(data.get("mode").asText()).isEqualTo(expectedMode);
+        assertThat(data.get("decisionSource").asText()).isEqualTo(expectedDecisionSource);
+        assertThat(data.has("fallbackReason")).isTrue();
+        assertThat(data.has("semanticConfidence")).isTrue();
     }
 }

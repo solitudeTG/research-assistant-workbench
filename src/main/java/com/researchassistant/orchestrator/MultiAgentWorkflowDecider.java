@@ -1,10 +1,24 @@
 package com.researchassistant.orchestrator;
 
 import java.util.Locale;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class MultiAgentWorkflowDecider {
+
+    private static final double SEMANTIC_CONFIDENCE_THRESHOLD = 0.75;
+
+    private final MultiAgentWorkflowIntentAdvisor intentAdvisor;
+
+    public MultiAgentWorkflowDecider() {
+        this((question, allowWebSupplement, fallbackDecision) -> java.util.Optional.empty());
+    }
+
+    @Autowired
+    public MultiAgentWorkflowDecider(MultiAgentWorkflowIntentAdvisor intentAdvisor) {
+        this.intentAdvisor = intentAdvisor;
+    }
 
     public MultiAgentWorkflowDecision decide(String question, boolean allowWebSupplement) {
         String normalized = normalize(question);
@@ -62,12 +76,51 @@ public class MultiAgentWorkflowDecider {
 
         boolean planExecute = documentRequest || complexResearch || (multiSource && externalSupplement);
 
-        return new MultiAgentWorkflowDecision(
+        MultiAgentWorkflowDecision fallback = new MultiAgentWorkflowDecision(
                 planExecute ? MultiAgentExecutionMode.PLAN_EXECUTE : MultiAgentExecutionMode.REACT,
                 reason(documentRequest, complexResearch, multiSource, externalSupplement),
                 planExecute,
                 planExecute,
                 documentRequest
+        );
+        return intentAdvisor.advise(question, allowWebSupplement, fallback)
+                .filter(advice -> shouldUseSemanticAdvice(advice))
+                .map(advice -> fromSemanticAdvice(advice, fallback))
+                .orElse(fallback);
+    }
+
+    private boolean shouldUseSemanticAdvice(SemanticWorkflowAdvice advice) {
+        if (advice == null || advice.mode() == null) {
+            return false;
+        }
+        if (!Double.isFinite(advice.confidence())
+                || advice.confidence() < SEMANTIC_CONFIDENCE_THRESHOLD
+                || advice.confidence() > 1.0) {
+            return false;
+        }
+        if (advice.mode() == MultiAgentExecutionMode.REACT) {
+            return !advice.requiresDeepResearch()
+                    && !advice.requiresEvidenceAudit()
+                    && !advice.requiresDocumentComposer();
+        }
+        return advice.requiresDeepResearch()
+                || advice.requiresEvidenceAudit()
+                || advice.requiresDocumentComposer();
+    }
+
+    private MultiAgentWorkflowDecision fromSemanticAdvice(
+            SemanticWorkflowAdvice advice,
+            MultiAgentWorkflowDecision fallback
+    ) {
+        return new MultiAgentWorkflowDecision(
+                advice.mode(),
+                advice.reason(),
+                advice.requiresDeepResearch(),
+                advice.requiresEvidenceAudit(),
+                advice.requiresDocumentComposer(),
+                "semantic",
+                fallback.reason(),
+                advice.confidence()
         );
     }
 

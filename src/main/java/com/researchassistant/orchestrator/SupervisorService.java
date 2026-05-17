@@ -185,15 +185,15 @@ public class SupervisorService {
             boolean allowWebSupplement = Boolean.TRUE.equals(request.allowWebSupplement());
             MultiAgentWorkflowDecision workflowDecision =
                     multiAgentWorkflowDecider.decide(request.question(), allowWebSupplement);
+            AgentTraceContext traceContext = new AgentTraceContext(
+                    projectId,
+                    sessionId,
+                    runId,
+                    messageId,
+                    answerId
+            );
+            agentTracePublisher.modeSelected(traceContext, workflowDecision);
             if (workflowDecision.mode() == MultiAgentExecutionMode.PLAN_EXECUTE) {
-                AgentTraceContext traceContext = new AgentTraceContext(
-                        projectId,
-                        sessionId,
-                        runId,
-                        messageId,
-                        answerId
-                );
-                agentTracePublisher.modeSelected(traceContext, workflowDecision);
                 MultiAgentPlanExecuteResult planExecuteResult = multiAgentPlanExecuteLoop.run(
                         memory.sessionId(),
                         request.question(),

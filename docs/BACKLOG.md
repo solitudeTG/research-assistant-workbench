@@ -2,7 +2,7 @@
 id: BACKLOG
 doc_kind: backlog
 status: active
-updated: 2026-05-14
+updated: 2026-05-15
 ---
 # Work Backlog
 
@@ -43,6 +43,16 @@ This file records active engineering state that future sessions must be able to 
 - Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ## Recently Completed
+
+### F019 Semantic Intent Routing
+
+- Status: completed
+- Feature page: [F019-semantic-intent-routing.md](features/F019-semantic-intent-routing.md)
+- Spec: [F019-semantic-intent-routing-spec.md](specs/F019-semantic-intent-routing-spec.md)
+- Plan: [F019-semantic-intent-routing-plan.md](plans/F019-semantic-intent-routing-plan.md)
+- Evidence: [EV-018-f019-semantic-intent-routing.md](evidence/EV-018-f019-semantic-intent-routing.md)
+- Result: Supervisor workflow selection now uses a model-backed semantic advisor for `REACT` vs `PLAN_EXECUTE`, with deterministic routing kept as fallback and guardrail. The mode-selection trace records `decisionSource`, `fallbackReason`, and `semanticConfidence`, and the frontend research-process timeline can display the mode decision before the serial subagent plan.
+- Known limitation: this does not add parallel runtime, durable citation carry-through, or dynamic skills. Provider output quality is bounded by strict JSON parsing, confidence gating, consistency checks, and deterministic fallback, but still deserves manual live validation after rebuild/start.
 
 ### F018 Multi-Agent Evidence-Grounded Workflow
 

@@ -82,10 +82,13 @@ class AgentTracePublisherTest {
         );
         MultiAgentWorkflowDecision decision = new MultiAgentWorkflowDecision(
                 MultiAgentExecutionMode.PLAN_EXECUTE,
-                "complex_research_request",
+                "semantic_document_research",
                 true,
                 true,
-                true
+                true,
+                "semantic",
+                "simple_react_request",
+                0.92
         );
         MultiAgentPlan plan = new MultiAgentPlan(
                 MultiAgentExecutionMode.PLAN_EXECUTE,
@@ -135,7 +138,10 @@ class AgentTracePublisherTest {
 
         assertThat(assertTraceEvent(events.get(0), "supervisor", "mode-selection", "completed"))
                 .containsEntry("mode", "PLAN_EXECUTE")
-                .containsEntry("reason", "complex_research_request");
+                .containsEntry("reason", "semantic_document_research")
+                .containsEntry("decisionSource", "semantic")
+                .containsEntry("fallbackReason", "simple_react_request")
+                .containsEntry("semanticConfidence", 0.92);
 
         Map<String, Object> planData = assertTraceEvent(events.get(1), "supervisor", "plan-execute-plan", "completed");
         assertThat(planData)
