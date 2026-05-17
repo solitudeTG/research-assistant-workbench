@@ -20,8 +20,9 @@ The dev start script will:
 
 1. check that Docker is available
 2. load `.env`
-3. start PostgreSQL + pgvector and the Spring Boot app with Docker Compose
-4. wait until both the database and the application health endpoint are ready
+3. resolve the app host port from `APP_HOST_PORT`, or fall back from `8080` to an available dev port such as `18080`
+4. start PostgreSQL + pgvector and the Spring Boot app with Docker Compose
+5. wait until both the database and the application health endpoint are ready
 
 When source code or the Dockerfile changes and you need a fresh app image, rebuild explicitly:
 
@@ -35,7 +36,15 @@ You can also start it directly without the script:
 docker compose up -d
 ```
 
-Then open [http://localhost:8080](http://localhost:8080).
+Then open [http://localhost:8080](http://localhost:8080), or the host port configured by `APP_HOST_PORT`.
+
+If Windows or another local service reserves `8080`, set a different host port in `.env`:
+
+```powershell
+APP_HOST_PORT=18080
+```
+
+The container still listens on port `8080`; only the host-side port changes. The start and rebuild scripts print the resolved UI URL.
 
 Stop the project with:
 
@@ -120,4 +129,4 @@ start.cmd
 
 ## Current verification note
 
-The non-Docker Maven test set already passes locally. Verify the normal Docker startup path with `.\scripts\start-dev.cmd`, `docker compose ps`, and a health probe against `http://localhost:8080/actuator/health`. Use `.\scripts\rebuild-dev.cmd` only when the app image must be rebuilt.
+The non-Docker Maven test set already passes locally. Verify the normal Docker startup path with `.\scripts\start-dev.cmd`, `docker compose ps`, and a health probe against the UI URL printed by the script. Use `.\scripts\rebuild-dev.cmd` only when the app image must be rebuilt.
