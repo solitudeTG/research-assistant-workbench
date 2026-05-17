@@ -242,6 +242,9 @@ class ProjectRunEventFlowTest extends PostgresIntegrationTest {
         assertThat(memoryHit.actor()).isEqualTo("memory_worker");
         assertThat(dataOf(memoryHit))
                 .containsEntry("memoryLayer", "L3")
+                .containsEntry("sourceType", "long_term_memory")
+                .containsEntry("sourceId", "7")
+                .containsEntry("contextOnly", true)
                 .containsEntry("label", "\u957f\u671f\u8bb0\u5fc6\u53ec\u56de")
                 .containsEntry("score", 0.66);
 

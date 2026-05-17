@@ -2,6 +2,7 @@ package com.researchassistant.orchestrator;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.researchassistant.memory.GlobalKnowledgeSnapshot;
+import com.researchassistant.knowledge.KnowledgeEntryRecord;
 import com.researchassistant.memory.WorkingMemory;
 import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.websearch.WebSearchPort;
@@ -73,7 +74,7 @@ public class DefaultProjectAgentToolLoop implements ProjectAgentToolLoop {
                 Use paper_rag for current project paper/source evidence.
                 Use memory_recall for previous project discussion.
                 Do not claim that you searched, queried, retrieved, or checked external facts unless a tool result is present.
-                Separate local paper evidence, web supplements, and memory context in the final answer.
+                Separate local paper evidence, web supplements, and memory/project knowledge context in the final answer.
                 """;
     }
 
@@ -85,8 +86,18 @@ public class DefaultProjectAgentToolLoop implements ProjectAgentToolLoop {
                 + "\n\nCurrent task:\n" + safe(memory.currentTask())
                 + "\n\nGlobal user knowledge:\n" + safe(globalKnowledge.user())
                 + "\n\nGlobal research state:\n" + safe(globalKnowledge.researchState())
+                + "\n\nConfirmed project knowledge context (not citation evidence):\n" + projectKnowledgeBlock(request.projectKnowledge())
                 + "\n\nScoped indexed paper document ids:\n" + request.evidenceScope().indexedDocumentIds()
                 + "\n\nWeb supplement allowed by user: " + request.allowWebSupplement();
+    }
+
+    private String projectKnowledgeBlock(java.util.List<KnowledgeEntryRecord> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return "(empty)";
+        }
+        return entries.stream()
+                .map(entry -> "- " + safe(entry.title()) + ": " + safe(entry.content()))
+                .collect(java.util.stream.Collectors.joining("\n"));
     }
 
     private String safe(String value) {

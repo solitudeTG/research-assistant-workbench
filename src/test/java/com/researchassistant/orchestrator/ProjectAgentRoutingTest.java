@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.researchassistant.chat.dto.ProjectMessageRequest;
 import com.researchassistant.evidence.AnswerMode;
+import com.researchassistant.evidence.EvidenceCitationSource;
 import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.memory.MemoryRecallResult;
@@ -195,6 +196,158 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 .containsEntry("evidence_state", "WEAK")
                 .containsEntry("answer", "# Project report\n\nAudited document body.");
         assertThat(evidenceSourceCount(response.answerId())).isZero();
+    }
+
+    @Test
+    void planExecutePersistsAcceptedCitationSources() {
+        ResearchSessionRecord session = createSession();
+        String sourceId = insertIndexedProjectSource(session.projectId(), 10L);
+        String question = "Write a citable Markdown report from the project evidence and web context";
+        MultiAgentWorkflowDecision decision = planDecision(true);
+        doReturn(decision).when(multiAgentWorkflowDecider).decide(question, true);
+        DocumentDraft draft = new DocumentDraft(
+                "markdown",
+                "Citable report",
+                "# Citable report\n\nAdaptive beamforming reduces interference.",
+                List.of()
+        );
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of("Adaptive beamforming reduces interference."),
+                List.of("paper: documentId=10 chunkIndex=2 score=0.91 content=Adaptive beamforming reduces interference."),
+                List.of("web: title=Fresh context url=https://example.test score=0.72 snippet=Recent context confirms the research direction."),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name(),
+                List.of(
+                        EvidenceCitationSource.paper(
+                                "Adaptive beamforming reduces interference.",
+                                10L,
+                                1002L,
+                                2,
+                                0.91
+                        ),
+                        EvidenceCitationSource.web(
+                                "Recent context confirms the research direction.",
+                                "Fresh context",
+                                "https://example.test",
+                                "tavily",
+                                1,
+                                0.72
+                        )
+                )
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass",
+                AnswerMode.LOCAL_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        when(multiAgentPlanExecuteLoop.run(
+                anyLong(),
+                eq(question),
+                org.mockito.ArgumentMatchers.any(),
+                eq(true),
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
+        )).thenReturn(new MultiAgentPlanExecuteResult(
+                new MultiAgentPlan(MultiAgentExecutionMode.PLAN_EXECUTE, "test plan", List.of()),
+                packet,
+                verdict,
+                draft,
+                "Fallback synthesis should not be persisted."
+        ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        assertThat(answerRow(response.answerId()))
+                .containsEntry("answer_mode", "LOCAL_EVIDENCE")
+                .containsEntry("evidence_state", "SUFFICIENT")
+                .containsEntry("answer", "# Citable report\n\nAdaptive beamforming reduces interference.");
+        assertThat(evidenceRows(response.answerId()))
+                .anySatisfy(row -> assertThat(row)
+                        .containsEntry("source_type", "paper")
+                        .containsEntry("source_id", sourceId)
+                        .containsEntry("snippet", "Adaptive beamforming reduces interference."))
+                .anySatisfy(row -> assertThat(row)
+                        .containsEntry("source_type", "web")
+                        .containsEntry("snippet", "Recent context confirms the research direction."));
+        assertRetrievalCitationTelemetry(response.streamRunId(), response.answerId(), 2);
+        assertEvidenceEvaluatedTelemetry(response.streamRunId(), response.answerId(), 2, "paper", "web");
+    }
+
+    @Test
+    void planExecuteWebOnlyCitationsStayWeakAndDoNotGenerateCandidates() {
+        ResearchSessionRecord session = createSession();
+        String question = "Write a citable Markdown report from web context only";
+        MultiAgentWorkflowDecision decision = planDecision(true);
+        doReturn(decision).when(multiAgentWorkflowDecider).decide(question, true);
+        DocumentDraft draft = new DocumentDraft(
+                "markdown",
+                "Web-only report",
+                "# Web-only report\n\nA web result suggests the field is moving quickly.",
+                List.of()
+        );
+        ResearchPacket packet = new ResearchPacket(
+                "question",
+                List.of("A web result suggests the field is moving quickly."),
+                List.of(),
+                List.of("web: title=Fresh context url=https://example.test score=0.72 snippet=The field is moving quickly."),
+                List.of(),
+                List.of(),
+                List.of(),
+                AnswerMode.LOCAL_EVIDENCE.name(),
+                List.of(EvidenceCitationSource.web(
+                        "The field is moving quickly.",
+                        "Fresh context",
+                        "https://example.test",
+                        "tavily",
+                        1,
+                        0.72
+                ))
+        );
+        AuditVerdict verdict = new AuditVerdict(
+                "pass",
+                AnswerMode.LOCAL_EVIDENCE.name(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        when(multiAgentPlanExecuteLoop.run(
+                anyLong(),
+                eq(question),
+                org.mockito.ArgumentMatchers.any(),
+                eq(true),
+                eq(decision),
+                org.mockito.ArgumentMatchers.any()
+        )).thenReturn(new MultiAgentPlanExecuteResult(
+                new MultiAgentPlan(MultiAgentExecutionMode.PLAN_EXECUTE, "test plan", List.of()),
+                packet,
+                verdict,
+                draft,
+                "Fallback synthesis should not be persisted."
+        ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, true, "allow_web")
+        );
+
+        assertThat(answerRow(response.answerId()))
+                .containsEntry("answer_mode", "WEB_SUPPLEMENT")
+                .containsEntry("evidence_state", "WEAK");
+        assertThat(evidenceRows(response.answerId()))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("source_type", "web"));
+        assertThat(candidateRows(response.answerId())).isEmpty();
+        assertThat(knowledgeEntryCount(session.projectId())).isZero();
     }
 
     @Test
@@ -508,6 +661,127 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void extractKnowledgeCandidatesCreatesPendingCandidateFromGroundedAnswer() {
+        ResearchSessionRecord session = createSession();
+        insertIndexedProjectSource(session.projectId(), 26L);
+        String question = "What reusable conclusion should we keep?";
+        String answer = "Adaptive beamforming reduces interference in dense satellite links.\n\n"
+                + "This conclusion is supported by the scoped local paper evidence.";
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        answer,
+                        new RagResult(
+                                question,
+                                List.of(26L),
+                                List.of(new RagChunk(104L, 26L, 0, "Adaptive beamforming reduces interference.", 0.93))
+                        ),
+                        null,
+                        null,
+                        List.of("paper_rag")
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, true, "local_first")
+        );
+
+        List<Map<String, Object>> candidates = candidateRows(response.answerId());
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates.get(0))
+                .containsEntry("project_id", session.projectId())
+                .containsEntry("session_id", session.id())
+                .containsEntry("answer_id", response.answerId())
+                .containsEntry("title", "Adaptive beamforming reduces interference in dense satellite links.")
+                .containsEntry("statement", answer)
+                .containsEntry("suggested_section", "confirmed_finding")
+                .containsEntry("status", "pending");
+        assertThat((Integer) candidates.get(0).get("evidence_count")).isEqualTo(1);
+        assertThat(knowledgeEntryCount(session.projectId())).isZero();
+        assertThat(eventPublisher.readRunEventsAfter(response.streamRunId(), null))
+                .filteredOn(event -> "candidate.created".equals(event.eventType().wireName()))
+                .filteredOn(event -> response.answerId().equals(event.answerId()))
+                .hasSize(1);
+        WorkbenchEvent created = eventPublisher.readRunEventsAfter(response.streamRunId(), null).stream()
+                .filter(event -> "candidate.created".equals(event.eventType().wireName()))
+                .filter(event -> response.answerId().equals(event.answerId()))
+                .findFirst()
+                .orElseThrow();
+        JsonNode payload = objectMapper.valueToTree(created.payload());
+        assertThat(payload.get("statement").asText()).isEqualTo(answer);
+        assertThat(payload.get("sourceTypes"))
+                .extracting(JsonNode::asText)
+                .containsExactly("paper");
+        assertThat(payload.get("evidenceSourceIds")).hasSize(1);
+    }
+
+    @Test
+    void extractKnowledgeCandidatesFlagDisabledDoesNotCreateCandidate() {
+        ResearchSessionRecord session = createSession();
+        insertIndexedProjectSource(session.projectId(), 27L);
+        String question = "What conclusion should stay only in the answer?";
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        "This answer has local evidence but candidate extraction is disabled.",
+                        new RagResult(
+                                question,
+                                List.of(27L),
+                                List.of(new RagChunk(105L, 27L, 0, "Local evidence exists.", 0.9))
+                        ),
+                        null,
+                        null,
+                        List.of("paper_rag")
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        assertThat(candidateRows(response.answerId())).isEmpty();
+        assertThat(knowledgeEntryCount(session.projectId())).isZero();
+    }
+
+    @Test
+    void extractKnowledgeCandidatesSkipsWeakWebSupplementAnswer() {
+        ResearchSessionRecord session = createSession();
+        String question = "What changed in the broader field?";
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        "A recent web result suggests the field is moving quickly.",
+                        new RagResult(question, List.of(), List.of()),
+                        new WebSearchResult(
+                                question,
+                                List.of(new WebSearchHit(
+                                        "Recent field update",
+                                        "https://example.test/field-update",
+                                        "The field is moving quickly.",
+                                        0.72
+                                )),
+                                "tavily",
+                                false,
+                                "ok"
+                        ),
+                        null,
+                        List.of("tavily_web_search")
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, true, "allow_web")
+        );
+
+        assertThat(answerRow(response.answerId()))
+                .containsEntry("answer_mode", "WEB_SUPPLEMENT")
+                .containsEntry("evidence_state", "WEAK");
+        assertThat(evidenceSourceCount(response.answerId())).isEqualTo(1);
+        assertThat(candidateRows(response.answerId())).isEmpty();
+        assertThat(knowledgeEntryCount(session.projectId())).isZero();
+    }
+
+    @Test
     void workingMemorySummaryPublishesMemoryHitEvenWhenL3RecallIsEmpty() {
         ResearchSessionRecord session = createSession();
         jdbcTemplate.update("""
@@ -543,6 +817,50 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         assertThat(data.get("memoryLayer").asText()).isEqualTo("L1");
         assertThat(data.get("label").asText()).isEqualTo("工作记忆");
         assertThat(data.get("snippet").asText()).contains("satellite communication papers");
+    }
+
+    @Test
+    void confirmedKnowledgeEntryPublishesL2ProjectKnowledgeMemoryTraceWithoutCitationEvidence() {
+        ResearchSessionRecord session = createSession();
+        String entryId = insertConfirmedKnowledgeEntry(
+                session.projectId(),
+                "Confirmed beamforming finding",
+                "Adaptive beamforming should be treated as the stable project direction."
+        );
+        String question = "Use the confirmed project direction in the next answer.";
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        "The stable direction is adaptive beamforming.",
+                        new RagResult(question, List.of(), List.of()),
+                        null,
+                        new MemoryRecallResult(question, List.of()),
+                        List.of()
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        WorkbenchEvent memoryHit = eventPublisher.readRunEventsAfter(response.streamRunId(), null).stream()
+                .filter(candidate -> "memory.hit".equals(candidate.eventType().wireName()))
+                .filter(candidate -> response.answerId().equals(candidate.answerId()))
+                .filter(candidate -> {
+                    JsonNode data = objectMapper.valueToTree(candidate.payload()).get("data");
+                    return data != null && "project_knowledge".equals(data.get("sourceType").asText());
+                })
+                .findFirst()
+                .orElseThrow();
+        JsonNode data = objectMapper.valueToTree(memoryHit.payload()).get("data");
+        assertThat(data.get("memoryLayer").asText()).isEqualTo("L2");
+        assertThat(data.get("sourceType").asText()).isEqualTo("project_knowledge");
+        assertThat(data.get("sourceId").asText()).isEqualTo(entryId);
+        assertThat(data.get("contextOnly").asBoolean()).isTrue();
+        assertThat(data.get("snippet").asText()).contains("Adaptive beamforming");
+        assertThat(evidenceSourceCount(response.answerId())).isZero();
+        assertRetrievalCitationTelemetry(response.streamRunId(), response.answerId(), 0);
+        assertEvidenceEvaluatedTelemetry(response.streamRunId(), response.answerId(), 0);
     }
 
     @Test
@@ -648,11 +966,50 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         return count == null ? 0 : count;
     }
 
-    private void insertIndexedProjectSource(String projectId, long indexedDocumentId) {
+    private String insertIndexedProjectSource(String projectId, long indexedDocumentId) {
+        String sourceId = java.util.UUID.randomUUID().toString();
         jdbcTemplate.update("""
                 insert into source_document(id, project_id, type, title, status, indexed_document_id)
                 values (?, ?, 'pdf', 'Indexed F012 source', 'indexed', ?)
-                """, java.util.UUID.randomUUID().toString(), projectId, indexedDocumentId);
+                """, sourceId, projectId, indexedDocumentId);
+        return sourceId;
+    }
+
+    private List<Map<String, Object>> evidenceRows(String answerId) {
+        return jdbcTemplate.queryForList("""
+                select source_type, source_id, snippet
+                from evidence_source
+                where answer_id = ?
+                order by source_type, id
+                """, answerId);
+    }
+
+    private List<Map<String, Object>> candidateRows(String answerId) {
+        return jdbcTemplate.queryForList("""
+                select project_id, session_id, answer_id, title, statement, suggested_section, status,
+                       jsonb_array_length(evidence_source_ids_json) as evidence_count
+                from knowledge_candidate
+                where answer_id = ?
+                order by created_at, id
+                """, answerId);
+    }
+
+    private int knowledgeEntryCount(String projectId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                from knowledge_entry
+                where project_id = ?
+                """, Integer.class, projectId);
+        return count == null ? 0 : count;
+    }
+
+    private String insertConfirmedKnowledgeEntry(String projectId, String title, String content) {
+        String entryId = java.util.UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+                insert into knowledge_entry(id, project_id, section, title, content, evidence_status, evidence_source_ids_json)
+                values (?, ?, 'confirmed_finding', ?, ?, 'confirmed', '[]'::jsonb)
+                """, entryId, projectId, title, content);
+        return entryId;
     }
 
     private void assertRetrievalTools(String runId, String answerId, String... expectedTools) {
@@ -675,6 +1032,24 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 .orElseThrow();
         JsonNode payload = objectMapper.valueToTree(event.payload());
         assertThat(payload.get("citationCount").asInt()).isEqualTo(expectedCitationCount);
+    }
+
+    private void assertEvidenceEvaluatedTelemetry(
+            String runId,
+            String answerId,
+            int expectedCitationCount,
+            String... expectedSourceTypes
+    ) {
+        WorkbenchEvent event = eventPublisher.readRunEventsAfter(runId, null).stream()
+                .filter(candidate -> "evidence.evaluated".equals(candidate.eventType().wireName()))
+                .filter(candidate -> answerId.equals(candidate.answerId()))
+                .findFirst()
+                .orElseThrow();
+        JsonNode payload = objectMapper.valueToTree(event.payload());
+        assertThat(payload.get("citationCount").asInt()).isEqualTo(expectedCitationCount);
+        assertThat(payload.get("sourceTypes"))
+                .extracting(JsonNode::asText)
+                .containsExactly(expectedSourceTypes);
     }
 
     private void assertModeSelection(String runId, String answerId, String expectedMode, String expectedDecisionSource) {

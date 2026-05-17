@@ -9,9 +9,12 @@ import {
     buildProjectSessionRenameUrl,
     buildProjectSessionMessagesUrl,
     createWorkbenchState,
+    evidenceFeedbackLabel,
+    feedbackPayloadForAnswer,
     getWorkspaceVisibility,
     renameSessionTitle,
     normalizeProjectMessage,
+    pendingKnowledgeCandidates,
     requireProjectChatContext,
     selectSession,
     selectWorkspace,
@@ -157,6 +160,63 @@ test("main session polish keeps the dialogue continuous and composer quiet", asy
     assert.match(css, /\.right-column\s*\{[\s\S]*background:\s*oklch\(97% 0\.006 245\);/);
 });
 
+test("answer state chip and composer stay content-aligned in narrow surfaces", async () => {
+    const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
+
+    assert.match(css, /--dialogue-content-width:\s*880px;/);
+    assert.match(css, /\.answer-state\s*\{[\s\S]*width:\s*max-content;/);
+    assert.match(css, /\.answer-state\s*\{[\s\S]*max-width:\s*min\(100%,\s*260px\);/);
+    assert.match(css, /\.answer-state\s*\{[\s\S]*overflow-wrap:\s*anywhere;/);
+    assert.doesNotMatch(css, /\.answer-state\s*\{[\s\S]*max-width:\s*180px;/);
+    assert.match(css, /\.message\s*\{[\s\S]*max-width:\s*var\(--dialogue-content-width\);/);
+    assert.match(css, /\.research-process\s*\{[\s\S]*max-width:\s*var\(--dialogue-content-width\);/);
+    assert.match(css, /\.composer-surface\s*\{[\s\S]*width:\s*min\(var\(--dialogue-content-width\),\s*100%\);/);
+    assert.match(css, /\.composer-modes\s*\{[\s\S]*padding:\s*8px 14px;/);
+    assert.match(css, /\.composer-footer\s*\{[\s\S]*padding:\s*0 14px 12px;/);
+    assert.match(css, /\.conversation\s*\{[\s\S]*padding:\s*30px 42px 220px;/);
+});
+
+test("right sidebar tabs and empty states explain knowledge evidence and candidate roles", async () => {
+    const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+
+    assert.match(html, /data-sidebar-view="knowledge-board"[^>]*title="已确认的项目知识"/);
+    assert.match(html, /data-sidebar-view="evidence-sources"[^>]*title="当前回答的最终引用"/);
+    assert.match(html, /data-sidebar-view="candidate-confirmation"[^>]*title="待确认后写入知识库的候选"/);
+    assert.match(source, /当前回答还没有最终引用。完成证据评估后，这里只显示可进入报告的最终来源。/);
+    assert.match(source, /本轮尚未生成待确认候选。候选是回答完成后提炼出的知识草稿，确认后才会写入知识库。/);
+});
+
+test("manual knowledge action posts to project knowledge board entries endpoint", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+
+    assert.match(source, /data-knowledge-action/);
+    assert.match(source, /function\s+createManualKnowledgeEntry\(/);
+    assert.match(source, /\/knowledge-board\/entries/);
+    assert.match(source, /section:\s*"confirmed_finding"/);
+    assert.match(source, /evidenceStatus:\s*"confirmed"/);
+    assert.match(source, /refreshKnowledgeBoard\(\)/);
+});
+
+test("answer feedback controls collect answer-level reasons without exposing chunk checkboxes", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
+
+    assert.match(source, /data-feedback-action/);
+    assert.match(source, /data-feedback-reason/);
+    assert.match(source, /function\s+answerFeedbackControls\(/);
+    assert.match(source, /function\s+submitAnswerFeedback\(/);
+    assert.match(source, /\/answers\/\$\{encodeURIComponent\(answerId\)\}\/feedback/);
+    assert.match(source, /feedbackPayloadForAnswer/);
+    assert.match(source, /evidenceSourceIds/);
+    assert.match(source, /refreshEvidenceSources\(answerId\)/);
+    assert.doesNotMatch(source, /data-feedback-evidence/);
+    assert.doesNotMatch(source, /querySelectorAll\("\[data-feedback-evidence\]:checked"\)/);
+    assert.match(source, /点赞|点踩/);
+    assert.match(css, /\.answer-feedback/);
+    assert.match(css, /\.answer-feedback__reasons/);
+});
+
 test("main session shell uses Chinese-only visible headings and status labels", async () => {
     const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
     const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
@@ -194,16 +254,72 @@ test("secondary workspaces share the simplified Chinese product UI language", as
     assert.match(html, /<h2>资料库<\/h2>/);
     assert.match(html, /<h2>知识库<\/h2>/);
     assert.match(html, /<h2>项目概览<\/h2>/);
-    assert.match(html, /<h2>检索诊断<\/h2>/);
+    assert.match(html, /<h2>回答取证诊断<\/h2>/);
+    assert.match(html, /检查本轮回答背后的论文证据：哪些结论已有材料支持，哪些还不能使用。/);
+    assert.match(html, /id="diagnostics-verdict"[\s\S]*一句话结论/);
+    assert.match(html, /步骤[\s\S]*系统动作[\s\S]*查法数[\s\S]*候选材料[\s\S]*主要来源[\s\S]*这意味着[\s\S]*时间/);
+    assert.doesNotMatch(html, /aria-label="检索诊断摘要"/);
 
     assert.match(css, /\.workspace-list-pane,[\s\S]*\.workspace-inspector\s*\{[\s\S]*border:\s*0;/);
     assert.match(css, /\.workspace-inspector\s*\{[\s\S]*border-left:\s*1px solid var\(--line\);/);
     assert.match(css, /\.table-toolbar\s*\{[\s\S]*border-bottom:\s*1px solid/);
     assert.match(css, /\.drop-zone,[\s\S]*\.review-strip\s*\{[\s\S]*background:\s*transparent;/);
 
-    assert.match(source, /metricItem\("检索调用",\s*summary\.callCount\)/);
-    assert.match(source, /textElement\("strong",\s*"后端命中"\)/);
-    assert.doesNotMatch(source, /Loading retrieval diagnostics|Retrieval diagnostics unavailable|Backend stats|Zero-hit classification/);
+    assert.match(source, /diagnosticIndicator\("找到多少证据"/);
+    assert.match(source, /diagnosticIndicator\("问了几种查法"/);
+    assert.match(source, /diagnosticIndicator\("没有找到的次数"/);
+    assert.match(source, /diagnosticIndicator\("是否进入引用"/);
+    assert.match(source, /renderDiagnosticsVerdict\(summary,\s*events\)/);
+    assert.match(source, /textElement\("strong",\s*"检索细分"\)/);
+    assert.match(source, /textElement\("strong",\s*"证据缺口"\)/);
+    assert.match(source, /stepExplanationText\(event\)/);
+    assert.match(source, /第 \$\{event\.toolCallIndex \?\? "\?"\} 次查资料/);
+    assert.doesNotMatch(source, /Loading retrieval diagnostics|Retrieval diagnostics unavailable|Backend stats|Zero-hit classification|正在载入检索诊断|检索诊断暂时不可用/);
+});
+
+test("knowledge and observability primary menu panels match the simplified session rail style", async () => {
+    const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+    const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+
+    assert.match(html, /data-context-panel="knowledge"[\s\S]*<h2>知识<\/h2>[\s\S]*placeholder="筛选知识"/);
+    assert.doesNotMatch(html, /data-context-panel="knowledge"[\s\S]*<p>知识<\/p>\s*<h2>知识分区<\/h2>/);
+    assert.match(html, /data-context-panel="observability"[\s\S]*<h2>观测<\/h2>[\s\S]*id="diagnostics-nav"/);
+    assert.doesNotMatch(html, /data-context-panel="observability"[\s\S]*<p>观测<\/p>\s*<h2>检索诊断<\/h2>/);
+
+    assert.match(css, /\.drawer-panel--quiet\s+\.drawer-search\s*\{[\s\S]*margin-bottom:\s*12px;/);
+    assert.match(css, /\.context-nav-item\s+strong\s*\{[\s\S]*font-variant-numeric:\s*tabular-nums;/);
+    assert.match(css, /@media \(max-width:\s*560px\)\s*\{[\s\S]*\.table-toolbar\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
+
+    assert.match(source, /diagnosticsNav:\s*document\.getElementById\("diagnostics-nav"\)/);
+    assert.match(source, /function renderDiagnosticsNav\(\)/);
+    assert.match(source, /contextNavItem\("取证概览",\s*summary\.coverageLabel/);
+    assert.match(source, /contextNavItem\("引用待核验",\s*summary\.evidenceChainLabel/);
+    assert.match(source, /contextNavItem\("异常",\s*summary\.zeroHitCount/);
+});
+
+test("observability workspace explains retrieval diagnostics as research evidence quality", async () => {
+    const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
+
+    assert.match(html, /aria-label="回答取证诊断工作区"/);
+    assert.match(html, /data-diagnostics-mode="session"[\s\S]*当前会话/);
+    assert.match(html, /data-diagnostics-mode="recent"[^>]*disabled[^>]*title="跨运行聚合待后续补齐"[\s\S]*最近运行/);
+    assert.match(html, /id="diagnostics-verdict"/);
+    assert.match(html, /aria-label="取证概览说明"/);
+    assert.match(html, /aria-label="检索步骤列标题"/);
+    assert.match(html, /aria-label="检索步骤含义"/);
+
+    assert.match(source, /diagnosticsContextText\(session,\s*summary\)/);
+    assert.match(source, /diagnosticMeaningLabel\(event\)/);
+    assert.match(source, /backendSummaryLabel\(event\.backendStats\)/);
+    assert.match(source, /evidenceGapText\(event\)/);
+    assert.doesNotMatch(source, /k0 \/ v15 \/ m0/);
+
+    assert.match(css, /\.diagnostics-verdict\s*\{/);
+    assert.match(css, /\.diagnostics-header-row\s*\{/);
+    assert.match(css, /\.diagnostics-mode-toggle\s*\{/);
 });
 
 test("selecting a session updates activeSessionId and clears activeAnswerContext", () => {
@@ -316,6 +432,7 @@ test("project session history uses project-scoped message contract", () => {
                 sessionId: "session-a",
                 role: "ASSISTANT",
                 content: "Recovered answer",
+                answerId: "answer-15",
                 answerMode: "LOCAL_EVIDENCE",
                 createdAt: "2026-05-11T10:00:00Z"
             }),
@@ -324,6 +441,8 @@ test("project session history uses project-scoped message contract", () => {
                 sessionId: "session-a",
                 role: "assistant",
                 content: "Recovered answer",
+                answerId: "answer-15",
+                runId: null,
                 answerMode: "LOCAL_EVIDENCE",
                 createdAt: "2026-05-11T10:00:00Z"
             }
@@ -515,6 +634,58 @@ test("evidence.evaluated can hydrate evidence source rows from event payload", (
     assert.equal(next.evidenceSources[0].id, "evidence-1");
 });
 
+test("feedback evidence labels expose concrete evidence text instead of only source type", () => {
+    const label = evidenceFeedbackLabel({
+        id: "evidence-1",
+        sourceType: "paper",
+        sourceId: "chunk-37",
+        snippet: "Space-time beamforming aligns interference mitigation with spectral efficiency."
+    });
+
+    assert.match(label, /^paper · Space-time beamforming/);
+    assert.notEqual(label, "paper");
+});
+
+test("answer feedback payload attributes evidence internally from answer-level reasons", () => {
+    const evidenceSources = [
+        { id: "evidence-paper", answerId: "answer-1", sourceType: "paper" },
+        { id: "evidence-other-answer", answerId: "answer-2", sourceType: "paper" }
+    ];
+
+    assert.deepEqual(
+            feedbackPayloadForAnswer({
+                answerId: "answer-1",
+                rating: "up",
+                reason: "helpful",
+                evidenceSources
+            }),
+            {
+                rating: "up",
+                reason: "helpful",
+                note: "helpful",
+                evidenceSourceIds: ["evidence-paper"]
+            }
+    );
+    assert.deepEqual(
+            feedbackPayloadForAnswer({
+                answerId: "answer-1",
+                rating: "down",
+                reason: "missing_evidence",
+                evidenceSources
+            }).evidenceSourceIds,
+            []
+    );
+    assert.deepEqual(
+            feedbackPayloadForAnswer({
+                answerId: "answer-1",
+                rating: "down",
+                reason: "citation_wrong",
+                evidenceSources
+            }).evidenceSourceIds,
+            ["evidence-paper"]
+    );
+});
+
 test("agent trace events fold into research process summary", () => {
     let state = createWorkbenchState({
         activeProjectId: "project-1",
@@ -697,6 +868,257 @@ test("memory.completed hit count contributes to trace summary when hit rows are 
     });
 
     assert.equal(state.agentTraces["run-memory"].summary.memoryCount, 1);
+});
+
+test("F021 memory trace keeps recalled memory context separate from citation evidence", () => {
+    let state = createWorkbenchState();
+
+    state = applySseEvent(state, {
+        eventId: "f021-retrieval-hit",
+        eventType: "retrieval.hit",
+        runId: "run-f021",
+        answerId: "answer-f021",
+        payload: {
+            data: {
+                sourceType: "paper",
+                title: "Citable source",
+                snippet: "This is paper evidence.",
+                score: 0.91
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "f021-memory-hit",
+        eventType: "memory.hit",
+        runId: "run-f021",
+        answerId: "answer-f021",
+        payload: {
+            data: {
+                memoryLayer: "L3",
+                sourceType: "long_term_memory",
+                sourceId: "memory-7",
+                snippet: "Prior project synthesis",
+                score: 0.66,
+                contextOnly: false
+            }
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "f021-memory-completed",
+        eventType: "memory.completed",
+        runId: "run-f021",
+        answerId: "answer-f021",
+        payload: {
+            data: {
+                hitCount: 1,
+                memoryLayer: "L1",
+                sourceType: "working_memory",
+                snippet: "Rolling summary loaded"
+            }
+        }
+    });
+
+    const trace = state.agentTraces["run-f021"];
+    assert.deepEqual(trace.memoryHits[0], {
+        eventId: "f021-memory-hit",
+        eventType: "memory.hit",
+        runId: "run-f021",
+        answerId: "answer-f021",
+        sequence: null,
+        createdAt: "",
+        memoryLayer: "L3",
+        sourceType: "long_term_memory",
+        sourceId: "memory-7",
+        snippet: "Prior project synthesis",
+        score: 0.66,
+        contextOnly: true
+    });
+    assert.equal(trace.memorySummary.memoryLayer, "L1");
+    assert.equal(trace.memorySummary.sourceType, "working_memory");
+    assert.equal(trace.memorySummary.snippet, "Rolling summary loaded");
+    assert.equal(trace.memorySummary.contextOnly, true);
+    assert.equal(trace.summary.citationEvidenceCount, 1);
+    assert.equal(trace.summary.memoryContextCount, 1);
+    assert.equal(trace.summary.evidenceCount, 1);
+    assert.equal(trace.summary.memoryCount, 1);
+});
+
+test("F021 candidate and confirmed knowledge projections stay separated", () => {
+    let state = createWorkbenchState({
+        candidates: [
+            {
+                id: "candidate-existing",
+                candidateId: "candidate-existing",
+                status: "pending",
+                title: "Existing candidate",
+                statement: "This should remain pending.",
+                suggestedSection: "core_concept"
+            }
+        ]
+    });
+
+    state = applySseEvent(state, {
+        eventId: "f021-candidate-created",
+        eventType: "candidate.created",
+        answerId: "answer-f021",
+        payload: {
+            id: "candidate-new",
+            title: "New pending candidate",
+            statement: "Candidates are not stable knowledge yet.",
+            suggestedSection: "method_route"
+        }
+    });
+    state = applySseEvent(state, {
+        eventId: "f021-entry-created",
+        eventType: "knowledge.entry.created",
+        payload: {
+            id: "entry-confirmed",
+            sourceCandidateId: "candidate-new",
+            section: "method_route",
+            title: "Confirmed knowledge",
+            content: "Only accepted candidates become confirmed knowledge.",
+            evidenceStatus: "confirmed"
+        }
+    });
+
+    const entries = state.knowledgeBoard.sections.flatMap((section) => section.entries);
+    assert.deepEqual(
+            state.candidates.map((candidate) => [candidate.id, candidate.status]),
+            [
+                ["candidate-new", "accepted"],
+                ["candidate-existing", "pending"]
+            ]
+    );
+    assert.deepEqual(entries.map((entry) => entry.id), ["entry-confirmed"]);
+    assert.equal(entries.some((entry) => entry.id === "candidate-existing"), false);
+    assert.deepEqual(
+            state.cognitionWorkspace.pendingCandidates.map((candidate) => candidate.id),
+            ["candidate-existing"]
+    );
+    assert.deepEqual(
+            state.cognitionWorkspace.confirmedKnowledge.map((entry) => entry.id),
+            ["entry-confirmed"]
+    );
+    assert.deepEqual(
+            state.cognitionWorkspace.recentChanges.map((change) => change.eventType),
+            ["knowledge.entry.created", "candidate.created"]
+    );
+});
+
+test("candidate review queue contains only pending candidates after knowledge write", () => {
+    const candidates = [
+        { id: "candidate-pending", status: "pending", title: "Needs review" },
+        { id: "candidate-accepted", status: "accepted", title: "Already written" },
+        { id: "candidate-edited", status: "edited_accepted", title: "Edited and written" },
+        { id: "candidate-ignored", status: "ignored", title: "Ignored" }
+    ];
+
+    assert.deepEqual(
+            pendingKnowledgeCandidates(candidates).map((candidate) => candidate.id),
+            ["candidate-pending"]
+    );
+});
+
+test("F021 feedback.applied stores affected evidence and chunk counts in trace state", () => {
+    const state = applySseEvent(createWorkbenchState(), {
+        eventId: "f021-feedback-applied",
+        eventType: "feedback.applied",
+        runId: "run-feedback",
+        answerId: "answer-feedback",
+        payload: {
+            data: {
+                projectId: "project-1",
+                answerId: "answer-feedback",
+                rating: "helpful",
+                feedbackScore: 0.75,
+                updatedEvidenceSourceCount: 3,
+                updatedChunkCount: 14,
+                appliedEvidenceSourceIds: ["e-1", "e-2", "e-3"]
+            }
+        }
+    });
+
+    const trace = state.agentTraces["run-feedback"];
+    assert.deepEqual(trace.feedbackApplications, [
+        {
+            eventId: "f021-feedback-applied",
+            eventType: "feedback.applied",
+            runId: "run-feedback",
+            answerId: "answer-feedback",
+            sequence: null,
+            createdAt: "",
+            projectId: "project-1",
+            rating: "helpful",
+            feedbackScore: 0.75,
+            updatedEvidenceSourceCount: 3,
+            updatedChunkCount: 14,
+            appliedEvidenceSourceIds: ["e-1", "e-2", "e-3"]
+        }
+    ]);
+    assert.equal(trace.summary.feedbackAppliedCount, 1);
+    assert.equal(trace.summary.updatedEvidenceSourceCount, 3);
+    assert.equal(trace.summary.updatedChunkCount, 14);
+    assert.equal(trace.summary.latestFeedbackScore, 0.75);
+});
+
+test("F021 workbench bootstrap loads global cognition snapshot for Knowledge workspace", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+
+    assert.match(source, /function\s+loadGlobalKnowledge\(/);
+    assert.match(source, /\/api\/system\/global-knowledge/);
+    assert.match(source, /app\.globalKnowledge\s*=/);
+    assert.match(source, /loadGlobalKnowledge\(\)/);
+});
+
+test("F021 empty global cognition is shown as unrecorded, not unloaded", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const cognitionSource = source.slice(
+            source.indexOf("function globalCognitionDescriptor"),
+            source.indexOf("function renderRecentCognitionChanges")
+    );
+
+    assert.match(cognitionSource, /Object\.hasOwn\(global,\s*camelKey\)/);
+    assert.match(cognitionSource, /尚未记录这类稳定认知/);
+    assert.match(cognitionSource, /后端认知投影尚未加载/);
+});
+
+test("F021 global cognition notes render as tabs and only enter textarea mode after edit", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+    const cognitionSource = source.slice(
+            source.indexOf("function renderGlobalCognitionPanel"),
+            source.indexOf("function renderRecentCognitionChanges")
+    );
+    const css = await readFile(new URL("../css/workbench.css", import.meta.url), "utf8");
+
+    assert.match(source, /function\s+saveGlobalCognitionNote\(/);
+    assert.match(source, /activeGlobalCognitionNote/);
+    assert.match(source, /globalCognitionEditingNote/);
+    assert.match(source, /data-global-cognition-tab/);
+    assert.match(source, /data-global-cognition-edit/);
+    assert.match(source, /data-global-cognition-save/);
+    assert.match(source, /data-global-cognition-cancel/);
+    assert.match(source, /data-global-cognition-content/);
+    assert.match(source, /patchJson\(\"\/api\/system\/global-knowledge\"/);
+    assert.match(cognitionSource, /globalCognitionTabs/);
+    assert.match(cognitionSource, /globalCognitionActivePanel/);
+    assert.match(cognitionSource, /isEditing/);
+    assert.match(cognitionSource, /textarea/);
+    assert.doesNotMatch(cognitionSource, /global-cognition-title/);
+    assert.match(cognitionSource, /USER/);
+    assert.match(cognitionSource, /SOUL/);
+    assert.match(cognitionSource, /RESEARCH_STATE/);
+    assert.doesNotMatch(cognitionSource, /cognitionNote\(/);
+    assert.match(css, /\.global-cognition-tabs\s*\{/);
+    assert.match(css, /\.global-cognition-tab\.is-active\s*\{/);
+    assert.match(css, /\.global-cognition-tab\s*\{[\s\S]*background:\s*var\(--surface\);/);
+    assert.match(css, /\.global-cognition-tab\.is-active\s*\{[\s\S]*background:\s*var\(--surface-muted\);/);
+    assert.match(css, /\.global-cognition-reader\s*\{/);
+    assert.match(css, /\.global-cognition-editor\s*\{/);
+    assert.doesNotMatch(css, /\.global-cognition-title\s*\{/);
+    assert.match(html, /id="global-cognition-panel"\s+class="global-cognition-host"/);
+    assert.doesNotMatch(html, /id="global-cognition-panel"\s+class="cognition-note-grid"/);
+    assert.doesNotMatch(css, /\.cognition-note-grid\s*\{/);
 });
 
 test("plan execute trace events fold into serial multi-agent projection", () => {

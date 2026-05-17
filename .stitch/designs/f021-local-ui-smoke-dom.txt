@@ -1,0 +1,320 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>研究工作台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./css/workbench.css">
+</head>
+<body>
+<div class="app-shell">
+    <nav class="nav-rail" aria-label="工作区导航">
+        <div class="rail-mark" aria-hidden="true">RW</div>
+        <div class="rail-actions">
+            <button class="rail-button is-active" type="button" data-workspace-target="session" data-icon="chat_bubble" title="会话" aria-label="会话"><span>会话</span></button>
+            <button class="rail-button" type="button" data-workspace-target="sources" data-icon="library_books" title="资料库" aria-label="资料库"><span>资料库</span></button>
+            <button class="rail-button" type="button" data-workspace-target="knowledge" data-icon="psychology" title="认知 / Knowledge" aria-label="认知 / Knowledge"><span>认知</span></button>
+            <button class="rail-button" type="button" data-workspace-target="project" data-icon="folder" title="项目" aria-label="项目"><span>项目</span></button>
+            <button class="rail-button" type="button" data-workspace-target="observability" data-icon="monitoring" title="观测" aria-label="观测"><span>观测</span></button>
+        </div>
+        <div class="rail-footer">
+            <span id="system-status" class="status-pill" data-state="error">离线</span>
+        </div>
+    </nav>
+
+    <aside class="left-column" aria-label="工作区上下文">
+        <header class="drawer-header">
+            <div>
+                <h1>研究工作台</h1>
+                <p id="project-summary" hidden="">用于展示一级工作区导航的本地样例。</p>
+            </div>
+            <span id="active-project-chip" class="context-chip">1 会话 · 4 来源 · 3 知识</span>
+        </header>
+
+        <section class="drawer-panel is-active" data-context-panel="session">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <h2>会话</h2>
+                </div>
+                <button id="new-session" class="quiet-button" type="button">新建</button>
+            </div>
+            <div class="drawer-search" aria-hidden="true">
+                <input type="search" placeholder="筛选会话" tabindex="-1">
+            </div>
+            <div id="session-list" class="stack-list" aria-live="polite"><article class="row-item session-row is-active"><button type="button" class="session-select" data-session-id="sample-session"><strong>研究线索梳理</strong><span>刚刚</span></button><div class="session-row-actions"><button type="button" class="session-menu-button" data-session-menu="sample-session" title="会话操作" aria-label="会话操作" aria-expanded="false">more_vert</button></div></article></div>
+        </section>
+
+        <section class="drawer-panel" data-context-panel="sources">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <p>资料</p>
+                    <h2>资料集合</h2>
+                </div>
+                <button id="refresh-sources" class="quiet-button" type="button">刷新</button>
+            </div>
+            <div id="source-nav" class="context-nav" aria-label="资料库筛选"><button type="button" class="context-nav-item is-active"><span>全部资料</span><strong>4</strong></button><button type="button" class="context-nav-item"><span>待处理</span><strong>0</strong></button><button type="button" class="context-nav-item"><span>索引中</span><strong>1</strong></button><button type="button" class="context-nav-item"><span>已入库</span><strong>2</strong></button><button type="button" class="context-nav-item"><span>失败</span><strong>1</strong></button><button type="button" class="context-nav-item"><span>网页来源</span><strong>1</strong></button><button type="button" class="context-nav-item"><span>个人笔记</span><strong>1</strong></button></div>
+            <label class="source-import" for="file-input">
+                <span>导入论文或笔记</span>
+                <input id="file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx">
+            </label>
+            <button id="upload-button" class="primary-button drawer-wide-button" type="button">写入资料库</button>
+        </section>
+
+        <section class="drawer-panel drawer-panel--quiet" data-context-panel="knowledge">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <h2>知识</h2>
+                </div>
+                <button class="quiet-button" type="button" data-knowledge-action="new">新建</button>
+            </div>
+            <div class="drawer-search" aria-hidden="true">
+                <input type="search" placeholder="筛选知识" tabindex="-1">
+            </div>
+            <div id="knowledge-nav" class="context-nav" aria-label="知识库分区"><button type="button" class="context-nav-item is-active"><span>全部知识</span><strong>3</strong></button><button type="button" class="context-nav-item"><span>本轮候选</span><strong>2</strong></button><button type="button" class="context-nav-item"><span>核心概念</span><strong>1</strong></button><button type="button" class="context-nav-item"><span>方法路线</span><strong>1</strong></button><button type="button" class="context-nav-item"><span>已确认结论</span><strong>0</strong></button><button type="button" class="context-nav-item"><span>待验证问题</span><strong>1</strong></button><button type="button" class="context-nav-item"><span>已归档</span><strong>0</strong></button></div>
+        </section>
+
+        <section class="drawer-panel" data-context-panel="project">
+            <div class="section-heading">
+                <p>项目</p>
+                <h2 id="project-topic">样例研究项目</h2>
+            </div>
+            <p id="project-description" class="compact-text">用于展示一级工作区导航的本地样例。</p>
+            <dl class="project-stats">
+                <div><dt>资料</dt><dd id="stat-sources">4</dd></div>
+                <div><dt>知识</dt><dd id="stat-knowledge">3</dd></div>
+                <div><dt>会话</dt><dd id="stat-sessions">1</dd></div>
+            </dl>
+        </section>
+        <section class="drawer-panel drawer-panel--quiet" data-context-panel="observability">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <h2>观测</h2>
+                </div>
+                <button class="quiet-button" type="button" data-observability-refresh="">刷新</button>
+            </div>
+            <div class="drawer-search" aria-hidden="true">
+                <input type="search" placeholder="筛选观测" tabindex="-1">
+            </div>
+            <div id="diagnostics-nav" class="context-nav" aria-label="证据诊断摘要"><button type="button" class="context-nav-item is-active"><span>取证概览</span><strong>待观察</strong></button><button type="button" class="context-nav-item"><span>检索步骤</span><strong>0</strong></button><button type="button" class="context-nav-item"><span>查询改写</span><strong>0</strong></button><button type="button" class="context-nav-item"><span>引用待核验</span><strong>未形成</strong></button><button type="button" class="context-nav-item"><span>异常</span><strong>0</strong></button></div>
+        </section>
+    </aside>
+
+    <main class="workspace-root" aria-label="主工作区">
+        <section class="workspace workspace--session is-active" data-workspace="session" aria-label="研究会话工作区">
+            <main class="center-column" data-region="center-research-dialogue" aria-label="多轮研究对话">
+                <header class="dialogue-header">
+                    <div>
+                        <h2 id="active-session-title">研究线索梳理</h2>
+                        <p id="active-session-meta">草稿 · 最近更新 刚刚</p>
+                    </div>
+                    <div id="answer-state" class="answer-state">等待问题</div>
+                </header>
+                <section id="conversation" class="conversation" aria-live="polite"><div class="empty-state">输入研究问题后，这里会显示回答过程。确认后的结论才会写入知识板。</div></section>
+                <section class="composer" aria-label="发送研究问题">
+                    <div class="composer-surface">
+                        <div class="composer-modes" aria-label="回答模式">
+                            <label><input id="allow-web" type="checkbox" checked=""> 联网补充</label>
+                            <label><input id="extract-candidates" type="checkbox" checked=""> 提炼候选</label>
+                            <span>本地知识优先</span>
+                        </div>
+                        <textarea id="composer" rows="3" placeholder="输入研究指令，例如：这组资料支持哪些核心结论？"></textarea>
+                        <div class="composer-footer">
+                            <span id="status-banner" class="micro-copy">F002 项目接口暂不可用，已进入本地样例模式：HTTP 404</span>
+                            <button id="send-button" class="primary-button" type="button">发送</button>
+                        </div>
+                    </div>
+                </section>
+            </main>
+
+            <aside class="right-column" data-region="right-research-sidebar" aria-label="当前回答审阅区">
+                <nav class="sidebar-tabs" aria-label="当前回答审阅视图">
+                    <button class="tab-button" type="button" data-sidebar-view="knowledge-board" title="已确认的项目知识">知识</button>
+                    <button class="tab-button is-active" type="button" data-sidebar-view="evidence-sources" title="当前回答的最终引用">证据</button>
+                    <button class="tab-button" type="button" data-sidebar-view="candidate-confirmation" title="待确认后写入知识库的候选">候选</button>
+                </nav>
+                <p id="answer-context-line" class="context-line">当前回答审阅：0 条最终引用，2 条待确认候选。</p>
+                <section class="sidebar-view" data-view="knowledge-board" aria-label="项目知识摘要">
+                    <div class="section-heading"><p>知识摘要</p><h2>项目知识摘要</h2></div>
+                <div id="knowledge-board" class="knowledge-board"><details class="knowledge-section" open=""><summary><span>核心概念</span><small>1</small></summary><article class="knowledge-entry"><strong>拓扑绝缘体中的贝里相位</strong><p>贝里相位可作为能带拓扑性质的可观测线索。</p><span>confirmed · 刚刚</span></article></details><details class="knowledge-section" open=""><summary><span>方法路线</span><small>1</small></summary><article class="knowledge-entry"><strong>从边缘态验证体拓扑</strong><p>先定位边缘导电态，再回到体能带结构解释。</p><span>confirmed · 刚刚</span></article></details><details class="knowledge-section" open=""><summary><span>待验证问题</span><small>1</small></summary><article class="knowledge-entry"><strong>马约拉纳零模证据强度</strong><p>当前证据仍需排除非拓扑平庸态解释。</p><span>unverified · 刚刚</span></article></details><details class="knowledge-section"><summary><span>本轮候选</span><small>0</small></summary><div class="empty-state">项目还没有确认知识。候选确认或手动新建后会进入知识工作区。</div></details><details class="knowledge-section"><summary><span>已确认结论</span><small>0</small></summary><div class="empty-state">项目还没有确认知识。候选确认或手动新建后会进入知识工作区。</div></details></div>
+                </section>
+                <section class="sidebar-view is-active" data-view="evidence-sources" aria-label="最终证据来源">
+                    <div class="section-heading"><p>最终证据</p><h2>最终证据来源</h2></div>
+                    <div id="evidence-list" class="stack-list"><div class="empty-state">当前回答还没有最终引用。完成证据评估后，这里只显示可进入报告的最终来源。</div></div>
+                </section>
+                <section class="sidebar-view" data-view="candidate-confirmation" aria-label="候选确认">
+                    <div class="section-heading"><p>候选</p><h2>候选确认</h2></div>
+                    <div id="candidate-list" class="stack-list"><article class="candidate-row"><strong>马约拉纳费米子观测证据</strong><p>零偏压峰不能单独作为马约拉纳零模的充分证据。</p><span>待验证问题 · pending</span><div class="candidate-actions"><button type="button" class="quiet-button" data-candidate-id="c-1" data-candidate-action="accept">写入知识库</button><button type="button" class="quiet-button" data-candidate-id="c-1" data-candidate-action="mark-unverified">标为待验证</button><button type="button" class="quiet-button" data-candidate-id="c-1" data-candidate-action="ignore">忽略</button><button type="button" class="quiet-button" data-candidate-edit="c-1">编辑</button></div></article><article class="candidate-row"><strong>自旋动量锁定实验路径</strong><p>ARPES 与输运测量可互补验证自旋动量锁定。</p><span>方法路线 · pending</span><div class="candidate-actions"><button type="button" class="quiet-button" data-candidate-id="c-2" data-candidate-action="accept">写入知识库</button><button type="button" class="quiet-button" data-candidate-id="c-2" data-candidate-action="mark-unverified">标为待验证</button><button type="button" class="quiet-button" data-candidate-id="c-2" data-candidate-action="ignore">忽略</button><button type="button" class="quiet-button" data-candidate-edit="c-2">编辑</button></div></article></div>
+                </section>
+            </aside>
+        </section>
+
+        <section class="workspace workspace--sources" data-workspace="sources" aria-label="资料库工作区" hidden="">
+            <header class="workspace-header">
+                <div>
+                    <h2>资料库</h2>
+                    <p>管理项目论文、网页与笔记，处理完成后进入本地知识检索。</p>
+                </div>
+                <div class="workspace-actions">
+                    <button class="primary-button" type="button" data-upload-proxy="">上传论文</button>
+                    <button class="quiet-button" type="button" disabled="">添加网页</button>
+                </div>
+            </header>
+            <section class="operations-band">
+                <label class="drop-zone" for="file-input">
+                    <strong>拖入 PDF、网页链接或笔记</strong>
+                    <span>支持当前项目资料导入；网页入口待后续合同补齐。</span>
+                </label>
+                <div id="source-pipeline" class="pipeline-summary"><div class="pipeline-step"><strong>0</strong><span>已上传</span></div><div class="pipeline-step"><strong>0</strong><span>解析中</span></div><div class="pipeline-step"><strong>1</strong><span>索引中</span></div><div class="pipeline-step"><strong>0</strong><span>提取中</span></div><div class="pipeline-step"><strong>2</strong><span>已入库</span></div><div class="pipeline-step"><strong>1</strong><span>失败</span></div></div>
+            </section>
+            <section class="workspace-split">
+                <div class="workspace-list-pane">
+                    <div class="table-toolbar">
+                        <input type="search" placeholder="搜索已载入资料" data-source-search="">
+                        <select data-source-type-filter=""><option>全部类型</option><option>论文</option><option>网页</option><option>笔记</option></select>
+                        <select data-source-status-filter=""><option>全部状态</option><option>已入库</option><option>索引中</option><option>失败</option></select>
+                    </div>
+                    <p id="source-count" class="micro-copy">当前 4 份资料</p>
+                    <div id="source-list" class="source-table" aria-live="polite"><article class="source-table-row is-selected" data-source-id="source-1"><strong>Topological Insulators and Berry Phase</strong><span>论文</span><mark data-status="deposited">deposited</mark><span>24</span><span>8 条</span><span>刚刚</span><div class="table-row-actions"><span>查看</span></div></article><article class="source-table-row" data-source-id="source-2"><strong>Spin-Momentum Locking in Bi2Se3</strong><span>论文</span><mark data-status="indexing">indexing</mark><span>0</span><span>0 条</span><span>刚刚</span><div class="table-row-actions"><span>查看</span></div></article><article class="source-table-row" data-source-id="source-3"><strong>Quantum Hall Effect Notes</strong><span>笔记</span><mark data-status="deposited">deposited</mark><span>12</span><span>3 条</span><span>刚刚</span><div class="table-row-actions"><span>查看</span></div></article><article class="source-table-row" data-source-id="source-4"><strong>Nature: Topological Physics Review</strong><span>网页</span><mark data-status="failed">failed</mark><span>0</span><span>0 条</span><span>刚刚</span><div class="table-row-actions"><button type="button" class="quiet-button" data-source-retry="source-4">重试</button></div></article></div>
+                </div>
+                <aside class="workspace-inspector" aria-label="来源详情">
+                    <div class="section-heading"><p>来源</p><h2>来源详情</h2></div>
+                    <div id="source-detail"><div class="detail-stack"><h3>Topological Insulators and Berry Phase</h3><div class="detail-row"><span>类型</span><strong>论文</strong></div><div class="detail-row"><span>状态</span><strong>deposited</strong></div><div class="detail-row"><span>失败阶段</span><strong>无</strong></div><div class="detail-row"><span>沉淀知识</span><strong>8 条</strong></div></div></div>
+                </aside>
+            </section>
+        </section>
+
+        <section class="workspace workspace--knowledge" data-workspace="knowledge" aria-label="知识工作区" hidden="">
+            <header class="workspace-header">
+                <div>
+                    <h2>知识库</h2>
+                    <p>管理已确认的项目知识，审阅候选并维护可复用研究结论。</p>
+                </div>
+                <div class="workspace-actions">
+                    <button class="primary-button" type="button" data-knowledge-action="new">新建知识</button>
+                    <button class="quiet-button" type="button">导入候选</button>
+                </div>
+            </header>
+            <section id="knowledge-metrics" class="metrics-band"><div class="metric-item"><strong>3</strong><span>已确认</span></div><div class="metric-item"><strong>1</strong><span>待验证</span></div><div class="metric-item"><strong>2</strong><span>候选</span></div><div class="metric-item"><strong>2</strong><span>引用覆盖</span></div><div class="review-strip"><strong>本轮候选 2 条</strong><span>待确认候选不会自动写入知识库</span></div></section>
+            <section class="workspace-split">
+                <div class="workspace-list-pane">
+                    <div class="table-toolbar">
+                        <input type="search" placeholder="搜索知识条目">
+                        <select><option>全部分区</option><option>核心概念</option><option>方法路线</option><option>已确认结论</option></select>
+                        <select><option>全部证据状态</option><option>已确认</option><option>待验证</option></select>
+                    </div>
+                    <section class="cognition-section cognition-section--global" aria-labelledby="global-cognition-heading">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p>L2 全局认知</p>
+                                <h2 id="global-cognition-heading">全局认知笔记</h2>
+                            </div>
+                            <span class="trust-badge trust-badge--stable">稳定认知</span>
+                        </div>
+                        <div id="global-cognition-panel" class="cognition-note-grid" aria-live="polite"><article class="cognition-note"><span class="cognition-note__label">用户认知</span><strong>USER.md</strong><p>后端认知投影尚未加载。这个 L2 槽位与资料源、长期记忆保持分离。</p><small>稳定认知，不是引用证据</small></article><article class="cognition-note"><span class="cognition-note__label">Agent 行为身份</span><strong>SOUL.md</strong><p>后端认知投影尚未加载。这个 L2 槽位与资料源、长期记忆保持分离。</p><small>稳定认知，不是引用证据</small></article><article class="cognition-note"><span class="cognition-note__label">研究状态</span><strong>Research_state.md</strong><p>后端认知投影尚未加载。这个 L2 槽位与资料源、长期记忆保持分离。</p><small>稳定认知，不是引用证据</small></article></div>
+                    </section>
+                    <section class="cognition-section cognition-section--confirmed" aria-labelledby="confirmed-knowledge-heading">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p>L2 已确认知识</p>
+                                <h2 id="confirmed-knowledge-heading">已确认项目知识</h2>
+                            </div>
+                            <span class="trust-badge trust-badge--confirmed">用户确认</span>
+                        </div>
+                        <div id="knowledge-workspace-board" class="knowledge-workspace-board"><details class="knowledge-section knowledge-section--workspace" open=""><summary><span>核心概念</span><small>1</small></summary><article class="knowledge-entry"><strong>拓扑绝缘体中的贝里相位</strong><p>贝里相位可作为能带拓扑性质的可观测线索。</p><span>confirmed · 刚刚</span></article></details><details class="knowledge-section knowledge-section--workspace" open=""><summary><span>方法路线</span><small>1</small></summary><article class="knowledge-entry"><strong>从边缘态验证体拓扑</strong><p>先定位边缘导电态，再回到体能带结构解释。</p><span>confirmed · 刚刚</span></article></details><details class="knowledge-section knowledge-section--workspace" open=""><summary><span>待验证问题</span><small>1</small></summary><article class="knowledge-entry"><strong>马约拉纳零模证据强度</strong><p>当前证据仍需排除非拓扑平庸态解释。</p><span>unverified · 刚刚</span></article></details><details class="knowledge-section knowledge-section--workspace"><summary><span>本轮候选</span><small>0</small></summary><div class="empty-state">暂无已确认条目。</div></details><details class="knowledge-section knowledge-section--workspace"><summary><span>已确认结论</span><small>0</small></summary><div class="empty-state">暂无已确认条目。</div></details></div>
+                    </section>
+                    <section class="candidate-lane">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p>待确认候选</p>
+                                <h2>候选审阅队列</h2>
+                            </div>
+                            <span class="trust-badge trust-badge--pending">未确认</span>
+                        </div>
+                        <div id="knowledge-candidate-list" class="stack-list"><article class="candidate-row"><strong>马约拉纳费米子观测证据</strong><p>零偏压峰不能单独作为马约拉纳零模的充分证据。</p><span>待验证问题 · pending</span><div class="candidate-actions"><button type="button" class="quiet-button" data-candidate-id="c-1" data-candidate-action="accept">写入知识库</button><button type="button" class="quiet-button" data-candidate-id="c-1" data-candidate-action="mark-unverified">标为待验证</button><button type="button" class="quiet-button" data-candidate-id="c-1" data-candidate-action="ignore">忽略</button><button type="button" class="quiet-button" data-candidate-edit="c-1">编辑</button></div></article><article class="candidate-row"><strong>自旋动量锁定实验路径</strong><p>ARPES 与输运测量可互补验证自旋动量锁定。</p><span>方法路线 · pending</span><div class="candidate-actions"><button type="button" class="quiet-button" data-candidate-id="c-2" data-candidate-action="accept">写入知识库</button><button type="button" class="quiet-button" data-candidate-id="c-2" data-candidate-action="mark-unverified">标为待验证</button><button type="button" class="quiet-button" data-candidate-id="c-2" data-candidate-action="ignore">忽略</button><button type="button" class="quiet-button" data-candidate-edit="c-2">编辑</button></div></article></div>
+                    </section>
+                    <section class="cognition-section cognition-section--changes" aria-labelledby="recent-cognition-heading">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p>最近变更</p>
+                                <h2 id="recent-cognition-heading">学习轨迹</h2>
+                            </div>
+                        </div>
+                        <div id="recent-cognition-changes" class="cognition-change-list" aria-live="polite"><article class="cognition-change"><span class="cognition-change__kind">candidate.created</span><strong>马约拉纳费米子观测证据</strong><p>待确认候选，不是已确认知识</p><small>暂无时间</small></article><article class="cognition-change"><span class="cognition-change__kind">candidate.created</span><strong>自旋动量锁定实验路径</strong><p>待确认候选，不是已确认知识</p><small>暂无时间</small></article><article class="cognition-change"><span class="cognition-change__kind">knowledge.entry.created</span><strong>拓扑绝缘体中的贝里相位</strong><p>已确认项目知识</p><small>刚刚</small></article><article class="cognition-change"><span class="cognition-change__kind">knowledge.entry.created</span><strong>从边缘态验证体拓扑</strong><p>已确认项目知识</p><small>刚刚</small></article><article class="cognition-change"><span class="cognition-change__kind">knowledge.entry.created</span><strong>马约拉纳零模证据强度</strong><p>已确认项目知识</p><small>刚刚</small></article></div>
+                    </section>
+                </div>
+                <aside class="workspace-inspector" aria-label="知识详情">
+                    <div class="section-heading"><p>知识详情</p><h2>知识详情</h2></div>
+                    <div id="knowledge-detail"><div class="detail-stack"><h3>拓扑绝缘体中的贝里相位</h3><div class="detail-row"><span>分区</span><strong>核心概念</strong></div><div class="detail-row"><span>证据状态</span><strong>confirmed</strong></div><p>贝里相位可作为能带拓扑性质的可观测线索。</p><div class="detail-row"><span>关联证据</span><strong>1 条</strong></div><div class="detail-actions"><button type="button" class="primary-button">保存修改</button><button type="button" class="quiet-button">移动分区</button><button type="button" class="quiet-button">标为待验证</button><button type="button" class="quiet-button">归档</button></div></div></div>
+                </aside>
+            </section>
+        </section>
+
+        <section class="workspace workspace--project" data-workspace="project" aria-label="项目工作区" hidden="">
+            <header class="workspace-header">
+                <div>
+                    <h2>项目概览</h2>
+                    <p>查看当前研究项目的资料、会话与知识状态。</p>
+                </div>
+            </header>
+            <section class="project-overview">
+                <div class="project-overview-card">
+                    <h3 id="project-overview-topic">样例研究项目</h3>
+                    <p id="project-overview-summary">用于展示一级工作区导航的本地样例。</p>
+                </div>
+                <dl class="project-stats project-stats--wide">
+                    <div><dt>资料</dt><dd id="overview-stat-sources">4</dd></div>
+                    <div><dt>知识</dt><dd id="overview-stat-knowledge">3</dd></div>
+                    <div><dt>会话</dt><dd id="overview-stat-sessions">1</dd></div>
+                </dl>
+            </section>
+        </section>
+        <section class="workspace workspace--observability" data-workspace="observability" aria-label="回答取证诊断工作区" hidden="">
+            <header class="workspace-header">
+                <div>
+                    <h2>回答取证诊断</h2>
+                    <p id="diagnostics-context">研究线索梳理 · 还没有检索观察，无法判断这轮回答能否引用。</p>
+                </div>
+                <div class="workspace-actions">
+                    <div class="diagnostics-mode-toggle" aria-label="诊断范围">
+                        <button class="is-active" type="button" data-diagnostics-mode="session">当前会话</button>
+                        <button type="button" data-diagnostics-mode="recent" disabled="" title="跨运行聚合待后续补齐">最近运行</button>
+                    </div>
+                    <button id="diagnostics-refresh" class="quiet-button" type="button">刷新</button>
+                </div>
+            </header>
+            <section id="diagnostics-summary" class="diagnostics-summary" aria-label="取证概览说明"><div class="diagnostic-indicator"><span>找到多少证据</span><strong>待观察</strong><small>0 个候选片段，还需确认是否可引用</small></div><div class="diagnostic-indicator"><span>问了几种查法</span><strong>待观察</strong><small>0 条改写查询</small></div><div class="diagnostic-indicator"><span>没有找到的次数</span><strong>0</strong><small>本轮没有空结果</small></div><div class="diagnostic-indicator"><span>是否进入引用</span><strong>未形成</strong><small>待与最终报告引用逐条对齐</small></div></section>
+            <section id="diagnostics-taxonomy" class="diagnostics-taxonomy" aria-label="zero-hit 与失败分类"><button type="button" class="taxonomy-chip">无零命中 0</button></section>
+            <section class="workspace-split diagnostics-split">
+                <div class="workspace-list-pane">
+                    <section id="diagnostics-verdict" class="diagnostics-verdict" aria-label="一句话结论"><strong>一句话结论</strong><p>本轮回答目前没有可审计的检索证据。</p><p>当前会话还没有检索观察，无法判断研究证据覆盖。</p><p>已经找到候选材料，但仍需确认哪些片段真正进入最终引用。</p></section>
+                    <div class="table-toolbar">
+                        <input type="search" placeholder="筛选检索事件" disabled="">
+                        <select disabled=""><option>全部原因</option></select>
+                        <select disabled=""><option>全部工具</option></select>
+                    </div>
+                    <div class="diagnostics-header-row" aria-label="检索步骤列标题">
+                        <span>步骤</span>
+                        <span>系统动作</span>
+                        <span>查法数</span>
+                        <span>候选材料</span>
+                        <span>主要来源</span>
+                        <span>这意味着</span>
+                        <span>时间</span>
+                    </div>
+                    <div id="diagnostics-events" class="diagnostics-table" aria-live="polite"><div class="empty-state">样例模式未配置证据诊断。</div></div>
+                </div>
+                <aside class="workspace-inspector" aria-label="检索步骤含义">
+                    <div class="section-heading"><h2>这一步代表什么</h2></div>
+                    <div id="diagnostics-detail"><div class="empty-state">选择一次检索，查看它对当前回答的证据意义。</div></div>
+                </aside>
+            </section>
+        </section>
+    </main>
+</div>
+
+<script type="module" src="./js/workbench-app.js"></script>
+
+
+</body></html>

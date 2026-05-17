@@ -1,5 +1,7 @@
 package com.researchassistant.orchestrator;
 
+import com.researchassistant.evidence.EvidenceCitationSource;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -19,8 +21,8 @@ public class EvidenceCurator {
         Objects.requireNonNull(question, "question");
         Objects.requireNonNull(packet, "packet");
         List<CuratedEvidenceItem> items = new ArrayList<>();
-        packet.paperEvidence().forEach(evidence -> items.add(curateOne("paper", evidence)));
-        packet.webEvidence().forEach(evidence -> items.add(curateOne("web", evidence)));
+        addEvidence(items, "paper", packet.paperEvidence(), citationSources(packet, "paper"));
+        addEvidence(items, "web", packet.webEvidence(), citationSources(packet, "web"));
         return new CuratedEvidenceSet(items);
     }
 
@@ -36,7 +38,29 @@ public class EvidenceCurator {
         return packet.withEvidence(set.acceptedPaperEvidence(), set.acceptedWebEvidence(), gaps);
     }
 
-    private CuratedEvidenceItem curateOne(String sourceType, String evidence) {
+    private void addEvidence(
+            List<CuratedEvidenceItem> items,
+            String sourceType,
+            List<String> evidence,
+            List<EvidenceCitationSource> citationSources
+    ) {
+        for (int index = 0; index < evidence.size(); index++) {
+            EvidenceCitationSource citationSource = index < citationSources.size() ? citationSources.get(index) : null;
+            items.add(curateOne(sourceType, evidence.get(index), citationSource));
+        }
+    }
+
+    private List<EvidenceCitationSource> citationSources(ResearchPacket packet, String sourceType) {
+        return packet.citationSources().stream()
+                .filter(source -> sourceType.equals(source.sourceType()))
+                .toList();
+    }
+
+    private CuratedEvidenceItem curateOne(
+            String sourceType,
+            String evidence,
+            EvidenceCitationSource citationSource
+    ) {
         String text = evidence == null ? "" : evidence.trim();
         String normalized = text.toLowerCase(Locale.ROOT);
         String rejectReason = rejectReason(text, normalized);
@@ -45,7 +69,8 @@ public class EvidenceCurator {
                 text,
                 rejectReason.isBlank(),
                 rejectReason,
-                List.of()
+                List.of(),
+                citationSource
         );
     }
 

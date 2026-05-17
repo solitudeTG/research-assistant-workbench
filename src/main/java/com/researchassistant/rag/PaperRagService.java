@@ -134,7 +134,8 @@ public class PaperRagService {
                     chunk.documentId(),
                     chunk.chunkIndex(),
                     chunk.content(),
-                    chunk.finalScore() * weight
+                    chunk.finalScore() * weight,
+                    chunk.feedbackScore()
             );
             merged.merge(
                     chunk.chunkId(),
@@ -144,10 +145,18 @@ public class PaperRagService {
                             existing.documentId(),
                             existing.chunkIndex(),
                             existing.content(),
-                            existing.finalScore() + incoming.finalScore()
+                            existing.finalScore() + incoming.finalScore(),
+                            feedbackScoreForMergedChunk(existing, incoming)
                     )
             );
         }
+    }
+
+    private double feedbackScoreForMergedChunk(RagChunk existing, RagChunk incoming) {
+        if (existing.feedbackScore() != 0.0) {
+            return existing.feedbackScore();
+        }
+        return incoming.feedbackScore();
     }
 
     private List<RagChunk> mergeForTrace(List<RagChunk> keywordHits, List<RagChunk> vectorHits, List<RagChunk> metadataHits) {

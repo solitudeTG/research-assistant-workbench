@@ -2,13 +2,22 @@
 id: BACKLOG
 doc_kind: backlog
 status: active
-updated: 2026-05-15
+updated: 2026-05-16
 ---
 # Work Backlog
 
 This file records active engineering state that future sessions must be able to recover. It is not an unlimited wishlist.
 
 ## Active Work
+
+### Next Session: Memory Self-Learning Visualization
+
+- Status: active-f021.1-reset
+- Handoff: [2026-05-16-memory-self-learning-visualization.md](handoffs/2026-05-16-memory-self-learning-visualization.md)
+- Feature page: [F021-memory-self-learning-visualization.md](features/F021-memory-self-learning-visualization.md)
+- Reset plan: [F021.1-self-learning-closed-loop-reset-plan.md](plans/F021.1-self-learning-closed-loop-reset-plan.md)
+- Current intent: zero-base correction of the F021 self-learning demo loop after live service validation showed the completed label was ahead of actual behavior.
+- Next step: TDD the smallest closed-loop fixes for L2 confirmed knowledge recall, real `feedback.applied` run-stream identity, and session-history trace recovery.
 
 ### F016 Retrieval Observability
 
@@ -43,6 +52,16 @@ This file records active engineering state that future sessions must be able to 
 - Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ## Recently Completed
+
+### F020 Plan-Execute Evidence Carry-Through
+
+- Status: completed
+- Feature page: [F020-plan-execute-evidence-carry-through.md](features/F020-plan-execute-evidence-carry-through.md)
+- Spec: [F020-plan-execute-evidence-carry-through-spec.md](specs/F020-plan-execute-evidence-carry-through-spec.md)
+- Plan: [F020-plan-execute-evidence-carry-through-plan.md](plans/F020-plan-execute-evidence-carry-through-plan.md)
+- Evidence: [EV-019-f020-plan-execute-evidence-carry-through.md](evidence/EV-019-f020-plan-execute-evidence-carry-through.md)
+- Result: Plan-Execute paper/web evidence now carries structured citation references through curation and semantic gating; accepted references are persisted into `evidence_source`, and Plan-Execute citation telemetry reports non-zero counts when accepted citations exist.
+- Known limitation: this does not add parallel Agent runtime, a new citation table, or LLM-based document writing. Manual live demo validation after Docker rebuild/start remains a useful pre-interview check.
 
 ### F019 Semantic Intent Routing
 

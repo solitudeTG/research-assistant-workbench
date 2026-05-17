@@ -393,8 +393,12 @@ public class ProjectAgentTools {
 
     private Map<String, Object> memoryHitPayload(MemoryRecallHit hit) {
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("memoryLayer", "L3");
+        payload.put("sourceType", "long_term_memory");
+        payload.put("contextOnly", true);
         payload.put("score", hit.finalScore());
         if (hit.entry() != null) {
+            payload.put("sourceId", String.valueOf(hit.entry().id()));
             payload.put("topic", safe(hit.entry().topic()));
             payload.put("summary", safe(hit.entry().summary()));
             payload.put("keyFindings", hit.entry().keyFindings() == null ? List.of() : hit.entry().keyFindings());

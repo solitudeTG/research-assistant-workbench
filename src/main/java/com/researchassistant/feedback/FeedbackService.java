@@ -2,12 +2,14 @@ package com.researchassistant.feedback;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.researchassistant.evidence.EvidenceSourceRecord;
 import com.researchassistant.evidence.EvidenceSourceRepository;
 import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.events.WorkbenchEventType;
 import com.researchassistant.ingest.DocumentChunkRepository;
 import com.researchassistant.orchestrator.FeedbackPort;
+import com.researchassistant.project.AssistantAnswerRepository;
 import com.researchassistant.rag.VectorSearchPort;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,6 +25,7 @@ public class FeedbackService implements FeedbackPort {
     private final JdbcTemplate jdbcTemplate;
     private final DocumentChunkRepository documentChunkRepository;
     private final EvidenceSourceRepository evidenceSourceRepository;
+    private final AssistantAnswerRepository assistantAnswerRepository;
     private final WorkbenchEventPublisher eventPublisher;
     private final VectorSearchPort vectorSearchPort;
     private final ObjectMapper objectMapper;
@@ -30,12 +33,14 @@ public class FeedbackService implements FeedbackPort {
     public FeedbackService(JdbcTemplate jdbcTemplate,
                            DocumentChunkRepository documentChunkRepository,
                            EvidenceSourceRepository evidenceSourceRepository,
+                           AssistantAnswerRepository assistantAnswerRepository,
                            WorkbenchEventPublisher eventPublisher,
                            VectorSearchPort vectorSearchPort,
                            ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.documentChunkRepository = documentChunkRepository;
         this.evidenceSourceRepository = evidenceSourceRepository;
+        this.assistantAnswerRepository = assistantAnswerRepository;
         this.eventPublisher = eventPublisher;
         this.vectorSearchPort = vectorSearchPort;
         this.objectMapper = objectMapper;
@@ -67,7 +72,8 @@ public class FeedbackService implements FeedbackPort {
             ProjectAnswerFeedbackRequest request) {
         int feedbackScore = feedbackScore(request == null ? null : request.rating());
         String rating = feedbackScore > 0 ? "up" : "down";
-        List<String> evidenceSourceIds = request == null ? List.of() : request.evidenceSourceIds();
+        String reason = reason(request, rating);
+        List<String> evidenceSourceIds = evidenceSourceIdsForFeedback(projectId, answerId, request, rating, reason);
 
         jdbcTemplate.update("""
                 insert into answer_feedback(id, project_id, answer_id, feedback_score, note)
@@ -92,13 +98,16 @@ public class FeedbackService implements FeedbackPort {
                 projectId,
                 answerId,
                 rating,
+                reason,
                 feedbackScore,
                 application.updatedEvidenceSourceCount(),
                 application.updatedChunkCount(),
                 "APPLIED"
         );
         vectorSearchPort.applyChunkFeedback(application.appliedChunkIds(), feedbackScore);
-        publishFeedbackApplied(result, application.appliedEvidenceSourceIds());
+        AssistantAnswerRepository.AssistantAnswerContext answerContext =
+                assistantAnswerRepository.findContext(projectId, answerId).orElse(null);
+        publishFeedbackApplied(result, application.appliedEvidenceSourceIds(), answerContext);
         return result;
     }
 
@@ -112,10 +121,15 @@ public class FeedbackService implements FeedbackPort {
         throw new InvalidFeedbackRatingException(rating);
     }
 
-    private void publishFeedbackApplied(ProjectAnswerFeedbackResult result, List<String> evidenceSourceIds) {
+    private void publishFeedbackApplied(
+            ProjectAnswerFeedbackResult result,
+            List<String> evidenceSourceIds,
+            AssistantAnswerRepository.AssistantAnswerContext answerContext) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("rating", result.rating());
+        payload.put("reason", result.reason());
         payload.put("feedbackScore", result.feedbackScore());
+        payload.put("appliedEvidenceSourceIds", evidenceSourceIds == null ? List.of() : evidenceSourceIds);
         payload.put("evidenceSourceIds", evidenceSourceIds == null ? List.of() : evidenceSourceIds);
         payload.put("updatedEvidenceSourceCount", result.updatedEvidenceSourceCount());
         payload.put("updatedChunkCount", result.updatedChunkCount());
@@ -124,8 +138,8 @@ public class FeedbackService implements FeedbackPort {
                 null,
                 WorkbenchEventType.FEEDBACK_APPLIED,
                 result.projectId(),
-                null,
-                null,
+                answerContext == null ? null : answerContext.sessionId(),
+                answerContext == null ? null : answerContext.runId(),
                 "feedback-service",
                 0,
                 null,
@@ -134,6 +148,40 @@ public class FeedbackService implements FeedbackPort {
                 null,
                 payload
         ));
+    }
+
+    private List<String> evidenceSourceIdsForFeedback(
+            String projectId,
+            String answerId,
+            ProjectAnswerFeedbackRequest request,
+            String rating,
+            String reason) {
+        List<String> requestedEvidenceSourceIds = request == null ? List.of() : request.evidenceSourceIds();
+        if (!requestedEvidenceSourceIds.isEmpty()) {
+            return requestedEvidenceSourceIds;
+        }
+        if (!shouldInternallyAttributeEvidence(rating, reason)) {
+            return List.of();
+        }
+        return evidenceSourceRepository.findByAnswer(projectId, answerId).stream()
+                .map(EvidenceSourceRecord::id)
+                .toList();
+    }
+
+    private boolean shouldInternallyAttributeEvidence(String rating, String reason) {
+        if ("up".equals(rating)) {
+            return true;
+        }
+        return "citation_wrong".equals(reason)
+                || "evidence_not_relevant".equals(reason)
+                || "not_relevant".equals(reason);
+    }
+
+    private String reason(ProjectAnswerFeedbackRequest request, String rating) {
+        if (request != null && request.reason() != null && !request.reason().isBlank()) {
+            return request.reason();
+        }
+        return "up".equals(rating) ? "helpful" : "needs_correction";
     }
 
     private String toJson(Object value) {

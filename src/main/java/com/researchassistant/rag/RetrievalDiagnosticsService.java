@@ -90,6 +90,10 @@ public class RetrievalDiagnosticsService {
             putIfPresent(projected, "sourceId", source.get("sourceId"));
             putIfPresent(projected, "chunkIndex", source.get("chunkIndex"));
             putIfPresent(projected, "score", firstNonNull(source.get("score"), source.get("finalScore")));
+            putIfPresent(projected, "feedbackScore", source.get("feedbackScore"));
+            if (source.containsKey("feedbackScore")) {
+                projected.put("feedbackScoreAdjustment", feedbackScoreAdjustment(source.get("feedbackScore")));
+            }
             putIfPresent(projected, "retrievalModes", source.get("retrievalModes"));
             projected.put("snippet", boundedSnippet(firstNonNull(source.get("snippet"), source.get("content"))));
             bounded.add(projected);
@@ -107,6 +111,24 @@ public class RetrievalDiagnosticsService {
             return normalized;
         }
         return normalized.substring(0, MAX_SNIPPET_LENGTH).trim() + "...";
+    }
+
+    private double feedbackScoreAdjustment(Object value) {
+        double adjustment = RetrievalFeedbackScoring.finalScore(0.0, doubleValue(value));
+        return BigDecimal.valueOf(adjustment)
+                .setScale(4, RoundingMode.HALF_UP)
+                .stripTrailingZeros()
+                .doubleValue();
+    }
+
+    private double doubleValue(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Double.parseDouble(text);
+        }
+        return 0.0;
     }
 
     private void putIfPresent(Map<String, Object> target, String key, Object value) {

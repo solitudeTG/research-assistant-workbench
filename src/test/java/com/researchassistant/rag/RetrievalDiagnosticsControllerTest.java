@@ -51,7 +51,8 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                             "documentId": 10,
                             "chunkIndex": 3,
                             "content": "Attention aligns tokens across a sequence with bounded evidence.",
-                            "finalScore": 0.91
+                            "finalScore": 0.91,
+                            "feedbackScore": 3.0
                           }
                         ]
                         """,
@@ -130,6 +131,10 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                         .value(2))
                 .andExpect(jsonPath("$.retrievals[1].topChunks[0].snippet")
                         .value("Attention aligns tokens across a sequence with bounded evidence."))
+                .andExpect(jsonPath("$.retrievals[1].topChunks[0].feedbackScore")
+                        .value(3.0))
+                .andExpect(jsonPath("$.retrievals[1].topChunks[0].feedbackScoreAdjustment")
+                        .value(0.15))
                 .andExpect(jsonPath("$.retrievals[0].zeroHitReason")
                         .value("SCOPE_FILTERED_EMPTY"));
     }

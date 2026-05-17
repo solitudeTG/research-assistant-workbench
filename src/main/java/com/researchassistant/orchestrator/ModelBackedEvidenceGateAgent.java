@@ -105,7 +105,8 @@ public class ModelBackedEvidenceGateAgent implements EvidenceGateAgent {
                         item.text(),
                         false,
                         rejectionReason,
-                        List.of()
+                        List.of(),
+                        item.citationSource()
                 ));
             }
             reviewableIndex++;

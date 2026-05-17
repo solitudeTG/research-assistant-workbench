@@ -6,6 +6,7 @@ import com.researchassistant.chat.dto.ProjectSessionMessageResponse;
 import com.researchassistant.memory.ChatMessageRecord;
 import com.researchassistant.memory.WorkingMemoryService;
 import com.researchassistant.orchestrator.SupervisorService;
+import com.researchassistant.project.AssistantAnswerRepository;
 import com.researchassistant.project.ProjectRepository;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -24,14 +25,17 @@ public class ProjectChatController {
     private final SupervisorService supervisorService;
     private final ProjectRepository projectRepository;
     private final WorkingMemoryService workingMemoryService;
+    private final AssistantAnswerRepository assistantAnswerRepository;
 
     public ProjectChatController(
             SupervisorService supervisorService,
             ProjectRepository projectRepository,
-            WorkingMemoryService workingMemoryService) {
+            WorkingMemoryService workingMemoryService,
+            AssistantAnswerRepository assistantAnswerRepository) {
         this.supervisorService = supervisorService;
         this.projectRepository = projectRepository;
         this.workingMemoryService = workingMemoryService;
+        this.assistantAnswerRepository = assistantAnswerRepository;
     }
 
     @GetMapping("/api/projects/{projectId}/sessions/{sessionId}/messages")
@@ -43,7 +47,7 @@ public class ProjectChatController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project session not found");
         }
         return workingMemoryService.listMessages(sessionId).stream()
-                .map(message -> toProjectMessage(sessionId, message))
+                .map(message -> toProjectMessage(projectId, sessionId, message))
                 .toList();
     }
 
@@ -65,12 +69,18 @@ public class ProjectChatController {
         return supervisorService.answerProject(projectId, sessionId, request);
     }
 
-    private ProjectSessionMessageResponse toProjectMessage(String sessionId, ChatMessageRecord message) {
+    private ProjectSessionMessageResponse toProjectMessage(String projectId, String sessionId, ChatMessageRecord message) {
+        String role = message.role().toLowerCase(Locale.ROOT);
+        AssistantAnswerRepository.AssistantAnswerContext answerContext = "assistant".equals(role)
+                ? assistantAnswerRepository.findContextForSessionAnswer(projectId, sessionId, message.content()).orElse(null)
+                : null;
         return new ProjectSessionMessageResponse(
                 Long.toString(message.id()),
                 sessionId,
-                message.role().toLowerCase(Locale.ROOT),
+                role,
                 message.content(),
+                answerContext == null ? null : answerContext.answerId(),
+                answerContext == null ? null : answerContext.runId(),
                 message.answerMode(),
                 message.createdAt()
         );

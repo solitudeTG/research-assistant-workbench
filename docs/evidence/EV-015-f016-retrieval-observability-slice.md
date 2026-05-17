@@ -3,7 +3,7 @@ id: EV-015
 doc_kind: evidence
 status: active
 created: 2026-05-12
-updated: 2026-05-12
+updated: 2026-05-15
 feature_ids: [F016]
 ---
 # EV-015 F016 Retrieval Observability Slice
@@ -65,6 +65,27 @@ UI regression follow-up:
 - Root cause: the diagnostics UI slice introduced a second top-level `sampleRetrievalDiagnostics()` definition. `node --check` did not catch this browser-module strict-mode failure.
 - Fix: removed the duplicate definition and added a frontend regression test that rejects duplicate top-level function declarations in `workbench-app.js`.
 
+Evidence diagnostics UI follow-up:
+
+- The Observability workspace now presents the same retrieval-backed data through a researcher-facing `证据诊断` lens instead of a raw `检索诊断` lens.
+- The drawer navigation separates `证据诊断`, `检索调用`, `查询改写`, `引用链路`, and `异常`, while keeping the underlying session-scoped diagnostics endpoint unchanged.
+- The top strip now explains coverage, retrieval efficiency, zero-hit count, and evidence-chain state. `引用链路` intentionally remains `待核验` when returned chunks exist because final citation-to-observation linkage is not yet implemented.
+- The main pane adds `本轮判断` and explicit table headers: `调用`, `策略`, `查询`, `返回`, `命中来源`, `状态`, and `时间`.
+- The inspector keeps engineering fields available but translates them into `检索细分`, `改写查询`, `返回片段`, and `证据缺口`.
+- `最近运行` is visible but disabled with `跨运行聚合待后续补齐`, because the current API is still session-scoped and does not support cross-run aggregation.
+
+Answer evidence diagnostics clarity follow-up:
+
+- User review showed the `证据诊断` page was still understandable mainly as an engineering log, not as a researcher's answer to "can I trust this response?".
+- Stitch was used as a visual intent anchor for a clearer `回答取证诊断` page: first explain what the page audits, then show what was found, what is still unproven, and where to inspect the next step.
+- A parallel read-only subagent review independently recommended replacing internal retrieval language with researcher-facing labels.
+- The page title is now `回答取证诊断`, with the purpose statement `检查本轮回答背后的论文证据：哪些结论已有材料支持，哪些还不能使用。`
+- The four summary cards now use task-language labels: `找到多少证据`, `问了几种查法`, `没有找到的次数`, and `是否进入引用`.
+- The main conclusion now starts with `一句话结论`, classifying the current answer as no evidence, weak evidence, or candidate evidence before showing counts.
+- The table is now a `检索步骤` explanation rather than an event log: `步骤`, `系统动作`, `查法数`, `候选材料`, `主要来源`, `这意味着`, and `时间`.
+- The inspector now starts from `这一步代表什么` and surfaces `原始问题`, `找到的材料`, `为什么没找到`, `对结论的影响`, and `下一步建议` before lower-level retrieval stats.
+- Zero-hit reasons now map to user actions such as importing papers, changing keywords, checking project scope, or relaxing filters.
+
 ## Verification Commands
 
 Focused backend verification:
@@ -80,6 +101,7 @@ node --check src/main/resources/static/js/workbench-app.js
 node --check src/main/resources/static/js/workbench-model.js
 git diff --check
 .\scripts\rebuild-dev.cmd
+python scripts/knowledge_check.py
 ```
 
 Result:
@@ -98,6 +120,8 @@ JavaScript syntax checks: passed.
 git diff --check: passed with CRLF warnings only.
 Docker rebuild: passed, app container restarted.
 Headless Chrome console smoke after rebuild: no `Uncaught`, `TypeError`, `ReferenceError`, or `SyntaxError` from `workbench-app.js`.
+Evidence diagnostics UI follow-up: `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` passed with 35/35 tests; `node --test src/main/resources/static/tests/workbench-model.test.mjs` passed with 6/6 tests; both JavaScript syntax checks passed; `git diff --check` passed with CRLF warnings only; `.\scripts\rebuild-dev.cmd` completed with `BUILD SUCCESS`; HTTP smoke after rebuild confirmed `/` contains `证据诊断`, `本轮判断`, and `最近运行`, and does not contain `检索诊断`.
+Answer evidence diagnostics clarity follow-up: `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` passed with 35/35 tests; `node --test src/main/resources/static/tests/workbench-model.test.mjs` passed with 6/6 tests; both JavaScript syntax checks passed; `python scripts/knowledge_check.py` passed; `git diff --check` passed with CRLF warnings only; `.\scripts\rebuild-dev.cmd` completed with `BUILD SUCCESS`; HTTP smoke after rebuild confirmed `/` contains `回答取证诊断`, `检查本轮回答背后的论文证据`, `查法数`, and `这意味着`, and does not contain `检索诊断`.
 ```
 
 Harness validation:

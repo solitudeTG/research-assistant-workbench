@@ -91,8 +91,12 @@ class ProjectFeedbackServiceTest extends PostgresIntegrationTest {
         WorkbenchEvent event = eventCaptor.getValue();
         assertThat(event.eventType()).isEqualTo(WorkbenchEventType.FEEDBACK_APPLIED);
         assertThat(event.projectId()).isEqualTo(target.projectId());
+        assertThat(event.sessionId()).isEqualTo(target.sessionId());
+        assertThat(event.runId()).isEqualTo(target.runId());
         assertThat(event.answerId()).isEqualTo(target.answerId());
         assertThat(event.payload()).containsEntry("rating", "up")
+                .containsEntry("reason", "helpful")
+                .containsEntry("appliedEvidenceSourceIds", List.of(target.evidenceId()))
                 .containsEntry("evidenceSourceIds", List.of(target.evidenceId()))
                 .containsEntry("updatedEvidenceSourceCount", 1)
                 .containsEntry("updatedChunkCount", 1);
@@ -115,18 +119,38 @@ class ProjectFeedbackServiceTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void feedbackWithoutEvidenceSourceIdsRecordsAnswerLevelOnly() {
-        FeedbackFixture target = createFixture("answer only project");
+    void helpfulFeedbackWithoutEvidenceSourceIdsInternallyAttributesAnswerEvidence() {
+        FeedbackFixture target = createFixture("answer attributed project");
 
         ProjectAnswerFeedbackResult result = feedbackService.recordProjectAnswerFeedback(
                 target.projectId(),
                 target.answerId(),
-                new ProjectAnswerFeedbackRequest("up", null, "overall useful", List.of())
+                new ProjectAnswerFeedbackRequest("up", "helpful", null, List.of())
+        );
+
+        assertThat(result.updatedEvidenceSourceCount()).isEqualTo(1);
+        assertThat(result.updatedChunkCount()).isEqualTo(1);
+        assertThat(answerFeedbackScores(target.answerId())).containsExactly(1);
+        assertThat(answerFeedbackNote(target.answerId())).isEqualTo("helpful");
+        assertThat(evidenceFeedbackScore(target.evidenceId())).isEqualTo(1.0);
+        assertThat(chunkFeedbackScore(target.chunkId())).isEqualTo(1.0);
+        verify(vectorSearchPort).applyChunkFeedback(List.of(target.chunkId()), 1.0);
+    }
+
+    @Test
+    void missingEvidenceFeedbackWithoutEvidenceSourceIdsRecordsAnswerLevelOnly() {
+        FeedbackFixture target = createFixture("missing evidence project");
+
+        ProjectAnswerFeedbackResult result = feedbackService.recordProjectAnswerFeedback(
+                target.projectId(),
+                target.answerId(),
+                new ProjectAnswerFeedbackRequest("down", "missing_evidence", null, List.of())
         );
 
         assertThat(result.updatedEvidenceSourceCount()).isZero();
         assertThat(result.updatedChunkCount()).isZero();
-        assertThat(answerFeedbackScores(target.answerId())).containsExactly(1);
+        assertThat(answerFeedbackScores(target.answerId())).containsExactly(-1);
+        assertThat(answerFeedbackNote(target.answerId())).isEqualTo("missing_evidence");
         assertThat(evidenceFeedbackScore(target.evidenceId())).isZero();
         assertThat(chunkFeedbackScore(target.chunkId())).isZero();
     }
@@ -193,6 +217,22 @@ class ProjectFeedbackServiceTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void projectAnswerFeedbackEndpointCanAttributeHelpfulFeedbackWithoutEvidenceIds() throws Exception {
+        FeedbackFixture target = createFixture("controller attributed project");
+
+        mockMvc.perform(post("/api/projects/{projectId}/answers/{answerId}/feedback", target.projectId(), target.answerId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"rating":"up","reason":"helpful"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPLIED"))
+                .andExpect(jsonPath("$.rating").value("up"))
+                .andExpect(jsonPath("$.updatedEvidenceSourceCount").value(1))
+                .andExpect(jsonPath("$.updatedChunkCount").value(1));
+    }
+
+    @Test
     void projectAnswerFeedbackEndpointIgnoresNullEvidenceIds() throws Exception {
         FeedbackFixture target = createFixture("controller null evidence project");
 
@@ -219,6 +259,12 @@ class ProjectFeedbackServiceTest extends PostgresIntegrationTest {
                 "LOCAL_EVIDENCE",
                 "SUFFICIENT"
         );
+        String runId = "run-" + java.util.UUID.randomUUID();
+        jdbcTemplate.update("""
+                update assistant_answer
+                set run_id = ?
+                where id = ?
+                """, runId, answerId);
 
         long documentId = documentRepository.insert(topic + " document", topic + ".pdf", "/tmp/" + topic + ".pdf");
         documentChunkRepository.replaceChunks(documentId, List.of("Feedback linked paper evidence chunk."));
@@ -232,7 +278,7 @@ class ProjectFeedbackServiceTest extends PostgresIntegrationTest {
                 List.of(new RagChunk(chunk.id(), documentId, chunk.chunkIndex(), chunk.content(), 0.84)),
                 Map.of(documentId, sourceId)
         ).get(0);
-        return new FeedbackFixture(project.id(), answerId, evidence.id(), chunk.id());
+        return new FeedbackFixture(project.id(), session.id(), runId, answerId, evidence.id(), chunk.id());
     }
 
     private List<Integer> answerFeedbackScores(String answerId) {
@@ -267,6 +313,6 @@ class ProjectFeedbackServiceTest extends PostgresIntegrationTest {
         );
     }
 
-    private record FeedbackFixture(String projectId, String answerId, String evidenceId, long chunkId) {
+    private record FeedbackFixture(String projectId, String sessionId, String runId, String answerId, String evidenceId, long chunkId) {
     }
 }

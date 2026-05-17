@@ -127,4 +127,30 @@ class PaperRagServiceTest {
         assertThat(RetrievalFeedbackScoring.finalScore(0.50, 99.0)).isEqualTo(0.70);
         assertThat(RetrievalFeedbackScoring.finalScore(0.50, -99.0)).isEqualTo(0.30);
     }
+
+    @Test
+    void hybridRetrievalCarriesFeedbackScoreIntoMergedChunkForDiagnostics() {
+        String query = "feedback aware retrieval";
+        List<Long> allowedDocumentIds = List.of(1L);
+        QueryRewritePlan rewritePlan = QueryRewritePlan.originalOnly(query);
+
+        RagChunk feedbackBoostedHit = new RagChunk(
+                31L,
+                1L,
+                0,
+                "Feedback-aware retrieval chunk.",
+                0.72,
+                3.0
+        );
+
+        when(queryRewriteService.rewrite(query)).thenReturn(rewritePlan);
+        when(keywordSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of(feedbackBoostedHit));
+        when(vectorSearchPort.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+        when(metadataSearchRepository.search(query, allowedDocumentIds, 5)).thenReturn(List.of());
+
+        RagResult result = paperRagService.retrieve(42L, query, allowedDocumentIds, 5);
+
+        assertThat(result.chunks()).hasSize(1);
+        assertThat(result.chunks().get(0).feedbackScore()).isEqualTo(3.0);
+    }
 }

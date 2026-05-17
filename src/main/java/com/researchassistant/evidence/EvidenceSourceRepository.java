@@ -71,6 +71,39 @@ public class EvidenceSourceRepository {
         return List.copyOf(records);
     }
 
+    public List<EvidenceSourceRecord> insertCitationSources(
+            String projectId,
+            String answerId,
+            List<EvidenceCitationSource> citationSources,
+            Map<Long, String> sourceIdByIndexedDocumentId) {
+        if (citationSources == null || citationSources.isEmpty()) {
+            return List.of();
+        }
+        List<EvidenceSourceRecord> records = new ArrayList<>();
+        for (EvidenceCitationSource source : citationSources) {
+            if (source == null) {
+                continue;
+            }
+            if ("paper".equals(source.sourceType())) {
+                if (source.documentId() != null
+                        && sourceIdByIndexedDocumentId != null
+                        && sourceIdByIndexedDocumentId.containsKey(source.documentId())) {
+                    records.add(insertPaperCitationSource(
+                            projectId,
+                            answerId,
+                            source,
+                            sourceIdByIndexedDocumentId.get(source.documentId())
+                    ));
+                }
+                continue;
+            }
+            if ("web".equals(source.sourceType())) {
+                records.add(insertWebCitationSource(projectId, answerId, source));
+            }
+        }
+        return List.copyOf(records);
+    }
+
     public List<EvidenceSourceRecord> findByAnswer(String projectId, String answerId) {
         return jdbcTemplate.query("""
                 select id, project_id, answer_id, source_type, source_id, snippet, strength,
@@ -235,6 +268,43 @@ public class EvidenceSourceRepository {
         ), evidenceId, projectId, answerId, sourceId, snippet, snippet, strength, strength, chunk.finalScore(), toJson(citationMeta));
     }
 
+    private EvidenceSourceRecord insertPaperCitationSource(
+            String projectId,
+            String answerId,
+            EvidenceCitationSource source,
+            String sourceId) {
+        String evidenceId = UUID.randomUUID().toString();
+        String snippet = snippet(source.text());
+        String strength = strength(source.score());
+        Map<String, Object> citationMeta = new LinkedHashMap<>();
+        citationMeta.put("documentId", source.documentId());
+        citationMeta.put("chunkId", source.chunkId());
+        citationMeta.put("chunkIndex", source.chunkIndex());
+        citationMeta.put("origin", "plan_execute");
+
+        return jdbcTemplate.queryForObject("""
+                insert into evidence_source(
+                    id, project_id, answer_id, source_type, source_id, quote, snippet,
+                    strength, confidence, relevance_score, feedback_score, citation_meta_json
+                )
+                values (?, ?, ?, 'paper', ?, ?, ?, ?, ?, ?, 0, ?::jsonb)
+                returning id, project_id, answer_id, source_type, source_id, snippet, strength,
+                          relevance_score, feedback_score, citation_meta_json, created_at
+                """, (resultSet, rowNum) -> new EvidenceSourceRecord(
+                resultSet.getString("id"),
+                resultSet.getString("project_id"),
+                resultSet.getString("answer_id"),
+                resultSet.getString("source_type"),
+                resultSet.getString("source_id"),
+                resultSet.getString("snippet"),
+                resultSet.getString("strength"),
+                resultSet.getDouble("relevance_score"),
+                resultSet.getDouble("feedback_score"),
+                fromJsonMap(resultSet.getString("citation_meta_json")),
+                resultSet.getObject("created_at", OffsetDateTime.class)
+        ), evidenceId, projectId, answerId, sourceId, snippet, snippet, strength, strength, source.score(), toJson(citationMeta));
+    }
+
     private EvidenceSourceRecord insertWebSource(
             String projectId,
             String answerId,
@@ -273,6 +343,44 @@ public class EvidenceSourceRepository {
                 fromJsonMap(resultSet.getString("citation_meta_json")),
                 resultSet.getObject("created_at", OffsetDateTime.class)
         ), evidenceId, projectId, answerId, snippet, snippet, strength, strength, hit.score(), toJson(citationMeta));
+    }
+
+    private EvidenceSourceRecord insertWebCitationSource(
+            String projectId,
+            String answerId,
+            EvidenceCitationSource source) {
+        String evidenceId = UUID.randomUUID().toString();
+        String snippet = snippet(source.text());
+        String strength = strength(source.score());
+        Map<String, Object> citationMeta = new LinkedHashMap<>();
+        citationMeta.put("title", safe(source.title()));
+        citationMeta.put("url", safe(source.url()));
+        citationMeta.put("provider", safe(source.provider()));
+        citationMeta.put("snippet", snippet);
+        citationMeta.put("rank", source.rank());
+        citationMeta.put("origin", "plan_execute");
+
+        return jdbcTemplate.queryForObject("""
+                insert into evidence_source(
+                    id, project_id, answer_id, source_type, source_id, quote, snippet,
+                    strength, confidence, relevance_score, feedback_score, citation_meta_json
+                )
+                values (?, ?, ?, 'web', null, ?, ?, ?, ?, ?, 0, ?::jsonb)
+                returning id, project_id, answer_id, source_type, source_id, snippet, strength,
+                          relevance_score, feedback_score, citation_meta_json, created_at
+                """, (resultSet, rowNum) -> new EvidenceSourceRecord(
+                resultSet.getString("id"),
+                resultSet.getString("project_id"),
+                resultSet.getString("answer_id"),
+                resultSet.getString("source_type"),
+                resultSet.getString("source_id"),
+                resultSet.getString("snippet"),
+                resultSet.getString("strength"),
+                resultSet.getDouble("relevance_score"),
+                resultSet.getDouble("feedback_score"),
+                fromJsonMap(resultSet.getString("citation_meta_json")),
+                resultSet.getObject("created_at", OffsetDateTime.class)
+        ), evidenceId, projectId, answerId, snippet, snippet, strength, strength, source.score(), toJson(citationMeta));
     }
 
     private String strength(double score) {

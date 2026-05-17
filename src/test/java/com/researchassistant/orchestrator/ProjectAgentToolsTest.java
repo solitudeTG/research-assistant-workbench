@@ -184,6 +184,12 @@ class ProjectAgentToolsTest {
         assertThat(tools.webSearchResult()).isNull();
         JsonNode json = objectMapper.readTree(payload);
         assertThat(json.get("hits")).hasSize(1);
+        assertThat(json.get("hits").get(0).has("memoryLayer")).isTrue();
+        assertThat(json.get("hits").get(0).has("sourceType")).isTrue();
+        assertThat(json.get("hits").get(0).has("contextOnly")).isTrue();
+        assertThat(json.get("hits").get(0).get("memoryLayer").asText()).isEqualTo("L3");
+        assertThat(json.get("hits").get(0).get("sourceType").asText()).isEqualTo("long_term_memory");
+        assertThat(json.get("hits").get(0).get("contextOnly").asBoolean()).isTrue();
     }
 
     private ProjectAgentTools tools(ProjectEvidenceScope scope) {

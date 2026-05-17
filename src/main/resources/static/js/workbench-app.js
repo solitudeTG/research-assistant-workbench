@@ -9,10 +9,13 @@ import {
     createLocalSession,
     createWorkbenchState,
     deleteSessionFromState,
+    evidenceFeedbackLabel,
+    feedbackPayloadForAnswer,
     formatRelativeTime,
     getWorkspaceVisibility,
     normalizeDocument,
     normalizeProjectMessage,
+    pendingKnowledgeCandidates,
     renameSessionTitle,
     requireProjectChatContext,
     selectSession,
@@ -43,7 +46,8 @@ const EVENT_TYPES = [
     "run.failed",
     "source.status.changed",
     "candidate.created",
-    "knowledge.entry.created"
+    "knowledge.entry.created",
+    "feedback.applied"
 ];
 
 const SECTION_LABELS = {
@@ -61,6 +65,13 @@ const SOURCE_LABELS = {
     note: "笔记",
     document: "文档"
 };
+
+const FEEDBACK_REASON_OPTIONS = [
+    { rating: "down", reason: "citation_wrong", label: "\u5f15\u7528\u4e0d\u652f\u6301\u7ed3\u8bba" },
+    { rating: "down", reason: "missing_evidence", label: "\u6f0f\u6389\u5173\u952e\u8bc1\u636e" },
+    { rating: "down", reason: "answer_too_strong", label: "\u7ed3\u8bba\u8fc7\u5f3a" },
+    { rating: "down", reason: "structure_unclear", label: "\u8868\u8fbe\u4e0d\u6e05" }
+];
 
 const dom = {
     systemStatus: document.getElementById("system-status"),
@@ -100,10 +111,13 @@ const dom = {
     workspaceButtons: [...document.querySelectorAll("[data-workspace-target]")],
     contextPanels: [...document.querySelectorAll("[data-context-panel]")],
     workspaces: [...document.querySelectorAll("[data-workspace]")],
+    knowledgeActionButtons: [...document.querySelectorAll("[data-knowledge-action]")],
     knowledgeNav: document.getElementById("knowledge-nav"),
     knowledgeMetrics: document.getElementById("knowledge-metrics"),
+    globalCognitionPanel: document.getElementById("global-cognition-panel"),
     knowledgeWorkspaceBoard: document.getElementById("knowledge-workspace-board"),
     knowledgeCandidateList: document.getElementById("knowledge-candidate-list"),
+    recentCognitionChanges: document.getElementById("recent-cognition-changes"),
     knowledgeDetail: document.getElementById("knowledge-detail"),
     projectOverviewTopic: document.getElementById("project-overview-topic"),
     projectOverviewSummary: document.getElementById("project-overview-summary"),
@@ -114,6 +128,8 @@ const dom = {
     diagnosticsContext: document.getElementById("diagnostics-context"),
     diagnosticsSummary: document.getElementById("diagnostics-summary"),
     diagnosticsTaxonomy: document.getElementById("diagnostics-taxonomy"),
+    diagnosticsNav: document.getElementById("diagnostics-nav"),
+    diagnosticsVerdict: document.getElementById("diagnostics-verdict"),
     diagnosticsEvents: document.getElementById("diagnostics-events"),
     diagnosticsDetail: document.getElementById("diagnostics-detail")
 };
@@ -134,6 +150,9 @@ const app = {
     retrievalDiagnostics: [],
     diagnosticsLoadState: "idle",
     diagnosticsError: "",
+    globalKnowledge: null,
+    activeGlobalCognitionNote: "USER",
+    globalCognitionEditingNote: null,
     sampleMode: false,
     collapsedResearchProcesses: new Set(),
     openSessionMenuId: null
@@ -155,6 +174,44 @@ function wireEvents() {
     });
     dom.diagnosticsRefresh?.addEventListener("click", () => {
         void loadRetrievalDiagnostics({ force: true });
+    });
+    document.querySelector("[data-observability-refresh]")?.addEventListener("click", () => {
+        void loadRetrievalDiagnostics({ force: true });
+    });
+    dom.knowledgeActionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            if (button.dataset.knowledgeAction === "new") {
+                void createManualKnowledgeEntry();
+            }
+        });
+    });
+    dom.globalCognitionPanel?.addEventListener("click", (event) => {
+        const tab = event.target.closest("[data-global-cognition-tab]");
+        const edit = event.target.closest("[data-global-cognition-edit]");
+        const save = event.target.closest("[data-global-cognition-save]");
+        const cancel = event.target.closest("[data-global-cognition-cancel]");
+        if (tab) {
+            app.activeGlobalCognitionNote = tab.dataset.globalCognitionTab;
+            app.globalCognitionEditingNote = null;
+            renderGlobalCognitionPanel();
+            return;
+        }
+        if (edit) {
+            app.globalCognitionEditingNote = edit.dataset.globalCognitionEdit;
+            renderGlobalCognitionPanel();
+            dom.globalCognitionPanel
+                    ?.querySelector(`[data-global-cognition-content="${cssEscape(app.globalCognitionEditingNote)}"]`)
+                    ?.focus();
+            return;
+        }
+        if (cancel) {
+            app.globalCognitionEditingNote = null;
+            renderGlobalCognitionPanel();
+            return;
+        }
+        if (save) {
+            void saveGlobalCognitionNote(save.dataset.globalCognitionSave);
+        }
     });
 
     dom.newSessionButton.addEventListener("click", () => {
@@ -180,6 +237,26 @@ function wireEvents() {
     });
 
     dom.conversation.addEventListener("click", (event) => {
+        const feedbackReason = event.target.closest("[data-feedback-reason]");
+        if (feedbackReason) {
+            void submitAnswerFeedback(
+                    feedbackReason.dataset.feedbackAnswerId,
+                    feedbackReason.dataset.feedbackRating,
+                    feedbackReason.closest(".answer-feedback"),
+                    feedbackReason.dataset.feedbackReason
+            );
+            return;
+        }
+        const feedbackButton = event.target.closest("[data-feedback-action]");
+        if (feedbackButton) {
+            void submitAnswerFeedback(
+                    feedbackButton.dataset.feedbackAnswerId,
+                    feedbackButton.dataset.feedbackAction,
+                    feedbackButton.closest(".answer-feedback"),
+                    feedbackButton.dataset.feedbackReason
+            );
+            return;
+        }
         const toggle = event.target.closest("[data-process-toggle]");
         if (!toggle) {
             return;
@@ -328,6 +405,7 @@ function wireEvents() {
 
 async function bootstrap() {
     await pingSystem();
+    await loadGlobalKnowledge();
     await loadProjects();
     render();
 }
@@ -339,6 +417,14 @@ async function pingSystem() {
     } catch (error) {
         app.systemState = "error";
         app.statusMessage = `后端健康检查不可用：${error.message}`;
+    }
+}
+
+async function loadGlobalKnowledge() {
+    try {
+        app.globalKnowledge = await getJson("/api/system/global-knowledge");
+    } catch (error) {
+        app.globalKnowledge = null;
     }
 }
 
@@ -805,6 +891,87 @@ async function submitCandidateAction(action, candidateId, editPayload = null) {
     render();
 }
 
+async function createManualKnowledgeEntry() {
+    if (!hasProjectApi()) {
+        app.statusMessage = "需要先选择真实项目后再新建知识。";
+        renderStatus();
+        return;
+    }
+    const title = window.prompt("知识标题")?.trim() || "";
+    if (!title) {
+        return;
+    }
+    const content = window.prompt("知识内容")?.trim() || "";
+    if (!content) {
+        return;
+    }
+    try {
+        const entry = await postJson(
+                `/api/projects/${encodeURIComponent(app.activeProjectId)}/knowledge-board/entries`,
+                {
+                    section: "confirmed_finding",
+                    title,
+                    content,
+                    evidenceStatus: "confirmed",
+                    evidenceSourceIds: []
+                }
+        );
+        await refreshKnowledgeBoard();
+        app.selectedKnowledgeEntryId = entry.id;
+        Object.assign(app, selectWorkspace(app, "knowledge"));
+        app.statusMessage = "知识已写入。";
+    } catch (error) {
+        app.statusMessage = `新建知识失败：${error.message}`;
+    }
+    render();
+}
+
+async function submitAnswerFeedback(answerId, rating, feedbackRoot, reason = null) {
+    if (!hasProjectApi()) {
+        app.statusMessage = "需要先选择真实项目后再反馈回答。";
+        renderStatus();
+        return;
+    }
+    if (!answerId || !["up", "down"].includes(rating)) {
+        return;
+    }
+    const payload = feedbackPayloadForAnswer({
+        answerId,
+        rating,
+        reason,
+        evidenceSources: app.evidenceSources
+    });
+    try {
+        const result = await postJson(
+                `/api/projects/${encodeURIComponent(app.activeProjectId)}/answers/${encodeURIComponent(answerId)}/feedback`,
+                payload
+        );
+        applyFeedbackResultToTrace(answerId, result);
+        await refreshEvidenceSources(answerId);
+        app.statusMessage = rating === "up" ? "已记录点赞反馈。" : "已记录点踩反馈。";
+    } catch (error) {
+        app.statusMessage = `反馈提交失败：${error.message}`;
+    }
+    render();
+}
+
+function applyFeedbackResultToTrace(answerId, result) {
+    const message = app.messages.find((item) => item.answerId === answerId);
+    const runId = message?.runId || app.currentAnswer?.runId || `feedback-${answerId}`;
+    Object.assign(app, applySseEvent(app, {
+        eventId: `local-feedback-${Date.now()}`,
+        eventType: "feedback.applied",
+        projectId: app.activeProjectId,
+        sessionId: app.activeSessionId,
+        runId,
+        answerId,
+        actor: "feedback-ui",
+        sequence: 0,
+        createdAt: new Date().toISOString(),
+        payload: result || {}
+    }));
+}
+
 function syncAssistantFromCurrentAnswer(messageId, workbenchEvent) {
     const eventType = workbenchEvent?.eventType;
     if (eventType === "answer.delta" || eventType === "answer.completed") {
@@ -1087,8 +1254,10 @@ function renderSidebar() {
 
 function renderKnowledgeWorkspace() {
     renderKnowledgeMetrics();
+    renderGlobalCognitionPanel();
     renderKnowledgeBoard(dom.knowledgeWorkspaceBoard, { compact: false });
     renderCandidates(dom.knowledgeCandidateList);
+    renderRecentCognitionChanges();
     renderKnowledgeDetail(selectedKnowledgeEntry());
 }
 
@@ -1110,6 +1279,235 @@ function renderKnowledgeMetrics() {
             textElement("span", pendingCandidates ? "待确认候选不会自动写入知识库" : "暂无待审阅候选")
     );
     dom.knowledgeMetrics.replaceChildren(...metrics.map(([label, count]) => metricItem(label, count)), review);
+}
+
+function renderGlobalCognitionPanel() {
+    if (!dom.globalCognitionPanel) {
+        return;
+    }
+    const global = app.cognitionWorkspace?.globalCognition?.length
+            ? { notes: app.cognitionWorkspace.globalCognition }
+            : app.globalCognition || app.globalKnowledge || app.globalKnowledgeSnapshot || {};
+    const notes = globalCognitionNotes(global);
+    if (!notes.some((note) => note.noteType === app.activeGlobalCognitionNote)) {
+        app.activeGlobalCognitionNote = notes[0].noteType;
+    }
+    const activeNote = notes.find((note) => note.noteType === app.activeGlobalCognitionNote) || notes[0];
+    const panel = document.createElement("section");
+    panel.className = "global-cognition-panel";
+    panel.append(
+            globalCognitionTabs(notes, activeNote.noteType),
+            globalCognitionActivePanel(activeNote, app.globalCognitionEditingNote === activeNote.noteType)
+    );
+    dom.globalCognitionPanel.replaceChildren(panel);
+}
+
+function globalCognitionNotes(global) {
+    return [
+        globalCognitionDescriptor({
+            fileName: "USER.md",
+            label: "用户认知",
+            noteType: "USER",
+            note: readGlobalCognitionNote(global, "user", "USER")
+        }),
+        globalCognitionDescriptor({
+            fileName: "SOUL.md",
+            label: "Agent 行为身份",
+            noteType: "SOUL",
+            note: readGlobalCognitionNote(global, "soul", "SOUL")
+        }),
+        globalCognitionDescriptor({
+            fileName: "Research_state.md",
+            label: "研究状态",
+            noteType: "RESEARCH_STATE",
+            note: readGlobalCognitionNote(global, "researchState", "RESEARCH_STATE")
+        })
+    ];
+}
+
+function globalCognitionDescriptor({ fileName, label, noteType, note }) {
+    const text = note?.content || note?.summary || note?.body || "";
+    const body = note === null
+            ? "后端认知投影尚未加载。这个 L2 槽位与资料源、长期记忆保持分离。"
+            : text || "尚未记录这类稳定认知。只有显式写入后才会在这里显示。";
+    return {
+        fileName,
+        label,
+        noteType,
+        note,
+        text,
+        body,
+        meta: note?.updatedAt ? `更新于 ${formatRelativeTime(note.updatedAt)}` : "用户维护，不作为引用证据"
+    };
+}
+
+function globalCognitionTabs(notes, activeNoteType) {
+    const tabs = document.createElement("div");
+    tabs.className = "global-cognition-tabs";
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "L2 全局认知笔记");
+    tabs.append(...notes.map((note) => {
+        const tab = document.createElement("button");
+        const isActive = note.noteType === activeNoteType;
+        tab.type = "button";
+        tab.className = isActive ? "global-cognition-tab is-active" : "global-cognition-tab";
+        tab.setAttribute("data-global-cognition-tab", note.noteType);
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", String(isActive));
+        tab.append(
+                textElement("strong", note.fileName),
+                textElement("span", note.label)
+        );
+        return tab;
+    }));
+    return tabs;
+}
+
+function globalCognitionActivePanel(note, isEditing) {
+    const panel = document.createElement("article");
+    panel.className = "global-cognition-active-panel";
+    panel.append(
+            globalCognitionToolbar(note, isEditing),
+            isEditing ? globalCognitionEditor(note) : globalCognitionReader(note)
+    );
+    return panel;
+}
+
+function globalCognitionToolbar(note, isEditing) {
+    const toolbar = document.createElement("div");
+    toolbar.className = "global-cognition-toolbar";
+    const meta = textElement("small", note.meta, "global-cognition-meta");
+    const actions = document.createElement("div");
+    actions.className = "global-cognition-actions";
+    actions.append(textElement("span", "稳定认知", "trust-badge trust-badge--stable"));
+    if (isEditing) {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "secondary-button global-cognition-action";
+        cancel.setAttribute("data-global-cognition-cancel", note.noteType);
+        cancel.textContent = "取消";
+        const save = document.createElement("button");
+        save.type = "button";
+        save.className = "primary-button global-cognition-action";
+        save.setAttribute("data-global-cognition-save", note.noteType);
+        save.textContent = "保存";
+        actions.append(cancel, save);
+    } else {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "secondary-button global-cognition-action";
+        edit.setAttribute("data-global-cognition-edit", note.noteType);
+        edit.textContent = "编辑";
+        actions.append(edit);
+    }
+    toolbar.append(meta, actions);
+    return toolbar;
+}
+
+function globalCognitionReader(note) {
+    const reader = document.createElement("div");
+    reader.className = "global-cognition-reader";
+    reader.textContent = note.body;
+    return reader;
+}
+
+function globalCognitionEditor(note) {
+    const input = document.createElement("textarea");
+    input.className = "global-cognition-editor";
+    input.setAttribute("data-global-cognition-content", note.noteType);
+    input.placeholder = "尚未记录稳定认知";
+    input.value = note.text;
+    input.rows = 8;
+    return input;
+}
+
+async function saveGlobalCognitionNote(noteType) {
+    if (!noteType) {
+        return;
+    }
+    const input = dom.globalCognitionPanel?.querySelector(`[data-global-cognition-content="${cssEscape(noteType)}"]`);
+    const content = input?.value ?? "";
+    try {
+        app.globalKnowledge = await patchJson("/api/system/global-knowledge", { noteType, content });
+        app.activeGlobalCognitionNote = noteType;
+        app.globalCognitionEditingNote = null;
+        app.statusMessage = "L2 全局认知已保存。";
+        renderKnowledgeWorkspace();
+        renderStatus();
+    } catch (error) {
+        app.statusMessage = `保存 L2 全局认知失败：${error.message}`;
+        renderStatus();
+    }
+}
+
+function readGlobalCognitionNote(global, camelKey, enumKey) {
+    if (!global) {
+        return null;
+    }
+    if (Object.hasOwn(global, camelKey)) {
+        return typeof global[camelKey] === "string" ? { content: global[camelKey] } : global[camelKey];
+    }
+    const notes = Array.isArray(global) ? global : global.notes;
+    if (Array.isArray(notes)) {
+        return notes.find((note) => [camelKey, enumKey, `${enumKey}.md`].includes(note.type || note.noteType || note.fileName));
+    }
+    return null;
+}
+
+function renderRecentCognitionChanges() {
+    if (!dom.recentCognitionChanges) {
+        return;
+    }
+    const workspaceChanges = Array.isArray(app.cognitionWorkspace?.recentChanges)
+            ? app.cognitionWorkspace.recentChanges.map((change) => ({
+                kind: change.eventType || change.kind || "cognition.changed",
+                label: change.title || change.label || change.id || "cognition change",
+                detail: change.detail || change.status || "",
+                time: change.createdAt || change.updatedAt || change.time
+            }))
+            : [];
+    const entries = normalizedBoard().sections.flatMap((section) => section.entries);
+    const candidateChanges = app.candidates.slice(0, 4).map((candidate) => ({
+        kind: candidate.status === "pending" ? "candidate.created" : `candidate.${candidate.status}`,
+        label: candidate.title || "Untitled candidate",
+        detail: candidate.status === "pending"
+                ? "待确认候选，不是已确认知识"
+                : `候选状态：${candidate.status}`,
+        time: candidate.updatedAt || candidate.createdAt
+    }));
+    const knowledgeChanges = entries.slice(0, 3).map((entry) => ({
+        kind: "knowledge.entry.created",
+        label: entry.title || "Untitled knowledge",
+        detail: "已确认项目知识",
+        time: entry.updatedAt || entry.createdAt
+    }));
+    const feedbackChanges = recentFeedbackAppliedEvents().slice(0, 3).map((event) => ({
+        kind: "feedback.applied",
+        label: "反馈已应用",
+        detail: feedbackAppliedText(event),
+        time: event.updatedAt || event.createdAt || event.timestamp
+    }));
+    const derivedChanges = workspaceChanges.length ? [] : [...candidateChanges, ...knowledgeChanges];
+    const changes = [...feedbackChanges, ...workspaceChanges, ...derivedChanges]
+            .sort((left, right) => Date.parse(right.time || "") - Date.parse(left.time || ""))
+            .slice(0, 7);
+    if (!changes.length) {
+        dom.recentCognitionChanges.replaceChildren(emptyBlock("暂无认知变更。候选确认、知识写入、记忆沉淀和反馈应用会在模型投影补齐后显示在这里。"));
+        return;
+    }
+    dom.recentCognitionChanges.replaceChildren(...changes.map(cognitionChangeItem));
+}
+
+function cognitionChangeItem(change) {
+    const item = document.createElement("article");
+    item.className = "cognition-change";
+    item.append(
+            textElement("span", change.kind, "cognition-change__kind"),
+            textElement("strong", change.label),
+            textElement("p", change.detail || ""),
+            textElement("small", change.time ? formatRelativeTime(change.time) : "暂无时间")
+    );
+    return item;
 }
 
 function renderKnowledgeBoard(target, { compact }) {
@@ -1176,34 +1574,69 @@ function renderObservabilityWorkspace() {
     const session = app.sessions.find((item) => item.id === app.activeSessionId);
     const events = app.retrievalDiagnostics || [];
     const summary = summarizeRetrievalDiagnostics(events);
-    dom.diagnosticsContext.textContent = session
-            ? `${session.title || "当前会话"} · ${events.length} 条检索事件`
-            : "选择会话后查看检索诊断。";
+    dom.diagnosticsContext.textContent = diagnosticsContextText(session, summary);
     dom.diagnosticsSummary.replaceChildren(
-            metricItem("检索调用", summary.callCount),
-            metricItem("查询改写", summary.queryCount),
-            metricItem("返回片段", summary.returnedChunks),
-            metricItem("零命中", summary.zeroHitCount)
+            diagnosticIndicator("找到多少证据", summary.coverageLabel, `${summary.returnedChunks} 个候选片段，还需确认是否可引用`),
+            diagnosticIndicator("问了几种查法", summary.efficiencyLabel, `${summary.queryCount} 条改写查询`),
+            diagnosticIndicator("没有找到的次数", String(summary.zeroHitCount), summary.zeroHitCount ? "需要补资料或调整范围" : "本轮没有空结果"),
+            diagnosticIndicator("是否进入引用", summary.evidenceChainLabel, "待与最终报告引用逐条对齐")
     );
+    renderDiagnosticsNav();
     dom.diagnosticsTaxonomy.replaceChildren(...taxonomyChips(summary.reasonCounts, app.diagnosticsLoadState));
+    renderDiagnosticsVerdict(summary, events);
     renderDiagnosticsEvents(events);
     renderDiagnosticsDetail(selectedDiagnostic());
+}
+
+function renderDiagnosticsNav() {
+    if (!dom.diagnosticsNav) {
+        return;
+    }
+    const summary = summarizeRetrievalDiagnostics(app.retrievalDiagnostics || []);
+    const items = [
+        contextNavItem("取证概览", summary.coverageLabel, true),
+        contextNavItem("检索步骤", summary.callCount),
+        contextNavItem("查询改写", summary.queryCount),
+        contextNavItem("引用待核验", summary.evidenceChainLabel),
+        contextNavItem("异常", summary.zeroHitCount)
+    ];
+    dom.diagnosticsNav.replaceChildren(...items);
+}
+
+function renderDiagnosticsVerdict(summary, events) {
+    if (!dom.diagnosticsVerdict) {
+        return;
+    }
+    dom.diagnosticsVerdict.replaceChildren();
+    const verdict = evidenceVerdictLabel(summary, events);
+    const okLine = events.length
+            ? `系统查了 ${summary.callCount} 次资料，找到 ${summary.returnedChunks} 个候选片段，${summary.zeroHitCount} 次没有找到。`
+            : "当前会话还没有检索观察，无法判断研究证据覆盖。";
+    const gapLine = summary.zeroHitCount
+            ? `${summary.zeroHitCount} 次没有找到可用材料，需要补资料、换关键词或调整项目范围。`
+            : "已经找到候选材料，但仍需确认哪些片段真正进入最终引用。";
+    dom.diagnosticsVerdict.append(
+            textElement("strong", "一句话结论"),
+            textElement("p", verdict),
+            textElement("p", okLine),
+            textElement("p", gapLine, summary.zeroHitCount ? "diagnostics-gap-line" : "")
+    );
 }
 
 function renderDiagnosticsEvents(events) {
     dom.diagnosticsEvents.replaceChildren();
     if (app.diagnosticsLoadState === "loading") {
-        dom.diagnosticsEvents.appendChild(emptyBlock("正在载入检索诊断。"));
+        dom.diagnosticsEvents.appendChild(emptyBlock("正在载入证据诊断。"));
         return;
     }
     if (app.diagnosticsLoadState === "error") {
-        dom.diagnosticsEvents.appendChild(emptyBlock(`检索诊断暂时不可用：${app.diagnosticsError}`));
+        dom.diagnosticsEvents.appendChild(emptyBlock(`证据诊断暂时不可用：${app.diagnosticsError}`));
         return;
     }
     if (!events.length) {
         const message = app.sampleMode
-                ? "样例模式未配置检索诊断。"
-                : "当前会话还没有返回检索诊断；这不等于检索已经成功。";
+                ? "样例模式未配置证据诊断。"
+                : "当前会话还没有返回证据诊断；这不等于检索已经成功。";
         dom.diagnosticsEvents.appendChild(emptyBlock(message));
         return;
     }
@@ -1212,11 +1645,12 @@ function renderDiagnosticsEvents(events) {
         row.className = `diagnostics-row${event.id === app.selectedDiagnosticId ? " is-selected" : ""}`;
         row.dataset.diagnosticId = event.id;
         row.append(
-                textElement("strong", `#${event.toolCallIndex ?? "?"} ${event.toolName || "paper_rag"}`),
-                textElement("span", event.zeroHitReason || event.rewriteStrategy || "OK"),
+                textElement("strong", `第 ${event.toolCallIndex ?? "?"} 次查资料`),
+                textElement("span", stepActionText(event)),
                 textElement("span", String(event.queryCount ?? event.retrievalQueryCount ?? 0)),
-                textElement("span", String(event.returnedScopedChunkCount ?? 0)),
-                textElement("span", backendSummary(event.backendStats)),
+                textElement("span", `${Number(event.returnedScopedChunkCount ?? 0)} 个片段`),
+                textElement("span", backendSummaryLabel(event.backendStats)),
+                textElement("span", diagnosticMeaningLabel(event)),
                 textElement("span", formatRelativeTime(event.createdAt))
         );
         dom.diagnosticsEvents.appendChild(row);
@@ -1227,34 +1661,34 @@ function renderDiagnosticsDetail(event) {
     dom.diagnosticsDetail.replaceChildren();
     if (!event) {
         const text = app.diagnosticsLoadState === "error"
-                ? "诊断接口失败，暂无事件详情。"
-                : "选择一条检索事件后查看边界、命中与后端统计。";
+                ? "诊断接口失败，暂无检索说明。"
+                : "选择一次检索，查看它对当前回答的证据意义。";
         dom.diagnosticsDetail.appendChild(emptyBlock(text));
         return;
     }
     const detail = document.createElement("div");
     detail.className = "detail-stack diagnostics-detail";
     detail.append(
-            textElement("h3", event.originalQuery || event.query || "检索观察"),
-            detailRow("工具", `${event.toolName || "paper_rag"} #${event.toolCallIndex ?? "?"}`),
-            detailRow("策略", event.rewriteStrategy || "未知"),
-            detailRow("零命中原因", event.zeroHitReason || "无"),
-            detailRow("查询数", String(event.queryCount ?? event.retrievalQueryCount ?? 0)),
-            detailRow("返回片段", String(event.returnedScopedChunkCount ?? 0)),
-            detailRow("合并候选", String(event.mergedCandidateCount ?? "无")),
-            detailRow("重排片段", String(event.rerankedChunkCount ?? "无"))
+            textElement("h3", event.originalQuery || event.query || "本次检索"),
+            textElement("p", stepExplanationText(event), "diagnostics-step-explanation"),
+            detailRow("原始问题", event.originalQuery || event.query || "未知"),
+            detailRow("系统动作", stepActionText(event)),
+            detailRow("找到的材料", `${Number(event.returnedScopedChunkCount ?? 0)} 个候选片段`),
+            detailRow("为什么没找到", event.zeroHitReason ? zeroHitReasonLabel(event.zeroHitReason) : "本次有候选材料返回"),
+            detailRow("对结论的影响", diagnosticMeaningLabel(event)),
+            detailRow("下一步建议", evidenceNextStepText(event))
     );
     if (event.zeroHitReason) {
         const alert = document.createElement("div");
         alert.className = "detail-alert";
-        alert.textContent = `零命中分类：${event.zeroHitReason}`;
+        alert.textContent = evidenceNextStepText(event);
         detail.appendChild(alert);
     }
     detail.appendChild(backendStatsTable(event.backendStats));
     if (event.retrievalQueries?.length) {
         const queries = document.createElement("div");
         queries.className = "diagnostics-query-list";
-        queries.appendChild(textElement("strong", "检索查询"));
+        queries.appendChild(textElement("strong", "改写查询"));
         queries.append(...event.retrievalQueries.slice(0, 5).map((query) => textElement("code", query)));
         detail.appendChild(queries);
     }
@@ -1274,6 +1708,10 @@ function renderDiagnosticsDetail(event) {
         }));
         detail.appendChild(chunks);
     }
+    const gap = document.createElement("div");
+    gap.className = "diagnostics-gap";
+    gap.append(textElement("strong", "证据缺口"), textElement("p", evidenceGapText(event)));
+    detail.appendChild(gap);
     dom.diagnosticsDetail.appendChild(detail);
 }
 
@@ -1281,7 +1719,7 @@ function backendStatsTable(stats = {}) {
     const table = document.createElement("div");
     table.className = "backend-stats";
     table.append(
-            textElement("strong", "后端命中"),
+            textElement("strong", "检索细分"),
             backendStatsRow("关键词", stats.keyword),
             backendStatsRow("向量", stats.vector),
             backendStatsRow("元数据", stats.metadata)
@@ -1334,19 +1772,35 @@ function taxonomyLabel(label) {
 }
 
 function summarizeRetrievalDiagnostics(events) {
-    return events.reduce((summary, event) => {
+    const summary = events.reduce((current, event) => {
         const queryCount = Number(event.queryCount ?? event.retrievalQueryCount ?? 0);
         const returnedChunks = Number(event.returnedScopedChunkCount ?? 0);
-        summary.callCount += 1;
-        summary.queryCount += queryCount;
-        summary.returnedChunks += returnedChunks;
-        if (event.zeroHitReason || returnedChunks === 0) {
-            summary.zeroHitCount += 1;
-            const reason = event.zeroHitReason || "UNKNOWN";
-            summary.reasonCounts[reason] = (summary.reasonCounts[reason] || 0) + 1;
+        current.callCount += 1;
+        current.queryCount += queryCount;
+        current.returnedChunks += returnedChunks;
+        for (const key of ["keyword", "vector", "metadata"]) {
+            const backend = event.backendStats?.[key] || {};
+            current.backendTotals[key] += Number(backend.postScopeHits ?? backend.hitCount ?? backend.preScopeHits ?? 0);
         }
-        return summary;
-    }, { callCount: 0, queryCount: 0, returnedChunks: 0, zeroHitCount: 0, reasonCounts: {} });
+        if (event.zeroHitReason || returnedChunks === 0) {
+            current.zeroHitCount += 1;
+            const reason = event.zeroHitReason || "UNKNOWN";
+            current.reasonCounts[reason] = (current.reasonCounts[reason] || 0) + 1;
+        }
+        return current;
+    }, {
+        callCount: 0,
+        queryCount: 0,
+        returnedChunks: 0,
+        zeroHitCount: 0,
+        reasonCounts: {},
+        backendTotals: { keyword: 0, vector: 0, metadata: 0 }
+    });
+    summary.coverageLabel = summary.returnedChunks ? `${summary.returnedChunks}片段` : "待观察";
+    summary.efficiencyLabel = summary.callCount ? `${Math.round(summary.queryCount / summary.callCount)}查询/次` : "待观察";
+    summary.evidenceChainLabel = summary.returnedChunks ? "待核验" : "未形成";
+    summary.primaryBackendLabel = primaryBackendLabel(summary.backendTotals);
+    return summary;
 }
 
 function normalizeRetrievalDiagnostics(payload) {
@@ -1466,17 +1920,115 @@ function sampleRetrievalDiagnostics() {
     ];
 }
 
-function backendSummary(stats = {}) {
-    const keyword = Number(stats.keyword?.postScopeHits ?? stats.keyword?.hitCount ?? 0);
-    const vector = Number(stats.vector?.postScopeHits ?? stats.vector?.hitCount ?? 0);
-    const metadata = Number(stats.metadata?.postScopeHits ?? stats.metadata?.hitCount ?? 0);
-    return `k${keyword} / v${vector} / m${metadata}`;
+function diagnosticsContextText(session, summary) {
+    if (!session) {
+        return "选择会话后查看本轮回答背后的论文证据。";
+    }
+    if (!summary.callCount) {
+        return `${session.title || "当前会话"} · 还没有检索观察，无法判断这轮回答能否引用。`;
+    }
+    return `${session.title || "当前会话"} · 系统查了 ${summary.callCount} 次资料，找到 ${summary.returnedChunks} 个候选片段，${summary.zeroHitCount} 次没有找到。`;
+}
+
+function evidenceVerdictLabel(summary, events) {
+    if (!events.length) {
+        return "本轮回答目前没有可审计的检索证据。";
+    }
+    if (!summary.returnedChunks) {
+        return "本轮回答目前不可引用：还没有找到可用论文材料。";
+    }
+    if (summary.zeroHitCount) {
+        return "本轮回答目前只能作为弱证据：已有候选材料，但仍有问题没有找到材料。";
+    }
+    return "本轮回答目前有候选证据：可以继续核验引用，但还不能直接当作最终结论。";
+}
+
+function primaryBackendLabel(totals = {}) {
+    const labels = { keyword: "关键词检索", vector: "向量检索", metadata: "元数据检索" };
+    const entries = Object.entries(totals).sort((a, b) => Number(b[1]) - Number(a[1]));
+    const [key, count] = entries[0] || ["vector", 0];
+    return Number(count) > 0 ? labels[key] : "未形成有效命中";
+}
+
+function backendSummaryLabel(stats = {}) {
+    const rows = [
+        ["关键词", Number(stats.keyword?.postScopeHits ?? stats.keyword?.hitCount ?? stats.keyword?.preScopeHits ?? 0)],
+        ["向量", Number(stats.vector?.postScopeHits ?? stats.vector?.hitCount ?? stats.vector?.preScopeHits ?? 0)],
+        ["元数据", Number(stats.metadata?.postScopeHits ?? stats.metadata?.hitCount ?? stats.metadata?.preScopeHits ?? 0)]
+    ];
+    const [label, count] = rows.sort((a, b) => b[1] - a[1])[0];
+    return count > 0 ? `${label} ${count}` : "无命中";
+}
+
+function stepActionText(event) {
+    const queryCount = Number(event.queryCount ?? event.retrievalQueryCount ?? 0);
+    if (event.zeroHitReason) {
+        return `${queryCount} 种查法没有找到`;
+    }
+    if (event.rewriteStrategy === "original_only") {
+        return `${queryCount} 种原始查法`;
+    }
+    return `${queryCount} 种改写查法`;
+}
+
+function stepExplanationText(event) {
+    if (event.zeroHitReason) {
+        return "这一步说明系统尝试查找相关论文材料，但当前资料边界或关键词没有形成可用证据。";
+    }
+    return "这一步说明系统找到了候选论文片段；它们可以进入后续核验，但还不是最终引用。";
+}
+
+function diagnosticMeaningLabel(event) {
+    if (event.zeroHitReason) {
+        return "不能支撑结论";
+    }
+    return Number(event.returnedScopedChunkCount ?? 0) > 0 ? "可核验证据" : "没有材料";
+}
+
+function evidenceNextStepText(event) {
+    if (!event.zeroHitReason) {
+        return "打开候选片段，确认哪些能进入最终引用。";
+    }
+    const actions = {
+        NO_SCOPED_EVIDENCE: "先导入可检索论文，再重新取证。",
+        QUERY_EMPTY_OR_INVALID: "重新表述问题，避免空查询或过宽查询。",
+        NO_BACKEND_HITS: "换关键词或补充资料后重试。",
+        SCOPE_FILTERED_EMPTY: "检查当前项目资料边界，确认相关论文是否已导入。",
+        RERANK_EMPTY: "放宽筛选条件，查看被重排过滤的候选片段。",
+        TOOL_ERROR: "先排查检索工具调用，再重新运行本轮问题。",
+        UNKNOWN: "查看原始问题和资料边界，再决定补资料或改写查询。"
+    };
+    return actions[event.zeroHitReason] || "补充资料或调整检索范围后重试。";
+}
+
+function evidenceGapText(event) {
+    if (event.zeroHitReason) {
+        return `${zeroHitReasonLabel(event.zeroHitReason)}。${evidenceNextStepText(event)}`;
+    }
+    const returned = Number(event.returnedScopedChunkCount ?? 0);
+    if (!returned) {
+        return "本次调用没有形成返回片段，不能作为当前研究结论的证据。";
+    }
+    return `本次返回 ${returned} 个片段；下一步需要确认哪些片段进入最终引用，哪些只是检索噪声。`;
+}
+
+function zeroHitReasonLabel(reason) {
+    const labels = {
+        NO_SCOPED_EVIDENCE: "当前项目没有可检索的限定论文证据",
+        QUERY_EMPTY_OR_INVALID: "查询为空或无法安全检索",
+        NO_BACKEND_HITS: "关键词、向量和元数据检索均未命中",
+        SCOPE_FILTERED_EMPTY: "全局有候选，但被项目边界过滤为空",
+        RERANK_EMPTY: "已有候选，但重排后没有可用片段",
+        TOOL_ERROR: "检索工具调用失败",
+        UNKNOWN: "零命中原因未知"
+    };
+    return labels[reason] || String(reason || "未知原因").replaceAll("_", " ");
 }
 
 function renderEvidenceSources() {
     dom.evidenceList.replaceChildren();
     if (!app.evidenceSources.length) {
-        dom.evidenceList.appendChild(emptyBlock("当前回答还没有最终引用。回答完成并完成证据评估后会显示。"));
+        dom.evidenceList.appendChild(emptyBlock("当前回答还没有最终引用。完成证据评估后，这里只显示可进入报告的最终来源。"));
         return;
     }
     for (const evidence of app.evidenceSources) {
@@ -1493,11 +2045,12 @@ function renderEvidenceSources() {
 
 function renderCandidates(target) {
     target.replaceChildren();
-    if (!app.candidates.length) {
-        target.appendChild(emptyBlock("本轮尚未生成待确认候选。开启“提炼候选”后，回答完成时会出现在这里。"));
+    const candidates = pendingKnowledgeCandidates(app);
+    if (!candidates.length) {
+        target.appendChild(emptyBlock("本轮尚未生成待确认候选。候选是回答完成后提炼出的知识草稿，确认后才会写入知识库。"));
         return;
     }
-    for (const candidate of app.candidates) {
+    for (const candidate of candidates) {
         const item = document.createElement("article");
         item.className = "candidate-row";
         item.append(
@@ -1532,12 +2085,96 @@ function messageBody(message) {
             textElement("span", `${message.status || "sent"} · ${formatRelativeTime(message.createdAt)}`)
     );
     if (message.role === "assistant") {
+        const feedback = answerFeedbackControls(message);
+        if (feedback) {
+            body.appendChild(feedback);
+        }
         const process = researchProcessPanel(message);
         if (process) {
             body.appendChild(process);
         }
     }
     return body;
+}
+
+function answerFeedbackControls(message) {
+    const answerId = answerIdForMessage(message);
+    if (!answerId || message.status === "error") {
+        return null;
+    }
+    const controls = document.createElement("section");
+    controls.className = "answer-feedback";
+    controls.setAttribute("aria-label", "回答反馈");
+
+    const actions = document.createElement("div");
+    actions.className = "answer-feedback__actions";
+    actions.append(
+            feedbackButton(answerId, "up", "点赞"),
+            feedbackButton(answerId, "down", "点踩")
+    );
+    controls.appendChild(actions);
+
+    const evidence = feedbackEvidenceForAnswer(answerId);
+    const attribution = document.createElement("div");
+    attribution.className = "answer-feedback__attribution";
+    attribution.append(
+            textElement("span", "自动归因"),
+            textElement("small", evidence.length
+                    ? `系统将根据反馈原因自动归因 ${evidence.length} 条最终证据，不需要手动标注 chunk。`
+                    : "本次反馈仅记录回答级信号。")
+    );
+    controls.appendChild(attribution);
+
+    const reasons = document.createElement("div");
+    reasons.className = "answer-feedback__reasons";
+    reasons.appendChild(textElement("span", "不满意原因"));
+    for (const option of FEEDBACK_REASON_OPTIONS) {
+        reasons.appendChild(feedbackReasonButton(answerId, option));
+    }
+    controls.appendChild(reasons);
+    return controls;
+}
+
+function answerIdForMessage(message) {
+    if (message?.answerId) {
+        return message.answerId;
+    }
+    if (app.currentAnswer?.messageId === message?.id) {
+        return app.currentAnswer.answerId;
+    }
+    return null;
+}
+
+function feedbackButton(answerId, rating, label) {
+    const button = document.createElement("button");
+    button.className = `answer-feedback__button answer-feedback__button--${rating}`;
+    button.type = "button";
+    button.textContent = label;
+    button.title = rating === "up" ? "点赞：这次回答和证据有帮助" : "点踩：这次回答或证据需要修正";
+    button.setAttribute("data-feedback-action", rating);
+    button.setAttribute("data-feedback-answer-id", answerId);
+    button.setAttribute("data-feedback-reason", rating === "up" ? "helpful" : "needs_correction");
+    return button;
+}
+
+function feedbackReasonButton(answerId, option) {
+    const button = document.createElement("button");
+    button.className = "answer-feedback__reason";
+    button.type = "button";
+    button.textContent = option.label;
+    button.setAttribute("data-feedback-reason", option.reason);
+    button.setAttribute("data-feedback-rating", option.rating);
+    button.setAttribute("data-feedback-answer-id", answerId);
+    return button;
+}
+
+function feedbackEvidenceForAnswer(answerId) {
+    return (app.evidenceSources || []).filter((evidence) => {
+        if (!evidence?.id) {
+            return false;
+        }
+        return !evidence.answerId || evidence.answerId === answerId;
+    });
 }
 
 function messageContentElement(content) {
@@ -1629,6 +2266,7 @@ function researchProcessPanel(message) {
     const answerDeltas = trace?.answerDeltas || [];
     const gaps = evidenceEvents.filter((event) => event.eventType === "evidence.gap.detected");
     const subagentCount = Number(summary.activeSubagentCount ?? summary.subagentCount ?? 0);
+    const memoryLoop = researchMemoryLoopPanel(trace, memoryHits);
 
     const section = document.createElement("section");
     section.className = `research-process${isCollapsed ? " is-collapsed" : ""}`;
@@ -1683,7 +2321,11 @@ function researchProcessPanel(message) {
         evidenceMatrix.appendChild(gapList);
     }
 
-    section.append(metrics, timeline, evidenceMatrix);
+    section.append(metrics);
+    if (memoryLoop) {
+        section.appendChild(memoryLoop);
+    }
+    section.append(timeline, evidenceMatrix);
     return section;
 }
 
@@ -1730,6 +2372,68 @@ function processMetric(label, value) {
     return item;
 }
 
+function researchMemoryLoopPanel(trace, memoryHits) {
+    const feedbackEvents = recentFeedbackAppliedEvents(trace);
+    const candidateEvents = (trace?.timeline || []).filter((event) => event.eventType === "candidate.created" || event.eventType === "knowledge.entry.created");
+    const pendingCandidates = app.candidates.filter((candidate) => candidate.status === "pending");
+    const panel = document.createElement("div");
+    panel.className = "memory-loop-panel";
+    panel.appendChild(textElement("strong", "记忆与自学习闭环"));
+    panel.append(
+            memoryLoopItem("L1", "短期工作记忆", l1MemoryDetail(trace), "上下文"),
+            memoryLoopItem("L3", "长期记忆召回", l3MemoryDetail(memoryHits), "仅上下文"),
+            memoryLoopItem("候选", "候选流转", candidateTransitionDetail(candidateEvents, pendingCandidates), "需要审阅"),
+            memoryLoopItem("反馈", "反馈已应用", feedbackEvents.length ? feedbackAppliedText(feedbackEvents[0]) : "本轮还没有 feedback.applied 事件", "排序信号")
+    );
+    return panel;
+}
+
+function l1MemoryDetail(trace) {
+    const summary = trace?.summary || {};
+    const compressedRounds = summary.compressedRounds ?? trace?.workingMemory?.compressedRounds;
+    const salientFacts = summary.salientFactCount ?? trace?.workingMemory?.salientFacts?.length;
+    const parts = [];
+    if (compressedRounds !== undefined) {
+        parts.push(`${compressedRounds} 轮已压缩`);
+    }
+    if (salientFacts !== undefined) {
+        parts.push(`${salientFacts} 条关键事实`);
+    }
+    return parts.length ? parts.join(", ") : "等待 working-memory 投影";
+}
+
+function l3MemoryDetail(memoryHits) {
+    if (!memoryHits?.length) {
+        return "本轮没有记忆命中";
+    }
+    const firstHit = memoryHits[0];
+    const layer = firstHit.memoryLayer || "L3";
+    const score = firstHit.score !== undefined ? `，分数 ${firstHit.score}` : "";
+    return `${memoryHits.length} 条记忆上下文命中，首条 ${layer}${score}`;
+}
+
+function candidateTransitionDetail(candidateEvents, pendingCandidates) {
+    if (candidateEvents.length) {
+        return `${candidateEvents.length} 条候选或知识事件进入 trace`;
+    }
+    if (pendingCandidates.length) {
+        return `${pendingCandidates.length} 条待确认候选，尚不是已确认知识`;
+    }
+    return "尚无候选流转";
+}
+
+function memoryLoopItem(layer, title, detail, badge) {
+    const item = document.createElement("article");
+    item.className = "memory-loop-item";
+    item.append(
+            textElement("span", layer, "memory-loop-item__layer"),
+            textElement("strong", title),
+            textElement("p", detail),
+            textElement("small", badge)
+    );
+    return item;
+}
+
 function processToolCount(tools) {
     const keys = new Set();
     for (const tool of tools || []) {
@@ -1738,12 +2442,39 @@ function processToolCount(tools) {
     return keys.size;
 }
 
+function recentFeedbackAppliedEvents(trace = null) {
+    const traces = trace ? [trace] : Object.values(app.agentTraces || {});
+    const events = traces.flatMap((item) => [
+        ...(Array.isArray(item?.feedbackApplications) ? item.feedbackApplications : []),
+        ...(Array.isArray(item?.feedbackApplied) ? item.feedbackApplied : []),
+        ...(Array.isArray(item?.feedbackEvents) ? item.feedbackEvents : []),
+        ...(Array.isArray(item?.timeline) ? item.timeline.filter((event) => event.eventType === "feedback.applied") : [])
+    ]).filter(Boolean);
+    const seen = new Set();
+    return events.filter((event) => {
+        const key = event.eventId || event.id || `${event.runId || ""}:${event.createdAt || event.timestamp || ""}:${event.feedbackScore ?? ""}`;
+        if (seen.has(key)) {
+            return false;
+        }
+        seen.add(key);
+        return true;
+    });
+}
+
+function feedbackAppliedText(event) {
+    const evidenceCount = Number(event.updatedEvidenceSourceCount ?? event.updatedEvidenceCount ?? event.evidenceCount ?? 0);
+    const chunkCount = Number(event.updatedChunkCount ?? event.chunkCount ?? 0);
+    const rating = event.rating || event.feedbackRating || "feedback";
+    return `${rating}: 更新 ${evidenceCount} 个证据源、${chunkCount} 个片段`;
+}
+
 function processTimelineItems(trace, message) {
     const tools = trace?.tools || [];
     const retrievalHits = trace?.retrievalHits || [];
     const memoryHits = trace?.memoryHits || [];
     const evidenceEvents = trace?.evidenceEvents || [];
     const answerDeltas = trace?.answerDeltas || [];
+    const feedbackEvents = recentFeedbackAppliedEvents(trace);
     const agentEvents = (trace?.timeline || []).filter((event) => String(event.eventType || "").startsWith("agent."));
     const orderedEvents = [
         processModeTimelineEvent(trace?.modeSelection),
@@ -1752,6 +2483,7 @@ function processTimelineItems(trace, message) {
         ...tools.map((event, index) => processToolTimelineEvent(event, index)),
         ...retrievalHits.map((event, index) => processHitTimelineEvent(event, index, "retrieval")),
         ...memoryHits.map((event, index) => processHitTimelineEvent(event, index, "memory")),
+        ...feedbackEvents.map((event, index) => processFeedbackTimelineEvent(event, index)),
         ...evidenceEvents.map((event, index) => processEvidenceTimelineEvent(event, index)),
         ...answerDeltas.slice(0, 1).map((event, index) => processAnswerTimelineEvent(event, index))
     ].filter(Boolean);
@@ -1835,6 +2567,16 @@ function processEvidenceTimelineEvent(event, index) {
         label: event.eventType === "evidence.gap.detected" ? "证据边界" : "证据评估",
         detail: event.reason || event.claim || event.resultSummary || "证据状态已更新",
         order: processEventOrderValue(event, 200 + index)
+    };
+}
+
+function processFeedbackTimelineEvent(event, index) {
+    return {
+        eventType: "feedback.applied",
+        status: "completed",
+        label: "反馈已应用",
+        detail: feedbackAppliedText(event),
+        order: processEventOrderValue(event, 240 + index)
     };
 }
 
@@ -1950,6 +2692,9 @@ function processEvidenceItem(event) {
             textElement("strong", event.title || event.label || event.sourceId || "研究来源"),
             textElement("p", event.snippet || event.reason || "暂无摘录。")
     );
+    if (event.memoryLayer) {
+        item.appendChild(textElement("small", `${event.memoryLayer} 记忆上下文，不是引用证据`, "process-evidence__note"));
+    }
     return item;
 }
 
@@ -2196,6 +2941,17 @@ function metricItem(label, count) {
     const item = document.createElement("div");
     item.className = "metric-item";
     item.append(textElement("strong", String(count)), textElement("span", label));
+    return item;
+}
+
+function diagnosticIndicator(label, value, note) {
+    const item = document.createElement("div");
+    item.className = "diagnostic-indicator";
+    item.append(
+            textElement("span", label),
+            textElement("strong", String(value)),
+            textElement("small", note)
+    );
     return item;
 }
 
