@@ -10,18 +10,6 @@ This file records active engineering state that future sessions must be able to 
 
 ## Active Work
 
-### F016 Retrieval Observability
-
-- Status: active
-- Feature page: [F016-retrieval-observability.md](features/F016-retrieval-observability.md)
-- Spec: [F016-retrieval-observability-spec.md](specs/F016-retrieval-observability-spec.md)
-- Plan: [F016-retrieval-observability-plan.md](plans/F016-retrieval-observability-plan.md)
-- Current intent: turn Paper RAG retrieval into a long-lived observable capability that can explain query rewrite, hybrid retrieval hit counts, scope filtering, rerank output, zero-hit reasons, and final citation linkage. This is intentionally a backend observability feature first, not another UI patch.
-- Product reason: recent research-process UI exposed many `paper_rag returned 0 scoped chunk(s)` events. The durable fix is to make the backend explain whether the cause is Agent over-calling, weak query rewrite, no backend hits, scope-filtered vector candidates, rerank empty output, or missing scoped evidence.
-- Current slice: minimum observation model, query rewrite strategy, `NO_BACKEND_HITS` classification, `retrieval.query.rewritten`, `retrieval.completed`, and `tool.completed.data.retrievalObservationSummary` are implemented and covered by focused tests. Live observation also exposed that local restart recovery was broken for `LocalVectorSearchPort`; startup warmup now rehydrates indexed chunks into the in-memory vector index. Follow-up diagnosis showed retrieval recovered but evidence boundary was too strict for local deterministic scores; non-empty scoped paper chunks now produce weak local evidence instead of `REFUSAL/NONE`. The Agent tool boundary now deduplicates identical `paper_rag` queries and caps backend `paper_rag` calls at 3 per answer run. A project/session scoped diagnostics endpoint and first-level Observability workspace now expose the recorded retrieval traces for manual diagnosis.
-- Evidence: [EV-015-f016-retrieval-observability-slice.md](evidence/EV-015-f016-retrieval-observability-slice.md)
-- Next step: rebuild/restart the Docker app image and validate the Observability workspace against a fresh manual run. Expected outcome is the page shows the latest retrieval calls, zero-hit taxonomy, backend hit counts, and bounded top chunks without reading database rows by hand.
-
 ### F014 Primary Workspace Navigation UI
 
 - Status: active
@@ -43,6 +31,17 @@ This file records active engineering state that future sessions must be able to 
 - Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ## Recently Completed
+
+### F016 Retrieval Observability
+
+- Status: completed
+- Feature page: [F016-retrieval-observability.md](features/F016-retrieval-observability.md)
+- Spec: [F016-retrieval-observability-spec.md](specs/F016-retrieval-observability-spec.md)
+- Plan: [F016-retrieval-observability-plan.md](plans/F016-retrieval-observability-plan.md)
+- Evidence: [EV-015-f016-retrieval-observability-slice.md](evidence/EV-015-f016-retrieval-observability-slice.md)
+- Result: Paper RAG retrieval now has durable, session-scoped observability for query rewrite, per-backend hit counts, vector pre/post scope filtering, zero-hit taxonomy, bounded tool-call behavior, Answer Run attribution, and final paper evidence metadata. The workbench exposes this through the Observability / answer-evidence diagnostics workspace and a project/session scoped diagnostics endpoint.
+- Verification: the expanded focused backend slice, frontend model/syntax checks, Docker rebuild, HTTP smoke, and Harness knowledge check are recorded in EV-015. A later full `mvn test` attempt was blocked by shared Testcontainers PostgreSQL client exhaustion after the relevant F016/F021 boundary slices passed.
+- Known limitation: F016 intentionally does not add a dedicated `retrieval_observation` table, cross-session trend analytics, or an exact citation-to-retrieval-observation id. Keyword/metadata repositories still apply scope internally, so only vector retrieval exposes true pre/post scope counts.
 
 ### F021 Memory Self-Learning Visualization / F021.1 Closed Loop Reset
 

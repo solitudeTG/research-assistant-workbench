@@ -1,7 +1,7 @@
 ---
 id: EV-015
 doc_kind: evidence
-status: active
+status: completed
 created: 2026-05-12
 updated: 2026-05-17
 feature_ids: [F016]
@@ -10,7 +10,7 @@ feature_ids: [F016]
 
 ## Scope Verified
 
-This evidence records the first F016 backend slice. It does not close the full Feature.
+This evidence began as the first F016 backend slice and now records the closeout of the interview-demo retrieval observability capability.
 
 Implemented capability:
 
@@ -172,3 +172,30 @@ ok
 - No dedicated `retrieval_observation` table was added. This intentionally avoids an ADR-triggering storage decision until aggregation needs are proven.
 - The diagnostics endpoint is session scoped, not cross-session trend analytics. A dedicated table or time-series dashboard remains a future decision if aggregate analysis becomes necessary.
 - The current Docker app image must be rebuilt before the new backend endpoint and static UI are visible in container-based manual testing.
+
+## 2026-05-17 Closeout Audit
+
+Closeout verdict: F016 is completed for the current resume/demo claim of RAG retrieval observability and evidence-chain diagnostics.
+
+Code anchor:
+
+- Commit `3dfc440 feat: add answer-run retrieval diagnostics` is the implementation commit that closed the final ambiguity around session rows by carrying `runId`, `answerId`, `messageId`, question text, and `toolCallIndex` into retrieval diagnostics.
+
+What is safe to claim:
+
+- The system records and displays query rewrite, backend retrieval stats, vector scope filtering, zero-hit reasons, bounded top chunks, and Answer Run grouping.
+- The diagnostics endpoint and Observability workspace let a reviewer inspect retrieval behavior without reading database rows by hand.
+- Final paper evidence can be traced at answer/run level through persisted metadata and normalized source ids.
+
+What should not be overstated:
+
+- F016 does not prove exact citation-to-specific-retrieval-call linkage via a stable observation id.
+- F016 does not provide cross-session trend analytics.
+- F016 does not make keyword and metadata repositories expose true pre/post scope counts.
+
+Closeout verification for this docs-only update:
+
+```powershell
+python .\scripts\knowledge_check.py
+git diff --check
+```

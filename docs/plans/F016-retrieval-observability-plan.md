@@ -1,11 +1,23 @@
 ---
 id: PLAN-F016
 doc_kind: plan
-status: active
+status: completed
 updated: 2026-05-17
 feature_ids: [F016]
 ---
 # F016 Retrieval Observability Implementation Plan
+
+## 2026-05-17 Closeout
+
+This plan is closed for F016. The completed scope delivers structured Paper RAG observations, query rewrite telemetry, zero-hit taxonomy, vector pre/post scope diagnostics, bounded `paper_rag` tool calls, Answer Run attribution, a session-scoped diagnostics endpoint, and the workbench Observability / answer-evidence diagnostics surface.
+
+Unchecked plan bullets are intentionally deferred because they would expand storage or analytics scope without changing the current interview-demo capability:
+
+- A dedicated `retrievalObservationId` / `retrieval_observation` table for exact citation-to-call linkage.
+- True pre/post scope metrics for keyword and metadata repositories, which currently apply scope internally.
+- Cross-session trend analytics or configurable `paper_rag` call budgets.
+
+Evidence and verification are recorded in [EV-015-f016-retrieval-observability-slice.md](../evidence/EV-015-f016-retrieval-observability-slice.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:test-driven-development` for behavior changes and `superpowers:subagent-driven-development` only if splitting independent implementation slices. Do not start by changing UI.
 
