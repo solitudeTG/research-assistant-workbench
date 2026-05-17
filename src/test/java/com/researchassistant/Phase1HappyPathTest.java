@@ -1,8 +1,11 @@
 package com.researchassistant;
 
 import com.researchassistant.ingest.DocumentRepository;
+import com.researchassistant.ingest.DocumentChunkRepository;
 import com.researchassistant.ingest.model.DocumentStatus;
+import com.researchassistant.rag.RagChunk;
 import com.researchassistant.support.PostgresIntegrationTest;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.springframework.ai.chat.client.ChatClient;
@@ -15,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -30,6 +34,9 @@ class Phase1HappyPathTest extends PostgresIntegrationTest {
 
     @Autowired
     private DocumentRepository documentRepository;
+
+    @Autowired
+    private DocumentChunkRepository documentChunkRepository;
 
     @MockBean(answer = Answers.RETURNS_DEEP_STUBS)
     private ChatClient chatClient;
@@ -66,6 +73,16 @@ class Phase1HappyPathTest extends PostgresIntegrationTest {
         assertThat(documentRepository.findById(documentId)).get()
                 .extracting(document -> document.status())
                 .isEqualTo(DocumentStatus.INDEXED);
+        assertThat(documentChunkRepository.findByDocumentId(documentId)).isNotEmpty();
+        when(vectorSearchPort.search(anyString(), eq(List.of(documentId)), eq(5)))
+                .thenReturn(documentChunkRepository.findByDocumentId(documentId).stream()
+                        .map(chunk -> new RagChunk(
+                                chunk.id(),
+                                chunk.documentId(),
+                                chunk.chunkIndex(),
+                                chunk.content(),
+                                2.0))
+                        .toList());
 
         String requestBody = """
                 {

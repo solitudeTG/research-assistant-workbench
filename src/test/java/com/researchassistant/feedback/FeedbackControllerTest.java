@@ -1,7 +1,6 @@
 package com.researchassistant.feedback;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.researchassistant.orchestrator.FeedbackPort;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +26,7 @@ class FeedbackControllerTest {
     private ObjectMapper objectMapper;
 
     @MockBean
-    private FeedbackPort feedbackPort;
+    private FeedbackService feedbackService;
 
     @Test
     void submitFeedbackRecordsChunkFeedback() throws Exception {
@@ -42,6 +41,6 @@ class FeedbackControllerTest {
                 .andExpect(jsonPath("$.status").value("RECORDED"))
                 .andExpect(jsonPath("$.chunkCount").value(2));
 
-        verify(feedbackPort).recordMessageFeedback(15L, List.of(3L, 5L), 1, "helpful");
+        verify(feedbackService).recordMessageFeedback(15L, List.of(3L, 5L), 1, "helpful");
     }
 }

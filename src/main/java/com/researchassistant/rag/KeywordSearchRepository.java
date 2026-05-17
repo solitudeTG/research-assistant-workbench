@@ -17,12 +17,15 @@ public class KeywordSearchRepository {
     public List<RagChunk> search(String query, List<Long> allowedDocumentIds, int limit) {
         String sql = """
                 select id, document_id, chunk_index, content,
-                       ts_rank(to_tsvector('simple', content), websearch_to_tsquery('simple', :query))
-                           + coalesce(feedback_score, 0) * 0.15 as score
+                       ts_rank(to_tsvector('simple', content), websearch_to_tsquery('simple', :query)) as relevance_score,
+                       coalesce(feedback_score, 0) as feedback_score
                 from document_chunk
                 where (:documentIdsEmpty = true or document_id in (:documentIds))
                   and to_tsvector('simple', content) @@ websearch_to_tsquery('simple', :query)
-                order by score desc
+                order by (
+                    ts_rank(to_tsvector('simple', content), websearch_to_tsquery('simple', :query))
+                    + least(0.2, greatest(-0.2, coalesce(feedback_score, 0) * 0.05))
+                ) desc
                 limit :limit
                 """;
 
@@ -38,7 +41,10 @@ public class KeywordSearchRepository {
                 resultSet.getLong("document_id"),
                 resultSet.getInt("chunk_index"),
                 resultSet.getString("content"),
-                resultSet.getDouble("score")
+                RetrievalFeedbackScoring.finalScore(
+                        resultSet.getDouble("relevance_score"),
+                        resultSet.getDouble("feedback_score")),
+                resultSet.getDouble("feedback_score")
         ));
     }
 }

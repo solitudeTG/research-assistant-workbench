@@ -1,0 +1,445 @@
+package com.researchassistant.orchestrator;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.researchassistant.events.WorkbenchEvent;
+import com.researchassistant.events.WorkbenchEventPublisher;
+import com.researchassistant.memory.MemoryEntry;
+import com.researchassistant.memory.MemoryRecallHit;
+import com.researchassistant.memory.MemoryRecallResult;
+import com.researchassistant.project.ProjectRecord;
+import com.researchassistant.project.ProjectRepository;
+import com.researchassistant.project.ResearchSessionRecord;
+import com.researchassistant.rag.RagChunk;
+import com.researchassistant.rag.RagResult;
+import com.researchassistant.support.PostgresIntegrationTest;
+import com.researchassistant.websearch.WebSearchHit;
+import com.researchassistant.websearch.WebSearchResult;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@AutoConfigureMockMvc
+@TestPropertySource(properties = {
+        "app.storage.root=target/test-storage",
+        "app.f006.project-run-event-flow-test=true"
+})
+class ProjectRunEventFlowTest extends PostgresIntegrationTest {
+
+    private static final List<String> REQUIRED_EVENT_ORDER = List.of(
+            "run.started",
+            "agent.plan.created",
+            "agent.step.started",
+            "retrieval.started",
+            "retrieval.completed",
+            "evidence.evaluated",
+            "answer.delta",
+            "answer.completed",
+            "run.completed"
+    );
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private ProjectRepository projectRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @SpyBean
+    private WorkbenchEventPublisher eventPublisher;
+
+    @SpyBean
+    private SupervisorService supervisorService;
+
+    @SpyBean
+    private ProjectAgentToolLoop projectAgentToolLoop;
+
+    @MockBean(answer = org.mockito.Answers.RETURNS_DEEP_STUBS)
+    private org.springframework.ai.chat.client.ChatClient chatClient;
+
+    @BeforeEach
+    void stubDefaultToolLoopAnswer() {
+        doReturn(new ProjectAgentRun(
+                "Default project answer for event-flow tests.",
+                new RagResult("What should we inspect next?", List.of(), List.of()),
+                null,
+                null,
+                List.of()
+        )).when(projectAgentToolLoop).run(any(ProjectAgentRequest.class));
+    }
+
+    @AfterEach
+    void resetToolLoopSpy() {
+        reset(projectAgentToolLoop);
+    }
+
+    @Test
+    void projectScopedMessageCreatesRunResponseAndOrderedWorkbenchEvents() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+
+        JsonNode response = postProjectMessage(session);
+        String runId = response.get("streamRunId").asText();
+
+        assertThat(runId).isNotBlank();
+        assertThat(response.get("messageId").asText()).isNotBlank();
+        assertThat(response.get("answerId").asText()).isNotBlank();
+        assertThat(response.get("sseUrl").asText())
+                .isEqualTo("/api/projects/" + session.projectId()
+                        + "/sessions/" + session.id()
+                        + "/runs/" + runId
+                        + "/events");
+        assertThat(assistantAnswerCount(response.get("answerId").asText(), session.projectId(), session.id()))
+                .isEqualTo(1);
+
+        List<WorkbenchEvent> events = eventPublisher.readRunEventsAfter(runId, null);
+        assertThat(events)
+                .extracting(event -> event.eventType().wireName())
+                .containsSubsequence(REQUIRED_EVENT_ORDER);
+        assertThat(events)
+                .allSatisfy(event -> {
+                    assertThat(event.projectId()).isEqualTo(session.projectId());
+                    assertThat(event.sessionId()).isEqualTo(session.id());
+                    assertThat(event.runId()).isEqualTo(runId);
+                    assertThat(event.actor()).isNotBlank();
+                    assertThat(event.payload()).isNotNull();
+                });
+        WorkbenchEvent evidenceEvent = events.stream()
+                .filter(event -> "evidence.evaluated".equals(event.eventType().wireName()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(evidenceEvent.payload())
+                .containsKeys("evidenceState", "outputMode", "citationCount")
+                .doesNotContainKey("answerMode");
+    }
+
+    @Test
+    void projectScopedMessagePublishesTraceDetailsFromAgentRunData() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+        insertIndexedSource(session.projectId(), "source-paper-1", 10L);
+        doReturn(new ProjectAgentRun(
+                "First paragraph from the current evidence.\n\nSecond paragraph uses a web supplement.",
+                new RagResult(
+                        "trace details",
+                        List.of(10L),
+                        List.of(new RagChunk(101L, 10L, 2, "Paper evidence chunk for trace details.", 0.87))
+                ),
+                new WebSearchResult(
+                        "trace details",
+                        List.of(new WebSearchHit(
+                                "Trace provider result",
+                                "https://example.test/trace",
+                                "Web evidence snippet for trace details.",
+                                0.76
+                        )),
+                        "tavily",
+                        false,
+                        ""
+                ),
+                new MemoryRecallResult(
+                        "trace details",
+                        List.of(
+                                new MemoryRecallHit(memoryEntry("Trace memory", "Memory summary used by the trace event."), 0.66),
+                                new MemoryRecallHit(memoryEntry("Second trace memory", "Second memory summary used by the trace event."), 0.44)
+                        )
+                ),
+                List.of("paper_rag", "tavily_web_search", "memory_recall")
+        )).when(projectAgentToolLoop).run(any(ProjectAgentRequest.class));
+
+        String runId = postProjectMessage(session).get("streamRunId").asText();
+        List<WorkbenchEvent> events = eventPublisher.readRunEventsAfter(runId, null);
+
+        assertThat(events)
+                .extracting(event -> event.eventType().wireName())
+                .containsSubsequence(REQUIRED_EVENT_ORDER)
+                .contains("retrieval.hit", "memory.hit", "memory.completed", "evidence.gap.detected", "answer.delta");
+
+        WorkbenchEvent paperHit = firstEvent(events, "retrieval.hit", "paper");
+        Map<String, Object> paperData = dataOf(paperHit);
+        assertThat(paperHit.actor()).isEqualTo("retrieval-agent");
+        assertThat(paperData)
+                .containsEntry("sourceType", "paper")
+                .containsEntry("sourceId", "source-paper-1")
+                .containsEntry("rank", 1)
+                .containsEntry("retrievalMode", "vector")
+                .containsEntry("score", 0.87);
+        assertThat((String) paperData.get("snippet")).contains("Paper evidence chunk");
+
+        WorkbenchEvent webHit = firstEvent(events, "retrieval.hit", "web");
+        Map<String, Object> webData = dataOf(webHit);
+        assertThat(webData)
+                .containsEntry("sourceType", "web")
+                .containsEntry("url", "https://example.test/trace")
+                .containsEntry("title", "Trace provider result")
+                .containsEntry("provider", "tavily")
+                .containsEntry("rank", 1)
+                .containsEntry("retrievalMode", "web");
+
+        List<WorkbenchEvent> memoryHits = events.stream()
+                .filter(event -> "memory.hit".equals(event.eventType().wireName()))
+                .toList();
+        assertThat(memoryHits).hasSize(2);
+        WorkbenchEvent memoryHit = memoryHits.get(0);
+        assertThat(memoryHit.actor()).isEqualTo("memory_worker");
+        assertThat(dataOf(memoryHit))
+                .containsEntry("memoryLayer", "L3")
+                .containsEntry("label", "\u957f\u671f\u8bb0\u5fc6\u53ec\u56de")
+                .containsEntry("score", 0.66);
+
+        WorkbenchEvent memoryCompleted = events.stream()
+                .filter(event -> "memory.completed".equals(event.eventType().wireName()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(dataOf(memoryCompleted)).containsEntry("hitCount", 2);
+
+        WorkbenchEvent gap = events.stream()
+                .filter(event -> "evidence.gap.detected".equals(event.eventType().wireName()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(dataOf(gap))
+                .containsKeys("claim", "reason", "severity")
+                .containsEntry("severity", "medium");
+
+        List<WorkbenchEvent> answerDeltas = events.stream()
+                .filter(event -> "answer.delta".equals(event.eventType().wireName()))
+                .toList();
+        assertThat(answerDeltas).hasSize(2);
+        assertThat(answerDeltas)
+                .allSatisfy(event -> assertThat(event.payload()).containsKeys("delta", "text", "index"));
+        assertThat(answerDeltas.get(0).payload())
+                .containsEntry("delta", "First paragraph from the current evidence.")
+                .containsEntry("text", "First paragraph from the current evidence.")
+                .containsEntry("index", 0);
+    }
+
+    @Test
+    void projectScopedSimpleMessageDoesNotPublishEvidenceGapWithoutResearchEvidencePath() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+        doReturn(new ProjectAgentRun(
+                "你好，我在。",
+                null,
+                null,
+                null,
+                List.of()
+        )).when(projectAgentToolLoop).run(any(ProjectAgentRequest.class));
+
+        String runId = postProjectMessage(session).get("streamRunId").asText();
+
+        assertThat(eventPublisher.readRunEventsAfter(runId, null))
+                .extracting(event -> event.eventType().wireName())
+                .doesNotContain("evidence.gap.detected");
+    }
+
+    @Test
+    void projectSessionMessagesReturnPersistedConversationAndRejectCrossProjectReads() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+        ProjectRecord otherProject = projectRepository.createProject("Other project", "message boundary");
+
+        postProjectMessage(session);
+
+        mockMvc.perform(get("/api/projects/{projectId}/sessions/{sessionId}/messages",
+                        session.projectId(), session.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].role").value("user"))
+                .andExpect(jsonPath("$[0].content").value("What should we inspect next?"))
+                .andExpect(jsonPath("$[0].sessionId").value(session.id()))
+                .andExpect(jsonPath("$[1].role").value("assistant"))
+                .andExpect(jsonPath("$[1].content").isNotEmpty())
+                .andExpect(jsonPath("$[1].sessionId").value(session.id()));
+
+        mockMvc.perform(get("/api/projects/{projectId}/sessions/{sessionId}/messages",
+                        otherProject.id(), session.id()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void rejectsCrossProjectSessionBeforePublishingEventsOrAppendingLegacyMemory() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+        ProjectRecord otherProject = projectRepository.createProject("Other project", "boundary");
+        clearInvocations(eventPublisher, supervisorService);
+
+        mockMvc.perform(post("/api/projects/{projectId}/sessions/{sessionId}/messages",
+                        otherProject.id(), session.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "question": "Should not run"
+                                }
+                                """))
+                .andExpect(status().isNotFound());
+
+        verify(supervisorService, never()).answerProject(any(), any(), any());
+        verify(eventPublisher, never()).publish(any());
+        assertThat(legacyChatSessionCount(session.id())).isZero();
+    }
+
+    @Test
+    void rejectsSourceFiltersBeforePublishingEventsOrInvokingAnswerPath() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+        clearInvocations(eventPublisher, supervisorService);
+
+        mockMvc.perform(post("/api/projects/{projectId}/sessions/{sessionId}/messages",
+                        session.projectId(), session.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "question": "Should not run",
+                                  "sourceFilters": ["7b34f6e8-7f02-4bb4-95b5-0da71dd40393"]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(supervisorService, never()).answerProject(any(), any(), any());
+        verify(eventPublisher, never()).publish(any());
+        assertThat(legacyChatSessionCount(session.id())).isZero();
+    }
+
+    @Test
+    void projectRunSseReplayUsesF004EventFormatAndSameEventNames() throws Exception {
+        ResearchSessionRecord session = createResearchSession();
+        String runId = postProjectMessage(session).get("streamRunId").asText();
+
+        MvcResult result = mockMvc.perform(get("/api/projects/{projectId}/sessions/{sessionId}/runs/{runId}/events",
+                        session.projectId(), session.id(), runId))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        result.getAsyncResult(5_000);
+        String sseBody = mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(sseBody).contains("id:");
+        assertThat(sseBody).contains("\"eventType\":\"run.started\"");
+        assertThat(sseBody).contains("\"payload\":");
+
+        AtomicReference<Integer> previousIndex = new AtomicReference<>(-1);
+        REQUIRED_EVENT_ORDER.forEach(eventName -> {
+            int index = sseBody.indexOf("event:" + eventName);
+            assertThat(index)
+                    .as("SSE event %s should be present", eventName)
+                    .isGreaterThan(previousIndex.get());
+            previousIndex.set(index);
+        });
+    }
+
+    private JsonNode postProjectMessage(ResearchSessionRecord session) throws Exception {
+        String requestBody = """
+                {
+                  "question": "What should we inspect next?",
+                  "answerMode": "local_first"
+                }
+                """;
+
+        MvcResult result = mockMvc.perform(post("/api/projects/{projectId}/sessions/{sessionId}/messages",
+                        session.projectId(), session.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messageId").isNotEmpty())
+                .andExpect(jsonPath("$.answerId").isNotEmpty())
+                .andExpect(jsonPath("$.streamRunId").isNotEmpty())
+                .andExpect(jsonPath("$.sseUrl").isNotEmpty())
+                .andReturn();
+
+        return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private ResearchSessionRecord createResearchSession() {
+        ProjectRecord project = projectRepository.createProject("F006 test project", "event flow");
+        return projectRepository.createSession(project.id(), "F006 session");
+    }
+
+    private void insertIndexedSource(String projectId, String sourceId, long indexedDocumentId) {
+        jdbcTemplate.update("""
+                insert into source_document(id, project_id, type, title, status, indexed_document_id)
+                values (?, ?, 'paper', 'Trace Paper', 'indexed', ?)
+                """, sourceId, projectId, indexedDocumentId);
+    }
+
+    private WorkbenchEvent firstEvent(List<WorkbenchEvent> events, String eventType, String sourceType) {
+        return events.stream()
+                .filter(event -> eventType.equals(event.eventType().wireName()))
+                .filter(event -> sourceType == null || sourceType.equals(dataOf(event).get("sourceType")))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> dataOf(WorkbenchEvent event) {
+        assertThat(event.payload()).containsKey("data");
+        return (Map<String, Object>) event.payload().get("data");
+    }
+
+    private MemoryEntry memoryEntry(String topic, String summary) {
+        return new MemoryEntry(
+                7L,
+                42L,
+                "COMPACTION",
+                topic,
+                summary,
+                List.of("Trace detail comes from memory recall."),
+                List.of(),
+                List.of("trace"),
+                1L,
+                2L,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+    }
+
+    private int assistantAnswerCount(String answerId, String projectId, String sessionId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                from assistant_answer
+                where id = ?
+                  and project_id = ?
+                  and session_id = ?
+                """, Integer.class, answerId, projectId, sessionId);
+        return count == null ? 0 : count;
+    }
+
+    private int legacyChatSessionCount(String sessionKey) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                from chat_session
+                where session_key = ?
+                """, Integer.class, sessionKey);
+        return count == null ? 0 : count;
+    }
+}

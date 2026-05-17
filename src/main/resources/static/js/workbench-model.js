@@ -7,6 +7,548 @@ const STATUS_TONE = {
     UNKNOWN: "idle"
 };
 
+const SIDEBAR_VIEWS = new Set(["knowledge-board", "evidence-sources", "candidate-confirmation"]);
+const WORKSPACES = new Set(["session", "sources", "knowledge", "project", "observability"]);
+const KNOWLEDGE_SECTIONS = [
+    { section: "current_candidates", title: "本轮候选" },
+    { section: "core_concept", title: "核心概念" },
+    { section: "method_route", title: "方法路线" },
+    { section: "confirmed_finding", title: "已确认结论" },
+    { section: "open_question", title: "待验证问题" }
+];
+
+export function selectSession(state, sessionId) {
+    return {
+        ...state,
+        activeSessionId: sessionId,
+        activeAnswerContext: null,
+        currentAnswer: {
+            ...(state.currentAnswer || {}),
+            text: state.activeSessionId === sessionId ? state.currentAnswer?.text || "" : "",
+            status: "idle"
+        }
+    };
+}
+
+export function selectSidebarView(state, view) {
+    const nextView = SIDEBAR_VIEWS.has(view) ? view : "knowledge-board";
+    return {
+        ...state,
+        selectedSidebarView: nextView
+    };
+}
+
+export function selectWorkspace(state, workspace) {
+    const nextWorkspace = WORKSPACES.has(workspace) ? workspace : "session";
+    return {
+        ...state,
+        activeWorkspace: nextWorkspace
+    };
+}
+
+export function getWorkspaceVisibility(state) {
+    const activeWorkspace = WORKSPACES.has(state?.activeWorkspace) ? state.activeWorkspace : "session";
+    return {
+        session: activeWorkspace === "session",
+        sources: activeWorkspace === "sources",
+        knowledge: activeWorkspace === "knowledge",
+        project: activeWorkspace === "project",
+        observability: activeWorkspace === "observability",
+        showChatComposer: activeWorkspace === "session",
+        showSessionInspector: activeWorkspace === "session"
+    };
+}
+
+export function requireProjectChatContext(state) {
+    if (!state || state.sampleMode || !state.activeProjectId || !state.activeSessionId) {
+        throw new Error("Project session context is required for workbench chat.");
+    }
+    return {
+        projectId: String(state.activeProjectId),
+        sessionId: String(state.activeSessionId)
+    };
+}
+
+export function buildProjectMessageUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}/messages`;
+}
+
+export function buildProjectSessionMessagesUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}/messages`;
+}
+
+export function buildProjectSessionRenameUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}`;
+}
+
+export function buildProjectSessionDeleteUrl(context) {
+    return `/api/projects/${encodeURIComponent(context.projectId)}/sessions/${encodeURIComponent(context.sessionId)}`;
+}
+
+export function renameSessionTitle(state, sessionId, title) {
+    const normalizedTitle = String(title || "").trim();
+    if (!normalizedTitle) {
+        return state;
+    }
+    return {
+        ...state,
+        sessions: (state.sessions || []).map((session) => {
+            if (session.id !== sessionId) {
+                return session;
+            }
+            return {
+                ...session,
+                title: normalizedTitle
+            };
+        })
+    };
+}
+
+export function deleteSessionFromState(state, sessionId) {
+    const sessions = (state.sessions || []).filter((session) => session.id !== sessionId);
+    const deletedActive = state.activeSessionId === sessionId;
+    const activeSessionId = deletedActive ? sessions[0]?.id || null : state.activeSessionId || null;
+    return {
+        ...state,
+        sessions,
+        activeSessionId,
+        activeAnswerContext: deletedActive ? null : state.activeAnswerContext || null,
+        currentAnswer: deletedActive
+                ? { answerId: null, text: "", status: "idle", evidenceState: null, outputMode: null, citationCount: 0 }
+                : state.currentAnswer,
+        messages: deletedActive ? [] : state.messages || [],
+        evidenceSources: deletedActive ? [] : state.evidenceSources || [],
+        candidates: deletedActive
+                ? (state.candidates || []).filter((candidate) => candidate.sessionId !== sessionId)
+                : state.candidates || [],
+        agentTraces: deletedActive ? {} : state.agentTraces || {},
+        processedEventIds: deletedActive ? [] : state.processedEventIds || []
+    };
+}
+
+export function calculateRestoredScrollTop(previous, nextScrollHeight) {
+    const scrollTop = Number(previous?.scrollTop ?? 0);
+    const scrollHeight = Number(previous?.scrollHeight ?? 0);
+    const clientHeight = Number(previous?.clientHeight ?? 0);
+    const nextHeight = Number(nextScrollHeight ?? 0);
+    const distanceFromBottom = Math.max(0, scrollHeight - scrollTop - clientHeight);
+    return Math.max(0, nextHeight - clientHeight - distanceFromBottom);
+}
+
+export function normalizeProjectMessage(raw) {
+    const id = raw?.id ?? raw?.messageId ?? "";
+    const role = String(raw?.role || "assistant").toLowerCase();
+    return {
+        id: String(id),
+        sessionId: raw?.sessionId == null ? null : String(raw.sessionId),
+        role: role === "user" ? "user" : "assistant",
+        content: String(raw?.content || raw?.text || ""),
+        answerMode: raw?.answerMode || null,
+        createdAt: raw?.createdAt || raw?.updatedAt || ""
+    };
+}
+
+export function startEditingCandidate(state, candidateId) {
+    const exists = (state.candidates || []).some((candidate) => candidate.id === candidateId);
+    return {
+        ...state,
+        editingCandidateId: exists ? candidateId : state.editingCandidateId || null
+    };
+}
+
+export function applyCandidateAction(state, candidateId, action) {
+    const statusByAction = {
+        accept: "accepted",
+        "edit-and-accept": "edited_accepted",
+        "mark-unverified": "marked_unverified",
+        ignore: "ignored",
+        cancel: "pending"
+    };
+    const nextStatus = statusByAction[action] || action;
+    return {
+        ...state,
+        editingCandidateId: state.editingCandidateId === candidateId ? null : state.editingCandidateId || null,
+        candidates: (state.candidates || []).map((candidate) => {
+            if (candidate.id !== candidateId) {
+                return candidate;
+            }
+            return {
+                ...candidate,
+                status: nextStatus
+            };
+        })
+    };
+}
+
+export function applySseEvent(state, event) {
+    if (!event) {
+        return state;
+    }
+
+    const eventId = event.eventId || event.id || null;
+    const processedEventIds = Array.isArray(state.processedEventIds) ? state.processedEventIds : [];
+    if (eventId && processedEventIds.includes(eventId)) {
+        return state;
+    }
+
+    const next = {
+        ...state,
+        processedEventIds: eventId ? [...processedEventIds, eventId] : processedEventIds
+    };
+    const eventType = normalizeEventType(event.eventType || event.type || event.eventName);
+    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    const traced = applyAgentTraceEvent(next, event, eventType, payload);
+
+    if (eventType === "source.status.changed") {
+        return applySourceStatusChanged(traced, event, payload);
+    }
+
+    if (eventType === "answer.delta") {
+        return applyAnswerDelta(traced, event, traceDataOf(payload));
+    }
+
+    if (eventType === "answer.completed") {
+        return applyAnswerCompleted(traced, event, payload);
+    }
+
+    if (eventType === "evidence.evaluated") {
+        return applyEvidenceEvaluated(traced, event, traceDataOf(payload));
+    }
+
+    if (eventType === "candidate.created") {
+        return applyCandidateCreated(traced, event, payload);
+    }
+
+    if (eventType === "knowledge.entry.created") {
+        return applyKnowledgeEntryCreated(traced, event, payload);
+    }
+
+    return traced;
+}
+
+export function createWorkbenchState(seed = {}) {
+    return {
+        activeWorkspace: WORKSPACES.has(seed.activeWorkspace) ? seed.activeWorkspace : "session",
+        activeProjectId: seed.activeProjectId || null,
+        activeSessionId: seed.activeSessionId || null,
+        activeAnswerContext: seed.activeAnswerContext || null,
+        selectedSidebarView: seed.selectedSidebarView || "knowledge-board",
+        sources: Array.isArray(seed.sources) ? seed.sources : [],
+        sessions: Array.isArray(seed.sessions) ? seed.sessions : [],
+        messages: Array.isArray(seed.messages) ? seed.messages : [],
+        currentAnswer: seed.currentAnswer || {
+            answerId: null,
+            text: "",
+            status: "idle",
+            evidenceState: null,
+            outputMode: null,
+            citationCount: 0
+        },
+        evidenceSources: Array.isArray(seed.evidenceSources) ? seed.evidenceSources : [],
+        candidates: Array.isArray(seed.candidates) ? seed.candidates : [],
+        editingCandidateId: seed.editingCandidateId || null,
+        knowledgeBoard: normalizeKnowledgeBoard(seed.knowledgeBoard),
+        agentTraces: seed.agentTraces && typeof seed.agentTraces === "object" ? seed.agentTraces : {},
+        processedEventIds: Array.isArray(seed.processedEventIds) ? seed.processedEventIds : []
+    };
+}
+
+function applyAgentTraceEvent(state, event, eventType, payload) {
+    const runId = String(event.runId || payload.runId || payload.data?.runId || "");
+    if (!runId) {
+        return state;
+    }
+
+    const data = traceDataOf(payload);
+    const traceEntry = {
+        ...data,
+        eventId: event.eventId || event.id || null,
+        eventType,
+        runId,
+        answerId: event.answerId || data.answerId || payload.answerId || null,
+        sequence: event.sequence ?? data.sequence ?? payload.sequence ?? null,
+        createdAt: event.createdAt || data.createdAt || payload.createdAt || ""
+    };
+    const trace = ensureAgentTrace(state, runId);
+
+    if (eventType === "tool.called" || eventType === "tool.completed" || eventType === "tool.failed") {
+        trace.tools.push(traceEntry);
+        trace.timeline.push(traceEntry);
+        trace.summary.toolCount = trace.tools.length;
+    } else if (eventType === "retrieval.hit") {
+        trace.retrievalHits.push(traceEntry);
+        trace.summary.evidenceCount = trace.retrievalHits.length;
+    } else if (eventType === "memory.hit") {
+        trace.memoryHits.push(traceEntry);
+        trace.summary.memoryCount = trace.memoryHits.length;
+    } else if (eventType === "memory.completed") {
+        trace.timeline.push(traceEntry);
+        trace.memorySummary = traceEntry;
+        trace.summary.memoryCount = Math.max(trace.memoryHits.length, Number(data.hitCount ?? 0));
+    } else if (eventType === "evidence.evaluated" || eventType === "evidence.gap.detected") {
+        trace.evidenceEvents.push(traceEntry);
+        trace.summary.weakClaims += Number(data.weakClaims ?? 0);
+        trace.summary.requiresConfirmation = trace.summary.requiresConfirmation || Boolean(data.requiresUserConfirmation);
+    } else if (eventType === "answer.delta") {
+        trace.answerDeltas.push(traceEntry);
+    } else {
+        return state;
+    }
+
+    return {
+        ...state,
+        agentTraces: {
+            ...(state.agentTraces || {}),
+            [runId]: trace
+        }
+    };
+}
+
+function ensureAgentTrace(state, runId) {
+    const existing = state.agentTraces?.[runId] || {};
+    const existingSummary = existing.summary || {};
+    return {
+        ...existing,
+        tools: Array.isArray(existing.tools) ? [...existing.tools] : [],
+        timeline: Array.isArray(existing.timeline) ? [...existing.timeline] : [],
+        retrievalHits: Array.isArray(existing.retrievalHits) ? [...existing.retrievalHits] : [],
+        evidenceEvents: Array.isArray(existing.evidenceEvents) ? [...existing.evidenceEvents] : [],
+        memoryHits: Array.isArray(existing.memoryHits) ? [...existing.memoryHits] : [],
+        answerDeltas: Array.isArray(existing.answerDeltas) ? [...existing.answerDeltas] : [],
+        summary: {
+            toolCount: Number(existingSummary.toolCount ?? 0),
+            evidenceCount: Number(existingSummary.evidenceCount ?? 0),
+            memoryCount: Number(existingSummary.memoryCount ?? 0),
+            weakClaims: Number(existingSummary.weakClaims ?? 0),
+            requiresConfirmation: Boolean(existingSummary.requiresConfirmation)
+        }
+    };
+}
+
+function traceDataOf(payload) {
+    if (payload?.data && typeof payload.data === "object") {
+        return payload.data;
+    }
+    return payload && typeof payload === "object" ? payload : {};
+}
+
+function applySourceStatusChanged(state, event, payload) {
+    const sourceId = String(payload.sourceId || event.sourceId || payload.id || "");
+    if (!sourceId) {
+        return state;
+    }
+    const sources = state.sources || [];
+    const existingIndex = sources.findIndex((source) => sourceMatches(source, sourceId));
+    const patch = {
+        id: sourceId,
+        sourceId,
+        ...payload,
+        status: payload.status || "unknown"
+    };
+    if (existingIndex < 0) {
+        return {
+            ...state,
+            sources: [patch, ...sources]
+        };
+    }
+    return {
+        ...state,
+        sources: sources.map((source, index) => index === existingIndex ? { ...source, ...patch } : source)
+    };
+}
+
+function applyAnswerDelta(state, event, payload) {
+    const previous = state.currentAnswer || {};
+    const answerId = payload.answerId || event.answerId || previous.answerId || null;
+    const delta = String(payload.text || payload.delta || payload.content || "");
+    const mode = payload.append === false ? "replace" : "append";
+    const text = mode === "replace" ? delta : `${previous.text || ""}${delta}`;
+    return {
+        ...state,
+        activeAnswerContext: {
+            ...(state.activeAnswerContext || {}),
+            answerId
+        },
+        currentAnswer: {
+            ...previous,
+            answerId,
+            text,
+            status: "streaming"
+        }
+    };
+}
+
+function applyAnswerCompleted(state, event, payload) {
+    const previous = state.currentAnswer || {};
+    return {
+        ...state,
+        currentAnswer: {
+            ...previous,
+            answerId: payload.answerId || event.answerId || previous.answerId || null,
+            text: payload.answer || payload.text || previous.text || "",
+            status: "completed",
+            outputMode: payload.answerMode || payload.outputMode || previous.outputMode || null,
+            evidenceState: payload.evidenceState || previous.evidenceState || null,
+            citationCount: Number(payload.citationCount ?? previous.citationCount ?? 0)
+        }
+    };
+}
+
+function applyEvidenceEvaluated(state, event, payload) {
+    const previous = state.currentAnswer || {};
+    const evidenceSources = Array.isArray(payload.evidenceSources)
+            ? payload.evidenceSources
+            : Array.isArray(payload.sources)
+                    ? payload.sources
+                    : state.evidenceSources || [];
+    return {
+        ...state,
+        activeAnswerContext: {
+            ...(state.activeAnswerContext || {}),
+            answerId: event.answerId || previous.answerId || null,
+            citationCount: Number(payload.citationCount ?? 0)
+        },
+        currentAnswer: {
+            ...previous,
+            answerId: event.answerId || previous.answerId || null,
+            evidenceState: payload.evidenceState || previous.evidenceState || null,
+            outputMode: payload.outputMode || previous.outputMode || null,
+            citationCount: Number(payload.citationCount ?? previous.citationCount ?? 0)
+        },
+        evidenceSources
+    };
+}
+
+function applyCandidateCreated(state, event, payload) {
+    const candidate = normalizeCandidate(payload.candidate || payload, event);
+    const candidates = state.candidates || [];
+    const exists = candidates.some((item) => item.id === candidate.id);
+    return {
+        ...state,
+        selectedSidebarView: "candidate-confirmation",
+        activeAnswerContext: {
+            ...(state.activeAnswerContext || {}),
+            answerId: candidate.answerId || state.activeAnswerContext?.answerId || event.answerId || null
+        },
+        candidates: exists
+                ? candidates.map((item) => item.id === candidate.id ? { ...item, ...candidate } : item)
+                : [candidate, ...candidates]
+    };
+}
+
+function applyKnowledgeEntryCreated(state, event, payload) {
+    const entry = normalizeKnowledgeEntry(payload.entry || payload, event);
+    const board = normalizeKnowledgeBoard(state.knowledgeBoard);
+    const sections = board.sections.map((section) => {
+        if (section.section !== entry.section) {
+            return section;
+        }
+        const exists = section.entries.some((item) => item.id === entry.id);
+        return {
+            ...section,
+            entries: exists
+                    ? section.entries.map((item) => item.id === entry.id ? { ...item, ...entry } : item)
+                    : [entry, ...section.entries]
+        };
+    });
+    const hasSection = sections.some((section) => section.section === entry.section);
+    return {
+        ...state,
+        selectedSidebarView: "knowledge-board",
+        candidates: (state.candidates || []).map((candidate) => {
+            if (candidate.id && candidate.id === entry.sourceCandidateId) {
+                return { ...candidate, status: candidate.status === "edited_accepted" ? "edited_accepted" : "accepted" };
+            }
+            return candidate;
+        }),
+        knowledgeBoard: {
+            ...board,
+            sections: hasSection
+                    ? sections
+                    : [{ section: entry.section, title: titleForSection(entry.section), entries: [entry] }, ...sections]
+        }
+    };
+}
+
+function normalizeEventType(eventType) {
+    if (typeof eventType === "string") {
+        return eventType;
+    }
+    if (eventType && typeof eventType.wireName === "string") {
+        return eventType.wireName;
+    }
+    return "";
+}
+
+function normalizeCandidate(raw, event) {
+    const id = raw.id || raw.candidateId || event.candidateId || stableFallbackId("candidate", event);
+    return {
+        id,
+        candidateId: id,
+        projectId: raw.projectId || event.projectId || null,
+        sessionId: raw.sessionId || event.sessionId || null,
+        answerId: raw.answerId || event.answerId || null,
+        title: raw.title || "未命名候选",
+        statement: raw.statement || raw.content || "",
+        suggestedSection: raw.suggestedSection || raw.section || "open_question",
+        sourceTypes: Array.isArray(raw.sourceTypes) ? raw.sourceTypes : [],
+        evidenceSourceIds: Array.isArray(raw.evidenceSourceIds) ? raw.evidenceSourceIds : [],
+        status: raw.status || "pending",
+        createdAt: raw.createdAt || event.createdAt || "",
+        updatedAt: raw.updatedAt || raw.createdAt || event.createdAt || ""
+    };
+}
+
+function normalizeKnowledgeEntry(raw, event) {
+    const id = raw.id || raw.entryId || event.entryId || stableFallbackId("entry", event);
+    return {
+        id,
+        projectId: raw.projectId || event.projectId || null,
+        section: raw.section || "open_question",
+        title: raw.title || "未命名知识",
+        content: raw.content || raw.statement || "",
+        evidenceStatus: raw.evidenceStatus || "unverified",
+        sourceCandidateId: raw.sourceCandidateId || raw.candidateId || null,
+        evidenceSourceIds: Array.isArray(raw.evidenceSourceIds) ? raw.evidenceSourceIds : [],
+        archived: Boolean(raw.archived),
+        createdAt: raw.createdAt || event.createdAt || "",
+        updatedAt: raw.updatedAt || raw.createdAt || event.createdAt || ""
+    };
+}
+
+function normalizeKnowledgeBoard(board) {
+    const existingSections = Array.isArray(board?.sections) ? board.sections : Array.isArray(board) ? board : [];
+    const sectionMap = new Map(existingSections.map((section) => [
+        section.section,
+        {
+            ...section,
+            title: section.title || titleForSection(section.section),
+            entries: Array.isArray(section.entries) ? section.entries : []
+        }
+    ]));
+    for (const section of KNOWLEDGE_SECTIONS) {
+        if (!sectionMap.has(section.section)) {
+            sectionMap.set(section.section, { ...section, entries: [] });
+        }
+    }
+    return {
+        sections: [...sectionMap.values()]
+    };
+}
+
+function titleForSection(section) {
+    return KNOWLEDGE_SECTIONS.find((item) => item.section === section)?.title || section;
+}
+
+function stableFallbackId(prefix, event) {
+    const eventId = event?.eventId || event?.id || event?.createdAt || "unknown";
+    return `${prefix}-${eventId}`;
+}
+
+function sourceMatches(source, sourceId) {
+    return String(source.id || source.sourceId || source.documentId || "") === sourceId;
+}
+
 export function normalizeDocument(rawDocument = {}) {
     const fallbackTitle = rawDocument.title || rawDocument.originalFileName || `文档 ${rawDocument.documentId ?? "?"}`;
     const status = String(rawDocument.status || "UNKNOWN").toUpperCase();

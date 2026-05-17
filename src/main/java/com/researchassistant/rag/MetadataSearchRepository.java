@@ -50,7 +50,7 @@ public class MetadataSearchRepository {
                 resultSet.getLong("document_id"),
                 resultSet.getInt("chunk_index"),
                 resultSet.getString("content"),
-                resultSet.getDouble("score")
+                RetrievalFeedbackScoring.finalScore(resultSet.getDouble("score"), 0.0)
         ));
     }
 }

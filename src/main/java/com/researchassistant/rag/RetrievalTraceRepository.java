@@ -54,6 +54,27 @@ public class RetrievalTraceRepository {
         );
     }
 
+    public List<RetrievalTraceView> findBySessionKey(String sessionKey) {
+        return jdbcTemplate.query("""
+                select t.id, t.session_id, t.query_text, t.filters_json, t.top_chunks_json, t.rerank_result_json, t.created_at
+                from retrieval_trace t
+                join chat_session s on s.id = t.session_id
+                where s.session_key = ?
+                order by t.id desc
+                """,
+                (resultSet, rowNum) -> new RetrievalTraceView(
+                        resultSet.getLong("id"),
+                        resultSet.getLong("session_id"),
+                        resultSet.getString("query_text"),
+                        fromJsonMap(resultSet.getString("filters_json")),
+                        fromJsonObject(resultSet.getString("top_chunks_json")),
+                        fromJsonObject(resultSet.getString("rerank_result_json")),
+                        resultSet.getObject("created_at", java.time.OffsetDateTime.class)
+                ),
+                sessionKey
+        );
+    }
+
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);

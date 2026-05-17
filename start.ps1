@@ -66,8 +66,11 @@ if ([string]::IsNullOrWhiteSpace($env:AI_API_KEY)) {
     throw "AI_API_KEY is missing. Set it in your environment or in .env."
 }
 
-Write-Host "Building and starting research assistant containers..."
-docker compose up --build -d
+Write-Host "Starting research assistant containers..."
+docker compose up -d
+if ($LASTEXITCODE -ne 0) {
+    throw "Docker Compose startup failed during container startup. If the app image is stale or missing, run .\scripts\rebuild-dev.cmd."
+}
 
 Write-Host "Waiting for database health..."
 Wait-ForDatabase

@@ -20,14 +20,19 @@ The dev start script will:
 
 1. check that Docker is available
 2. load `.env`
-3. build the application image
-4. start PostgreSQL + pgvector and the Spring Boot app with Docker Compose
-5. wait until both the database and the application health endpoint are ready
+3. start PostgreSQL + pgvector and the Spring Boot app with Docker Compose
+4. wait until both the database and the application health endpoint are ready
+
+When source code or the Dockerfile changes and you need a fresh app image, rebuild explicitly:
+
+```powershell
+.\scripts\rebuild-dev.cmd
+```
 
 You can also start it directly without the script:
 
 ```powershell
-docker compose up --build -d
+docker compose up -d
 ```
 
 Then open [http://localhost:8080](http://localhost:8080).
@@ -41,6 +46,12 @@ Stop the project with:
 ## Useful Docker commands
 
 Start:
+
+```powershell
+docker compose up -d
+```
+
+Rebuild app image and start:
 
 ```powershell
 docker compose up --build -d
@@ -109,4 +120,4 @@ start.cmd
 
 ## Current verification note
 
-The non-Docker Maven test set already passes locally. The Docker startup path should be verified with `docker compose up --build -d`, `docker compose ps`, and a health probe against `http://localhost:8080/actuator/health`.
+The non-Docker Maven test set already passes locally. Verify the normal Docker startup path with `.\scripts\start-dev.cmd`, `docker compose ps`, and a health probe against `http://localhost:8080/actuator/health`. Use `.\scripts\rebuild-dev.cmd` only when the app image must be rebuilt.

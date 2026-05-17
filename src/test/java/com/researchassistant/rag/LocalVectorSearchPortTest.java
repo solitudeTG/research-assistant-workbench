@@ -39,4 +39,34 @@ class LocalVectorSearchPortTest {
         assertThat(result).extracting(RagChunk::documentId).containsOnly(1L);
         assertThat(result).extracting(RagChunk::chunkId).doesNotContain(21L);
     }
+
+    @Test
+    void searchAppliesStoredFeedbackScoreToLocalVectorResults() {
+        vectorSearchPort.reindexDocument(1L, List.of(
+                new RagChunk(11L, 1L, 0, "Shared retrieval concept.", 0.0, 0.0),
+                new RagChunk(12L, 1L, 1, "Shared retrieval concept.", 0.0, 99.0)
+        ));
+
+        List<RagChunk> result = vectorSearchPort.search("shared retrieval concept", List.of(1L), 2);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).chunkId()).isEqualTo(12L);
+        assertThat(result.get(0).feedbackScore()).isEqualTo(99.0);
+        assertThat(result.get(0).finalScore()).isEqualTo(result.get(1).finalScore() + 0.2);
+    }
+
+    @Test
+    void applyChunkFeedbackUpdatesExistingInMemoryIndex() {
+        vectorSearchPort.reindexDocument(1L, List.of(
+                new RagChunk(11L, 1L, 0, "Shared retrieval concept.", 0.0),
+                new RagChunk(12L, 1L, 1, "Shared retrieval concept.", 0.0)
+        ));
+
+        vectorSearchPort.applyChunkFeedback(List.of(12L), 99.0);
+        List<RagChunk> result = vectorSearchPort.search("shared retrieval concept", List.of(1L), 2);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).chunkId()).isEqualTo(12L);
+        assertThat(result.get(0).feedbackScore()).isEqualTo(99.0);
+    }
 }

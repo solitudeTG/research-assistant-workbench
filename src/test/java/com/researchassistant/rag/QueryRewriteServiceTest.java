@@ -36,6 +36,8 @@ class QueryRewriteServiceTest {
         assertThat(plan.retrievalQueries())
                 .contains("这篇论文研究了什么？", "What problem does this paper study?", "satellite selection beamforming");
         assertThat(plan.keywords()).containsExactly("satellite selection", "beamforming");
+        assertThat(plan.strategy()).isEqualTo("cjk_llm_rewrite");
+        assertThat(plan.fallbackReason()).isNull();
     }
 
     @Test
@@ -49,5 +51,7 @@ class QueryRewriteServiceTest {
 
         assertThat(plan.retrievalQueries()).containsExactly("这篇论文研究了什么？");
         assertThat(plan.keywords()).isEmpty();
+        assertThat(plan.strategy()).isEqualTo("original_only");
+        assertThat(plan.fallbackReason()).isEqualTo("rewrite_failed");
     }
 }
