@@ -391,9 +391,13 @@ function applyAgentStepTrace(trace, traceEntry, eventType, payload, data) {
     if (step.stepId === "mode-selection" || data.mode) {
         trace.mode = data.mode || trace.mode || null;
         trace.modeReason = data.reason || trace.modeReason || "";
+        const semanticConfidence = Number(data.semanticConfidence);
         trace.modeSelection = {
             mode: trace.mode,
-            reason: trace.modeReason
+            reason: trace.modeReason,
+            decisionSource: data.decisionSource || "",
+            fallbackReason: data.fallbackReason || "",
+            semanticConfidence: Number.isFinite(semanticConfidence) ? semanticConfidence : 0
         };
         trace.summary.mode = trace.mode;
         return;
