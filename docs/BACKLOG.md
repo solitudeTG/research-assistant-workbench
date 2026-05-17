@@ -2,22 +2,13 @@
 id: BACKLOG
 doc_kind: backlog
 status: active
-updated: 2026-05-16
+updated: 2026-05-17
 ---
 # Work Backlog
 
 This file records active engineering state that future sessions must be able to recover. It is not an unlimited wishlist.
 
 ## Active Work
-
-### Next Session: Memory Self-Learning Visualization
-
-- Status: active-f021.1-reset
-- Handoff: [2026-05-16-memory-self-learning-visualization.md](handoffs/2026-05-16-memory-self-learning-visualization.md)
-- Feature page: [F021-memory-self-learning-visualization.md](features/F021-memory-self-learning-visualization.md)
-- Reset plan: [F021.1-self-learning-closed-loop-reset-plan.md](plans/F021.1-self-learning-closed-loop-reset-plan.md)
-- Current intent: zero-base correction of the F021 self-learning demo loop after live service validation showed the completed label was ahead of actual behavior.
-- Next step: TDD the smallest closed-loop fixes for L2 confirmed knowledge recall, real `feedback.applied` run-stream identity, and session-history trace recovery.
 
 ### F016 Retrieval Observability
 
@@ -52,6 +43,16 @@ This file records active engineering state that future sessions must be able to 
 - Known limitations only: replay-oriented SSE projection, no external web search connector, no source-scoped live SSE, no broad source search, no account preferences or multi-tenant behavior, and no feedback undo/deduplication or long-term personalization.
 
 ## Recently Completed
+
+### F021 Memory Self-Learning Visualization / F021.1 Closed Loop Reset
+
+- Status: completed
+- Feature page: [F021-memory-self-learning-visualization.md](features/F021-memory-self-learning-visualization.md)
+- Reset plan: [F021.1-self-learning-closed-loop-reset-plan.md](plans/F021.1-self-learning-closed-loop-reset-plan.md)
+- Evidence: [EV-020-f021-memory-self-learning-visualization.md](evidence/EV-020-f021-memory-self-learning-visualization.md)
+- Result: the F021.1 reset closed the self-learning demo loop without expanding the storage model. Confirmed `knowledge_entry` records now enter the next project answer as L2/project knowledge context, are traced as `memoryLayer=L2`, `sourceType=project_knowledge`, and `contextOnly=true`, and remain separate from citation evidence counts. Answer feedback now resolves persisted answer context so `feedback.applied` carries `projectId`, `sessionId`, `runId`, and `answerId`; reloaded project session messages also return `answerId` and `runId` for assistant answers.
+- Verification: focused backend checks for L2 project knowledge trace, feedback run identity, and session-history `answerId/runId` passed on 2026-05-17; `workbench-app.js` syntax check and F021 frontend model tests also passed.
+- Known limitation: post-answer feedback is still applied immediately in the UI through the existing local projection path after the feedback API returns. If strict replay of post-terminal run events becomes required, handle it as an event-stream hardening follow-up rather than reopening the F021 memory-loop scope.
 
 ### F020 Plan-Execute Evidence Carry-Through
 

@@ -353,3 +353,28 @@ The Codex in-app Browser runtime setup timed out during local verification. I re
 
 - Focused tests and live HTTP smoke validate the backend/frontend contracts and running page shell. A full manual live provider demo remains useful before an external presentation because provider behavior, real uploaded sources, and end-to-end candidate generation quality depend on local runtime data and model/tool behavior.
 - `USER.md`, `SOUL.md`, and `Research_state.md` are represented as global cognition slots in the UI; if the backend later exposes a richer global cognition endpoint, the existing UI projection should consume it through `cognitionWorkspace.globalCognition`.
+
+## 2026-05-17 F021.1 Closeout Audit
+
+The F021.1 reset is closed from the code path rather than only from Harness labels.
+
+Evidence checked:
+
+- Current branch `codex/f021-self-learning-visualization` is synced to origin and contains `8fb74d4 Implement F021 self-learning visualization`.
+- The later F016 commit `3dfc440 feat: add answer-run retrieval diagnostics` is already on top of the branch; this closeout changes only F021 Harness documents and does not alter F016 code.
+- L2 confirmed knowledge path exists in code: confirmed project knowledge is loaded from `knowledge_entry`, passed through `ProjectAgentRequest`, included in the main agent prompt, and emitted as L2 `project_knowledge` memory trace with `contextOnly=true`.
+- Feedback path exists in code: answer feedback resolves persisted assistant answer context before publishing `feedback.applied`, so the event includes `sessionId`, `runId`, and `answerId`.
+- History recovery path exists in code: project session message history returns `answerId` and `runId` for assistant messages when the persisted answer can be matched.
+
+Verification run on 2026-05-17:
+
+- `node --check src\main\resources\static\js\workbench-app.js`: pass.
+- `node --test src\main\resources\static\tests\f002-workbench-model.test.mjs --test-name-pattern "F021|answer feedback controls|project session history"`: 46 tests pass.
+- `mvn -Dtest=ProjectAgentRoutingTest#confirmedKnowledgeEntryPublishesL2ProjectKnowledgeMemoryTraceWithoutCitationEvidence,ProjectFeedbackServiceTest#upFeedbackIncreasesOnlySameProjectLinkedEvidenceAndChunkScoresAndPublishesEvent,ProjectControllerTest#listsAssistantMessagesWithAnswerIdForFeedbackAfterRestart test`: 3 tests pass, BUILD SUCCESS.
+
+Closeout verdict:
+
+- Feature status: completed.
+- Evidence level: standard.
+- Completion claim allowed: yes.
+- Remaining caution: strict replay of feedback events that are published after `run.completed` is not reopened here. The backend now carries the correct event identity, and the UI applies the feedback API result immediately for the normal interaction path. Any change to post-terminal run replay semantics should be scoped as a later event-stream hardening item.

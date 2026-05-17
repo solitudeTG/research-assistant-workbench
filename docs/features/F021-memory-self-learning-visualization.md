@@ -1,10 +1,10 @@
 ---
 id: F021
 doc_kind: feature
-status: active
+status: completed
 owner: codex
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-17
 parent_feature: F002
 ---
 # Memory Self-Learning Visualization
@@ -73,7 +73,13 @@ F021 把已有 L1/L2/L3 记忆、候选知识确认和反馈评分闭环串成�
 
 2026-05-16: Reopened for F021.1 zero-base correction after live service validation found the visible feedback path missing and follow-up review found the complete demo loop was not yet recoverable. F021.1 narrows the remaining work to L2 confirmed project knowledge recall, real `feedback.applied` run-stream identity, and session-history trace recovery. Plan: [F021.1-self-learning-closed-loop-reset-plan.md](../plans/F021.1-self-learning-closed-loop-reset-plan.md)
 
-## 当前状态
+## F021.1 Closeout
 
-2026-05-16: Active again for F021.1. 当前工作区已有 F021 的多项实现和验证，但完整自学习演示闭环仍存在设计-实现不一致：confirmed knowledge 尚未证明参与第二轮 L2 召回，`feedback.applied` 尚未稳定进入真实 run SSE，历史会话 trace 恢复仍不完整。
- 
+2026-05-17: Completed. The F021.1 reset verified the smallest recoverable self-learning loop from code rather than only UI state:
+
+- Confirmed `knowledge_entry` rows are loaded as L2 project knowledge and included in the next project-agent prompt as context explicitly marked not citation evidence.
+- The run trace publishes confirmed project knowledge as `memory.hit` with `memoryLayer=L2`, `sourceType=project_knowledge`, and `contextOnly=true`; this contributes to memory context counts but does not create `evidence_source` rows or citation counts.
+- Project answer feedback resolves persisted answer context before publishing `feedback.applied`, so the event carries the answer's `projectId`, `sessionId`, `runId`, and `answerId`.
+- Reloaded project session messages return assistant `answerId` and `runId`, preserving feedback controls and research-process trace recovery after restart.
+
+Closeout verification is recorded in [EV-020](../evidence/EV-020-f021-memory-self-learning-visualization.md). Remaining caution: if future work requires strict replay of feedback events after `run.completed`, treat that as an event-stream policy hardening item, not as a F021 memory-loop blocker.
