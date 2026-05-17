@@ -143,9 +143,68 @@ export function normalizeProjectMessage(raw) {
         sessionId: raw?.sessionId == null ? null : String(raw.sessionId),
         role: role === "user" ? "user" : "assistant",
         content: String(raw?.content || raw?.text || ""),
+        answerId: raw?.answerId || null,
+        runId: raw?.runId || null,
         answerMode: raw?.answerMode || null,
         createdAt: raw?.createdAt || raw?.updatedAt || ""
     };
+}
+
+export function evidenceFeedbackLabel(evidence, options = {}) {
+    const maxLength = Number(options.maxLength ?? 96);
+    const sourceType = compactText(evidence?.sourceType || evidence?.type || "evidence");
+    const concreteText = compactText(
+            evidence?.sourceTitle
+            || evidence?.title
+            || evidence?.citationMeta?.title
+            || evidence?.snippet
+            || evidence?.summary
+            || evidence?.quote
+            || evidence?.citationMeta?.snippet
+            || evidence?.sourceId
+            || evidence?.id
+            || ""
+    );
+    const label = concreteText && concreteText !== sourceType
+            ? `${sourceType} · ${concreteText}`
+            : concreteText || sourceType;
+    return clipText(label, maxLength);
+}
+
+export function feedbackPayloadForAnswer({ answerId, rating, reason, note, evidenceSources } = {}) {
+    const normalizedRating = rating === "down" ? "down" : "up";
+    const normalizedReason = compactText(reason || (normalizedRating === "up" ? "helpful" : "needs_correction"));
+    const shouldAttributeEvidence = normalizedRating === "up"
+            || normalizedReason === "citation_wrong"
+            || normalizedReason === "evidence_not_relevant";
+    return {
+        rating: normalizedRating,
+        reason: normalizedReason,
+        note: compactText(note) || normalizedReason,
+        evidenceSourceIds: shouldAttributeEvidence
+                ? feedbackEvidenceSourceIds(answerId, evidenceSources)
+                : []
+    };
+}
+
+function feedbackEvidenceSourceIds(answerId, evidenceSources) {
+    const normalizedAnswerId = answerId == null ? null : String(answerId);
+    return (Array.isArray(evidenceSources) ? evidenceSources : [])
+            .filter((evidence) => evidence?.id)
+            .filter((evidence) => !normalizedAnswerId || !evidence.answerId || String(evidence.answerId) === normalizedAnswerId)
+            .map((evidence) => String(evidence.id));
+}
+
+function compactText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function clipText(value, maxLength) {
+    const normalized = compactText(value);
+    if (!Number.isFinite(maxLength) || maxLength <= 0 || normalized.length <= maxLength) {
+        return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
 export function startEditingCandidate(state, candidateId) {
@@ -178,6 +237,15 @@ export function applyCandidateAction(state, candidateId, action) {
             };
         })
     };
+}
+
+export function pendingKnowledgeCandidates(candidatesOrState) {
+    const candidates = Array.isArray(candidatesOrState)
+            ? candidatesOrState
+            : Array.isArray(candidatesOrState?.candidates)
+                    ? candidatesOrState.candidates
+                    : [];
+    return candidates.filter((candidate) => candidate?.status === "pending");
 }
 
 export function applySseEvent(state, event) {
@@ -227,7 +295,7 @@ export function applySseEvent(state, event) {
 }
 
 export function createWorkbenchState(seed = {}) {
-    return {
+    const state = {
         activeWorkspace: WORKSPACES.has(seed.activeWorkspace) ? seed.activeWorkspace : "session",
         activeProjectId: seed.activeProjectId || null,
         activeSessionId: seed.activeSessionId || null,
@@ -250,6 +318,10 @@ export function createWorkbenchState(seed = {}) {
         knowledgeBoard: normalizeKnowledgeBoard(seed.knowledgeBoard),
         agentTraces: seed.agentTraces && typeof seed.agentTraces === "object" ? seed.agentTraces : {},
         processedEventIds: Array.isArray(seed.processedEventIds) ? seed.processedEventIds : []
+    };
+    return {
+        ...state,
+        cognitionWorkspace: projectCognitionWorkspace(state, null, seed.cognitionWorkspace)
     };
 }
 
@@ -278,13 +350,26 @@ function applyAgentTraceEvent(state, event, eventType, payload) {
     } else if (eventType === "retrieval.hit") {
         trace.retrievalHits.push(traceEntry);
         trace.summary.evidenceCount = trace.retrievalHits.length;
+        trace.summary.citationEvidenceCount = trace.retrievalHits.length;
     } else if (eventType === "memory.hit") {
-        trace.memoryHits.push(traceEntry);
+        const memoryEntry = normalizeMemoryTraceEntry(traceEntry);
+        trace.memoryHits.push(memoryEntry);
         trace.summary.memoryCount = trace.memoryHits.length;
+        trace.summary.memoryContextCount = trace.memoryHits.length;
     } else if (eventType === "memory.completed") {
-        trace.timeline.push(traceEntry);
-        trace.memorySummary = traceEntry;
+        const memoryEntry = normalizeMemoryTraceEntry(traceEntry);
+        trace.timeline.push(memoryEntry);
+        trace.memorySummary = memoryEntry;
         trace.summary.memoryCount = Math.max(trace.memoryHits.length, Number(data.hitCount ?? 0));
+        trace.summary.memoryContextCount = trace.summary.memoryCount;
+    } else if (eventType === "feedback.applied") {
+        const feedbackEntry = normalizeFeedbackAppliedTrace(traceEntry);
+        trace.feedbackApplications.push(feedbackEntry);
+        trace.timeline.push(feedbackEntry);
+        trace.summary.feedbackAppliedCount = trace.feedbackApplications.length;
+        trace.summary.updatedEvidenceSourceCount += feedbackEntry.updatedEvidenceSourceCount;
+        trace.summary.updatedChunkCount += feedbackEntry.updatedChunkCount;
+        trace.summary.latestFeedbackScore = feedbackEntry.feedbackScore;
     } else if (eventType === "evidence.evaluated" || eventType === "evidence.gap.detected") {
         trace.evidenceEvents.push(traceEntry);
         trace.summary.weakClaims += Number(data.weakClaims ?? 0);
@@ -320,6 +405,7 @@ function ensureAgentTrace(state, runId) {
         retrievalHits: Array.isArray(existing.retrievalHits) ? [...existing.retrievalHits] : [],
         evidenceEvents: Array.isArray(existing.evidenceEvents) ? [...existing.evidenceEvents] : [],
         memoryHits: Array.isArray(existing.memoryHits) ? [...existing.memoryHits] : [],
+        feedbackApplications: Array.isArray(existing.feedbackApplications) ? [...existing.feedbackApplications] : [],
         answerDeltas: Array.isArray(existing.answerDeltas) ? [...existing.answerDeltas] : [],
         subagents: cloneSubagents(existing.subagents),
         plan: existing.plan ? { ...existing.plan, steps: Array.isArray(existing.plan.steps) ? [...existing.plan.steps] : [] } : null,
@@ -331,9 +417,19 @@ function ensureAgentTrace(state, runId) {
         summary: {
             toolCount: Number(existingSummary.toolCount ?? 0),
             evidenceCount: Number(existingSummary.evidenceCount ?? 0),
+            citationEvidenceCount: Number(existingSummary.citationEvidenceCount ?? existingSummary.evidenceCount ?? 0),
             memoryCount: Number(existingSummary.memoryCount ?? 0),
+            memoryContextCount: Number(existingSummary.memoryContextCount ?? existingSummary.memoryCount ?? 0),
             weakClaims: Number(existingSummary.weakClaims ?? 0),
             requiresConfirmation: Boolean(existingSummary.requiresConfirmation),
+            feedbackAppliedCount: Number(existingSummary.feedbackAppliedCount ?? existing.feedbackApplications?.length ?? 0),
+            updatedEvidenceSourceCount: Number(existingSummary.updatedEvidenceSourceCount ?? 0),
+            updatedChunkCount: Number(existingSummary.updatedChunkCount ?? 0),
+            latestFeedbackScore: existingSummary.latestFeedbackScore !== undefined
+                    && existingSummary.latestFeedbackScore !== null
+                    && Number.isFinite(Number(existingSummary.latestFeedbackScore))
+                    ? Number(existingSummary.latestFeedbackScore)
+                    : null,
             subagentCount: Number(existingSummary.subagentCount ?? Object.keys(existing.subagents || {}).length),
             activeSubagentCount: Number(existingSummary.activeSubagentCount ?? Object.keys(existing.subagents || {}).length),
             execution: existingSummary.execution || null,
@@ -346,6 +442,60 @@ function ensureAgentTrace(state, runId) {
             documentTitle: existingSummary.documentTitle || existing.document?.title || null,
             documentSectionCount: Number(existingSummary.documentSectionCount ?? existing.document?.sectionCount ?? 0)
         }
+    };
+}
+
+function normalizeMemoryTraceEntry(entry) {
+    const { score: rawScore, ...rest } = entry;
+    const score = Number(rawScore);
+    return {
+        ...rest,
+        memoryLayer: normalizeMemoryLayer(entry.memoryLayer),
+        sourceType: normalizeMemorySourceType(entry.sourceType, entry.memoryLayer),
+        snippet: String(entry.snippet || entry.summary || entry.label || ""),
+        ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
+        ...(Number.isFinite(score) ? { score } : {}),
+        contextOnly: true
+    };
+}
+
+function normalizeMemoryLayer(memoryLayer) {
+    const normalized = String(memoryLayer || "").toUpperCase();
+    return ["L1", "L2", "L3"].includes(normalized) ? normalized : null;
+}
+
+function normalizeMemorySourceType(sourceType, memoryLayer) {
+    if (sourceType) {
+        return String(sourceType);
+    }
+    const layer = normalizeMemoryLayer(memoryLayer);
+    if (layer === "L1") {
+        return "working_memory";
+    }
+    if (layer === "L2") {
+        return "project_knowledge";
+    }
+    if (layer === "L3") {
+        return "long_term_memory";
+    }
+    return null;
+}
+
+function normalizeFeedbackAppliedTrace(entry) {
+    const feedbackScore = Number(entry.feedbackScore);
+    return {
+        eventId: entry.eventId,
+        eventType: entry.eventType,
+        runId: entry.runId,
+        answerId: entry.answerId,
+        sequence: entry.sequence,
+        createdAt: entry.createdAt,
+        projectId: entry.projectId || null,
+        rating: entry.rating || null,
+        feedbackScore: Number.isFinite(feedbackScore) ? feedbackScore : null,
+        updatedEvidenceSourceCount: Number(entry.updatedEvidenceSourceCount ?? 0),
+        updatedChunkCount: Number(entry.updatedChunkCount ?? 0),
+        appliedEvidenceSourceIds: Array.isArray(entry.appliedEvidenceSourceIds) ? entry.appliedEvidenceSourceIds : []
     };
 }
 
@@ -601,7 +751,7 @@ function applyCandidateCreated(state, event, payload) {
     const candidate = normalizeCandidate(payload.candidate || payload, event);
     const candidates = state.candidates || [];
     const exists = candidates.some((item) => item.id === candidate.id);
-    return {
+    const next = {
         ...state,
         selectedSidebarView: "candidate-confirmation",
         activeAnswerContext: {
@@ -611,6 +761,10 @@ function applyCandidateCreated(state, event, payload) {
         candidates: exists
                 ? candidates.map((item) => item.id === candidate.id ? { ...item, ...candidate } : item)
                 : [candidate, ...candidates]
+    };
+    return {
+        ...next,
+        cognitionWorkspace: projectCognitionWorkspace(next, cognitionChange(event, "candidate.created", candidate))
     };
 }
 
@@ -630,7 +784,7 @@ function applyKnowledgeEntryCreated(state, event, payload) {
         };
     });
     const hasSection = sections.some((section) => section.section === entry.section);
-    return {
+    const next = {
         ...state,
         selectedSidebarView: "knowledge-board",
         candidates: (state.candidates || []).map((candidate) => {
@@ -645,6 +799,10 @@ function applyKnowledgeEntryCreated(state, event, payload) {
                     ? sections
                     : [{ section: entry.section, title: titleForSection(entry.section), entries: [entry] }, ...sections]
         }
+    };
+    return {
+        ...next,
+        cognitionWorkspace: projectCognitionWorkspace(next, cognitionChange(event, "knowledge.entry.created", entry))
     };
 }
 
@@ -711,6 +869,37 @@ function normalizeKnowledgeBoard(board) {
     }
     return {
         sections: [...sectionMap.values()]
+    };
+}
+
+function projectCognitionWorkspace(state, recentChange = null, existingWorkspace = state.cognitionWorkspace) {
+    const board = normalizeKnowledgeBoard(state.knowledgeBoard);
+    const existingRecentChanges = Array.isArray(existingWorkspace?.recentChanges)
+            ? existingWorkspace.recentChanges
+            : [];
+    const recentChanges = recentChange
+            ? [recentChange, ...existingRecentChanges]
+            : existingRecentChanges;
+    return {
+        globalCognition: Array.isArray(existingWorkspace?.globalCognition)
+                ? existingWorkspace.globalCognition
+                : [],
+        confirmedKnowledge: board.sections
+                .flatMap((section) => section.entries || [])
+                .filter((entry) => !entry.archived),
+        pendingCandidates: pendingKnowledgeCandidates(state),
+        recentChanges: recentChanges.slice(0, 20)
+    };
+}
+
+function cognitionChange(event, eventType, item) {
+    return {
+        eventId: event.eventId || event.id || null,
+        eventType,
+        id: item.id || null,
+        title: item.title || "",
+        status: item.status || item.evidenceStatus || null,
+        createdAt: event.createdAt || item.updatedAt || item.createdAt || ""
     };
 }
 

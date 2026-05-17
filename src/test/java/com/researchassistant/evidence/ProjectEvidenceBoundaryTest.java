@@ -136,6 +136,11 @@ class ProjectEvidenceBoundaryTest extends PostgresIntegrationTest {
                 .containsEntry("strength", "strong");
         assertThat(evidenceRows.get(0).get("snippet")).asString()
                 .contains("bounded retrieval drift");
+        JsonNode metadata = citationMeta(evidenceRows.get(0));
+        assertThat(metadata.get("answerId").asText()).isEqualTo(answerId);
+        assertThat(metadata.get("runId").asText()).isEqualTo(response.streamRunId());
+        assertThat(metadata.get("origin").asText()).isEqualTo("paper_rag");
+        assertThat(metadata.get("tool").asText()).isEqualTo("paper_rag_retrieve");
 
         assertEvidenceEvent(response.streamRunId(), answerId, "SUFFICIENT", "LOCAL_EVIDENCE", 1, List.of("paper"));
         assertRetrievalCompletedEvent(response.streamRunId(), answerId, "PAPER_RAG_ONLY", 1, 0, false);

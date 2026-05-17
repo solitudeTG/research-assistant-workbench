@@ -41,6 +41,24 @@ class LocalVectorSearchPortTest {
     }
 
     @Test
+    void searchWithStatsCountsCandidatesBeforeAndAfterScopeFiltering() {
+        vectorSearchPort.reindexDocument(1L, List.of(
+                new RagChunk(11L, 1L, 0, "Shared retrieval concept.", 0.0),
+                new RagChunk(12L, 1L, 1, "Shared retrieval concept with extra context.", 0.0)
+        ));
+        vectorSearchPort.reindexDocument(2L, List.of(
+                new RagChunk(21L, 2L, 0, "Shared retrieval concept.", 0.0)
+        ));
+
+        RetrievalSearchResult result = vectorSearchPort.searchWithStats("shared retrieval concept", List.of(1L), 1);
+
+        assertThat(result.preScopeHits()).isEqualTo(3);
+        assertThat(result.postScopeHits()).isEqualTo(2);
+        assertThat(result.chunks()).hasSize(1);
+        assertThat(result.chunks()).extracting(RagChunk::documentId).containsOnly(1L);
+    }
+
+    @Test
     void searchAppliesStoredFeedbackScoreToLocalVectorResults() {
         vectorSearchPort.reindexDocument(1L, List.of(
                 new RagChunk(11L, 1L, 0, "Shared retrieval concept.", 0.0, 0.0),

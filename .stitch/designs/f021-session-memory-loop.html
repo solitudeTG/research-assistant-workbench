@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ScholarlyWorkbench - Archival Synthesis</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline": "#6e7979",
+                    "surface-dim": "#dadad9",
+                    "primary-fixed": "#93f2f2",
+                    "surface-container-low": "#f4f3f2",
+                    "on-surface": "#1a1c1c",
+                    "surface-bright": "#faf9f8",
+                    "surface-container-highest": "#e3e2e1",
+                    "on-primary-fixed": "#002020",
+                    "inverse-primary": "#76d6d5",
+                    "on-primary-container": "#e3fffe",
+                    "surface-container": "#eeeeed",
+                    "inverse-surface": "#2f3130",
+                    "tertiary-fixed-dim": "#c8c6c6",
+                    "on-secondary": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "error-container": "#ffdad6",
+                    "surface": "#faf9f8",
+                    "secondary-fixed-dim": "#c4c7c9",
+                    "tertiary-container": "#737272",
+                    "on-background": "#1a1c1c",
+                    "tertiary-fixed": "#e4e2e1",
+                    "surface-variant": "#e3e2e1",
+                    "primary-container": "#008080",
+                    "on-surface-variant": "#3e4949",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary-container": "#e0e3e5",
+                    "primary": "#006565",
+                    "secondary": "#5c5f61",
+                    "surface-container-high": "#e9e8e7",
+                    "background": "#faf9f8",
+                    "secondary-fixed": "#e0e3e5",
+                    "on-error": "#ffffff",
+                    "outline-variant": "#bdc9c8",
+                    "on-tertiary-container": "#fbf8f8",
+                    "on-tertiary-fixed": "#1b1c1c",
+                    "tertiary": "#5a5a59",
+                    "primary-fixed-dim": "#76d6d5",
+                    "on-error-container": "#93000a",
+                    "on-tertiary-fixed-variant": "#474747",
+                    "error": "#ba1a1a",
+                    "on-secondary-fixed-variant": "#444749",
+                    "on-primary-fixed-variant": "#004f4f",
+                    "on-tertiary": "#ffffff",
+                    "on-secondary-container": "#626567",
+                    "surface-tint": "#006a6a",
+                    "on-secondary-fixed": "#191c1e",
+                    "inverse-on-surface": "#f1f0f0"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "gutter": "12px",
+                    "component-gap": "8px",
+                    "unit": "4px",
+                    "container-padding": "24px",
+                    "density-multiplier": "0.75"
+            },
+            "fontFamily": {
+                    "title-md": [
+                            "Inter"
+                    ],
+                    "title-lg": [
+                            "Inter"
+                    ],
+                    "metadata-xs": [
+                            "Inter"
+                    ],
+                    "body-md": [
+                            "Inter"
+                    ],
+                    "control-sm": [
+                            "Inter"
+                    ]
+            },
+            "fontSize": {
+                    "title-md": [
+                            "18px",
+                            {
+                                    "lineHeight": "24px",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "title-lg": [
+                            "22px",
+                            {
+                                    "lineHeight": "28px",
+                                    "letterSpacing": "-0.01em",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "metadata-xs": [
+                            "12px",
+                            {
+                                    "lineHeight": "16px",
+                                    "letterSpacing": "0.02em",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "body-md": [
+                            "16px",
+                            {
+                                    "lineHeight": "24px",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "control-sm": [
+                            "14px",
+                            {
+                                    "lineHeight": "20px",
+                                    "fontWeight": "500"
+                            }
+                    ]
+            }
+    },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #FDFCFB; }
+        .inspector-panel { background-color: #F1F3F5; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="text-on-surface flex flex-col h-screen overflow-hidden">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-inverse-surface border-b border-outline-variant dark:border-outline flat no shadows flex justify-between items-center w-full px-container-padding h-14 shrink-0">
+<div class="flex items-center gap-4">
+<span class="font-title-lg text-title-lg font-bold text-primary dark:text-primary-fixed-dim tracking-tight">ScholarlyWorkbench</span>
+<div class="flex gap-2 font-control-sm text-control-sm items-center ml-8">
+<span class="text-on-surface-variant dark:text-on-tertiary-fixed-variant flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">folder</span> Project: Quantum Ethics</span>
+<span class="text-outline mx-1">/</span>
+<span class="text-primary dark:text-primary-fixed-dim flex items-center gap-1 font-semibold"><span class="material-symbols-outlined text-[16px]">description</span> Session: Archival Synthesis</span>
+<span class="ml-2 flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant text-[10px] uppercase font-bold text-tertiary tracking-widest"><span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span> Running</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-1.5 rounded hover:bg-surface-container-low dark:hover:bg-on-surface-variant transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-low dark:hover:bg-on-surface-variant transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<nav class="bg-surface-container-low dark:bg-surface-container border-r border-outline-variant dark:border-outline flat no shadows docked left-0 h-full w-[240px] flex flex-col py-gutter shrink-0">
+<div class="px-4 mb-6">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-primary-container text-on-primary-container flex items-center justify-center font-bold">RC</div>
+<div>
+<h2 class="font-title-md text-[14px] font-black text-on-surface leading-tight">Research Core</h2>
+<p class="font-metadata-xs text-metadata-xs text-on-surface-variant">Active Session</p>
+</div>
+</div>
+<button class="mt-4 w-full flex items-center justify-center gap-2 bg-primary text-on-primary font-control-sm text-control-sm py-2 rounded scale-95 active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-[18px]">add</span> New Entry
+                </button>
+</div>
+<div class="flex-1 overflow-y-auto">
+<ul class="space-y-1 font-control-sm text-control-sm">
+<li>
+<a class="flex items-center gap-3 px-4 py-2 bg-surface-bright dark:bg-surface-container-highest text-primary dark:text-primary-fixed-dim font-bold border-l-4 border-primary scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">inventory_2</span> Archival
+                        </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-secondary-container transition-colors scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">book</span> Library
+                        </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-secondary-container transition-colors scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">description</span> Manuscripts
+                        </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-secondary-container transition-colors scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">format_quote</span> Citations
+                        </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container dark:hover:bg-secondary-container transition-colors scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">psychology</span> Knowledge
+                        </a>
+</li>
+</ul>
+</div>
+<div class="mt-auto pt-4 border-t border-outline-variant/30">
+<ul class="space-y-1 font-control-sm text-control-sm">
+<li>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">help</span> Help
+                        </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">rate_review</span> Feedback
+                        </a>
+</li>
+</ul>
+</div>
+</nav>
+<!-- Main Canvas -->
+<main class="flex-1 overflow-y-auto p-container-padding bg-background relative">
+<div class="max-w-4xl mx-auto space-y-8">
+<!-- Conversation Thread -->
+<div class="space-y-6">
+<!-- User Message -->
+<div class="flex gap-4 items-start">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center shrink-0 border border-outline-variant">
+<span class="material-symbols-outlined text-[18px] text-secondary">person</span>
+</div>
+<div class="pt-1">
+<p class="font-body-md text-body-md text-on-surface">Explain the role of Berry phase in topological insulators and how it informs our current synthesis.</p>
+</div>
+</div>
+<!-- Assistant Response -->
+<div class="flex gap-4 items-start">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center shrink-0 border border-primary">
+<span class="material-symbols-outlined text-[18px] text-on-primary-container" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="pt-1 w-full space-y-4">
+<div class="font-body-md text-body-md text-on-surface leading-relaxed">
+<p>The Berry phase is central to understanding the electronic properties of topological insulators. Unlike trivial insulators, topological insulators possess bulk band structures that are characterized by non-trivial Z2 invariants, which are intrinsically linked to the Berry connection integrated over the Brillouin zone.</p>
+<p class="mt-2 text-on-surface-variant">Synthesizing this with our current archival data, we observe that...</p>
+<span class="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle"></span>
+</div>
+<!-- F021 Process Module (Bento/Card Style) -->
+<div class="mt-6 border border-outline-variant rounded-lg bg-surface-container-lowest overflow-hidden flex flex-col">
+<div class="bg-surface-container-low px-4 py-2 border-b border-outline-variant flex items-center justify-between">
+<span class="font-control-sm text-control-sm text-on-surface flex items-center gap-2 font-semibold">
+<span class="material-symbols-outlined text-[16px] text-primary">memory</span> Synthesis Process (F021)
+                                    </span>
+<span class="font-metadata-xs text-metadata-xs text-secondary flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span> Processing
+                                    </span>
+</div>
+<div class="p-4 space-y-unit">
+<!-- L1 -->
+<div class="flex items-start gap-3 py-2 border-b border-outline-variant/30">
+<div class="mt-0.5 text-tertiary"><span class="material-symbols-outlined text-[16px]">sd_card</span></div>
+<div class="flex-1 flex justify-between items-center">
+<span class="font-control-sm text-control-sm text-on-surface">L1 Working Memory Loaded</span>
+<span class="bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded text-[11px] font-mono text-secondary">6 COMPRESSED ROUNDS</span>
+</div>
+</div>
+<!-- L3 -->
+<div class="flex items-start gap-3 py-2 border-b border-outline-variant/30">
+<div class="mt-0.5 text-primary"><span class="material-symbols-outlined text-[16px]">manage_search</span></div>
+<div class="flex-1 space-y-2">
+<div class="font-control-sm text-control-sm text-on-surface flex items-center gap-2">
+                                                L3 Recall <span class="font-mono text-[10px] text-secondary bg-surface-container px-1 py-0.5 rounded">memory.hit</span>
+</div>
+<div class="bg-surface-container-low border border-outline-variant/50 rounded p-2 flex justify-between items-center">
+<span class="font-metadata-xs text-metadata-xs text-on-surface-variant font-mono truncate max-w-[300px]">REF-012: Hierarchical Autonomous Agent Framework</span>
+<div class="flex gap-1">
+<span class="bg-surface-bright border border-outline-variant/50 px-1.5 py-0.5 rounded text-[10px] text-tertiary">Context-only</span>
+<span class="bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded text-[10px] text-primary font-bold">L3</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Evidence -->
+<div class="flex items-start gap-3 py-2 border-b border-outline-variant/30">
+<div class="mt-0.5 text-tertiary"><span class="material-symbols-outlined text-[16px]">library_books</span></div>
+<div class="flex-1 flex justify-between items-center">
+<span class="font-control-sm text-control-sm text-on-surface">Evidence Retrieval</span>
+<span class="text-metadata-xs text-on-surface-variant">12 paper/web chunks</span>
+</div>
+</div>
+<!-- Feedback -->
+<div class="flex items-start gap-3 py-2 border-b border-outline-variant/30 bg-primary/5 -mx-4 px-4">
+<div class="mt-0.5 text-primary"><span class="material-symbols-outlined text-[16px]">sync_alt</span></div>
+<div class="flex-1 flex flex-col gap-1">
+<div class="flex justify-between items-center">
+<span class="font-control-sm text-control-sm text-on-surface font-medium">Feedback Loop Applied</span>
+<span class="text-[10px] text-primary font-mono uppercase">Score updated</span>
+</div>
+<div class="flex gap-4 font-mono text-[11px] text-secondary">
+<span>updatedEvidenceSourceCount: <strong class="text-on-surface">3</strong></span>
+<span>updatedChunkCount: <strong class="text-on-surface">14</strong></span>
+</div>
+</div>
+</div>
+<!-- Candidate -->
+<div class="flex items-start gap-3 py-2">
+<div class="mt-0.5 text-tertiary"><span class="material-symbols-outlined text-[16px]">note_add</span></div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-control-sm text-control-sm text-on-surface">Candidate Knowledge Generated</span>
+<div class="flex gap-2">
+<button class="px-2 py-1 border border-outline-variant rounded font-control-sm text-[12px] hover:bg-surface-container-low transition-colors text-on-surface-variant">Ignore</button>
+<button class="px-2 py-1 border border-outline-variant rounded font-control-sm text-[12px] hover:bg-surface-container-low transition-colors text-on-surface-variant">Edit &amp; Accept</button>
+<button class="px-3 py-1 bg-primary text-on-primary rounded font-control-sm text-[12px] hover:bg-primary/90 transition-colors">Accept</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Inspector -->
+<aside class="w-[320px] bg-[#F1F3F5] border-l border-[#E2E4E6] flex flex-col shrink-0 h-full overflow-y-auto">
+<div class="p-4 border-b border-[#E2E4E6] sticky top-0 bg-[#F1F3F5] z-10 flex justify-between items-center">
+<h3 class="font-title-md text-[16px] font-semibold text-on-surface">Review Panel</h3>
+<button class="text-tertiary hover:text-on-surface"><span class="material-symbols-outlined text-[18px]">close</span></button>
+</div>
+<div class="p-4 space-y-6">
+<!-- Notice -->
+<div class="bg-error-container/20 border border-error-container p-3 rounded flex gap-2 items-start">
+<span class="material-symbols-outlined text-error text-[16px] mt-0.5">warning</span>
+<p class="font-metadata-xs text-metadata-xs text-on-surface-variant leading-tight">Memory context is context-only and not citation evidence.</p>
+</div>
+<!-- Final Evidence -->
+<div class="space-y-2">
+<h4 class="font-metadata-xs text-[10px] text-tertiary uppercase tracking-widest font-bold">Final Evidence</h4>
+<div class="space-y-2">
+<div class="bg-surface p-2 rounded border border-outline-variant/50 text-metadata-xs font-mono text-on-surface-variant flex gap-2 items-start">
+<span class="text-primary mt-0.5">#1</span>
+<div>
+<span class="text-on-surface font-medium block">Hasan &amp; Kane (2010)</span>
+<span class="text-[10px] opacity-80 truncate block w-48">Rev. Mod. Phys. 82, 3045</span>
+</div>
+</div>
+<div class="bg-surface p-2 rounded border border-outline-variant/50 text-metadata-xs font-mono text-on-surface-variant flex gap-2 items-start">
+<span class="text-primary mt-0.5">#2</span>
+<div>
+<span class="text-on-surface font-medium block">Qi &amp; Zhang (2011)</span>
+<span class="text-[10px] opacity-80 truncate block w-48">Topological insulators and...</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Candidate Knowledge Summary -->
+<div class="space-y-2">
+<h4 class="font-metadata-xs text-[10px] text-tertiary uppercase tracking-widest font-bold">Candidate Knowledge Summary</h4>
+<div class="bg-surface p-3 rounded border border-outline-variant/50">
+<p class="font-metadata-xs text-[13px] text-on-surface leading-relaxed">
+                            Integration of Berry phase calculation methodologies from recent topological state models into the autonomous agent framework (REF-012) requires a re-evaluation of the Z2 invariant extraction scripts. 
+                        </p>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</body></html>

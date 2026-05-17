@@ -16,7 +16,7 @@
         <div class="rail-actions">
             <button class="rail-button is-active" type="button" data-workspace-target="session" data-icon="chat_bubble" title="会话" aria-label="会话"><span>会话</span></button>
             <button class="rail-button" type="button" data-workspace-target="sources" data-icon="library_books" title="资料库" aria-label="资料库"><span>资料库</span></button>
-            <button class="rail-button" type="button" data-workspace-target="knowledge" data-icon="hub" title="知识" aria-label="知识"><span>知识</span></button>
+            <button class="rail-button" type="button" data-workspace-target="knowledge" data-icon="psychology" title="认知 / Knowledge" aria-label="认知 / Knowledge"><span>认知</span></button>
             <button class="rail-button" type="button" data-workspace-target="project" data-icon="folder" title="项目" aria-label="项目"><span>项目</span></button>
             <button class="rail-button" type="button" data-workspace-target="observability" data-icon="monitoring" title="观测" aria-label="观测"><span>观测</span></button>
         </div>
@@ -63,13 +63,15 @@
             <button id="upload-button" class="primary-button drawer-wide-button" type="button">写入资料库</button>
         </section>
 
-        <section class="drawer-panel" data-context-panel="knowledge">
+        <section class="drawer-panel drawer-panel--quiet" data-context-panel="knowledge">
             <div class="section-heading section-heading--inline">
                 <div>
-                    <p>知识</p>
-                    <h2>知识分区</h2>
+                    <h2>知识</h2>
                 </div>
                 <button class="quiet-button" type="button" data-knowledge-action="new">新建</button>
+            </div>
+            <div class="drawer-search" aria-hidden="true">
+                <input type="search" placeholder="筛选知识" tabindex="-1">
             </div>
             <div id="knowledge-nav" class="context-nav" aria-label="知识库分区"></div>
         </section>
@@ -86,12 +88,17 @@
                 <div><dt>会话</dt><dd id="stat-sessions">0</dd></div>
             </dl>
         </section>
-        <section class="drawer-panel" data-context-panel="observability">
-            <div class="section-heading">
-                <p>观测</p>
-                <h2>检索诊断</h2>
+        <section class="drawer-panel drawer-panel--quiet" data-context-panel="observability">
+            <div class="section-heading section-heading--inline">
+                <div>
+                    <h2>观测</h2>
+                </div>
+                <button class="quiet-button" type="button" data-observability-refresh>刷新</button>
             </div>
-            <p class="compact-text">按当前会话查看 retrieval events、zero-hit 分类和后端命中统计。</p>
+            <div class="drawer-search" aria-hidden="true">
+                <input type="search" placeholder="筛选观测" tabindex="-1">
+            </div>
+            <div id="diagnostics-nav" class="context-nav" aria-label="证据诊断摘要"></div>
         </section>
     </aside>
 
@@ -124,9 +131,9 @@
 
             <aside class="right-column" data-region="right-research-sidebar" aria-label="当前回答审阅区">
                 <nav class="sidebar-tabs" aria-label="当前回答审阅视图">
-                    <button class="tab-button" type="button" data-sidebar-view="knowledge-board">知识</button>
-                    <button class="tab-button is-active" type="button" data-sidebar-view="evidence-sources">证据</button>
-                    <button class="tab-button" type="button" data-sidebar-view="candidate-confirmation">候选</button>
+                    <button class="tab-button" type="button" data-sidebar-view="knowledge-board" title="已确认的项目知识">知识</button>
+                    <button class="tab-button is-active" type="button" data-sidebar-view="evidence-sources" title="当前回答的最终引用">证据</button>
+                    <button class="tab-button" type="button" data-sidebar-view="candidate-confirmation" title="待确认后写入知识库的候选">候选</button>
                 </nav>
                 <p id="answer-context-line" class="context-line">当前回答审阅：0 条最终引用，0 条待确认候选。</p>
                 <section class="sidebar-view" data-view="knowledge-board" aria-label="项目知识摘要">
@@ -198,12 +205,43 @@
                         <select><option>全部分区</option><option>核心概念</option><option>方法路线</option><option>已确认结论</option></select>
                         <select><option>全部证据状态</option><option>已确认</option><option>待验证</option></select>
                     </div>
-                    <div id="knowledge-workspace-board" class="knowledge-workspace-board"></div>
+                    <section class="cognition-section cognition-section--global" aria-labelledby="global-cognition-heading">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p>L2 全局认知</p>
+                                <h2 id="global-cognition-heading">全局认知笔记</h2>
+                            </div>
+                        </div>
+                        <div id="global-cognition-panel" class="global-cognition-host" aria-live="polite"></div>
+                    </section>
+                    <section class="cognition-section cognition-section--confirmed" aria-labelledby="confirmed-knowledge-heading">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p>L2 已确认知识</p>
+                                <h2 id="confirmed-knowledge-heading">已确认项目知识</h2>
+                            </div>
+                            <span class="trust-badge trust-badge--confirmed">用户确认</span>
+                        </div>
+                        <div id="knowledge-workspace-board" class="knowledge-workspace-board"></div>
+                    </section>
                     <section class="candidate-lane">
                         <div class="section-heading section-heading--inline">
-                            <div><h2>候选审阅</h2></div>
+                            <div>
+                                <p>待确认候选</p>
+                                <h2>候选审阅队列</h2>
+                            </div>
+                            <span class="trust-badge trust-badge--pending">未确认</span>
                         </div>
                         <div id="knowledge-candidate-list" class="stack-list"></div>
+                    </section>
+                    <section class="cognition-section cognition-section--changes" aria-labelledby="recent-cognition-heading">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p>最近变更</p>
+                                <h2 id="recent-cognition-heading">学习轨迹</h2>
+                            </div>
+                        </div>
+                        <div id="recent-cognition-changes" class="cognition-change-list" aria-live="polite"></div>
                     </section>
                 </div>
                 <aside class="workspace-inspector" aria-label="知识详情">
@@ -232,29 +270,46 @@
                 </dl>
             </section>
         </section>
-        <section class="workspace workspace--observability" data-workspace="observability" aria-label="检索诊断工作区">
+        <section class="workspace workspace--observability" data-workspace="observability" aria-label="回答取证诊断工作区">
             <header class="workspace-header">
                 <div>
-                    <h2>检索诊断</h2>
-                    <p id="diagnostics-context">当前会话的检索质量、失败分类和工具调用明细。</p>
+                    <h2>回答取证诊断</h2>
+                    <p id="diagnostics-context">检查本轮回答背后的论文证据：哪些结论已有材料支持，哪些还不能使用。</p>
                 </div>
                 <div class="workspace-actions">
+                    <div class="diagnostics-mode-toggle" aria-label="诊断范围">
+                        <button class="is-active" type="button" data-diagnostics-scope="answer">当前回答</button>
+                        <button type="button" data-diagnostics-scope="session">本会话</button>
+                    </div>
                     <button id="diagnostics-refresh" class="quiet-button" type="button">刷新</button>
                 </div>
             </header>
-            <section id="diagnostics-summary" class="diagnostics-summary" aria-label="检索诊断摘要"></section>
+            <section id="diagnostics-summary" class="diagnostics-summary" aria-label="取证概览说明"></section>
             <section id="diagnostics-taxonomy" class="diagnostics-taxonomy" aria-label="zero-hit 与失败分类"></section>
             <section class="workspace-split diagnostics-split">
                 <div class="workspace-list-pane">
+                    <section id="diagnostics-verdict" class="diagnostics-verdict" aria-label="一句话结论">
+                        <strong>一句话结论</strong>
+                        <p>选择会话后查看系统找到了哪些候选材料，以及这些材料还不能证明什么。</p>
+                    </section>
                     <div class="table-toolbar">
                         <input type="search" placeholder="筛选检索事件" disabled>
                         <select disabled><option>全部原因</option></select>
                         <select disabled><option>全部工具</option></select>
                     </div>
+                    <div class="diagnostics-header-row" aria-label="检索步骤列标题">
+                        <span>问题/步骤</span>
+                        <span>系统动作</span>
+                        <span>查法数</span>
+                        <span>候选材料</span>
+                        <span>主要来源</span>
+                        <span>这意味着</span>
+                        <span>时间</span>
+                    </div>
                     <div id="diagnostics-events" class="diagnostics-table" aria-live="polite"></div>
                 </div>
-                <aside class="workspace-inspector" aria-label="检索事件详情">
-                    <div class="section-heading"><h2>事件详情</h2></div>
+                <aside class="workspace-inspector" aria-label="检索步骤含义">
+                    <div class="section-heading"><h2>这一步代表什么</h2></div>
                     <div id="diagnostics-detail"></div>
                 </aside>
             </section>

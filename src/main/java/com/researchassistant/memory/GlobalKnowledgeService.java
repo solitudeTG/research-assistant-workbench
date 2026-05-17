@@ -40,6 +40,17 @@ public class GlobalKnowledgeService {
         writeFile(noteType, updated);
     }
 
+    public void set(GlobalKnowledgeNoteType noteType, String content) {
+        String normalizedContent = content == null ? "" : content;
+        jdbcTemplate.update("""
+                insert into global_knowledge_note(note_type, content)
+                values (?, ?)
+                on conflict (note_type)
+                do update set content = excluded.content, updated_at = now()
+                """, noteType.name(), normalizedContent);
+        writeFile(noteType, normalizedContent);
+    }
+
     public GlobalKnowledgeSnapshot snapshot() {
         Map<GlobalKnowledgeNoteType, String> values = new EnumMap<>(GlobalKnowledgeNoteType.class);
         for (GlobalKnowledgeNoteType noteType : GlobalKnowledgeNoteType.values()) {

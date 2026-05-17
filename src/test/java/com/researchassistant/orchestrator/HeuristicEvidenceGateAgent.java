@@ -26,7 +26,8 @@ final class HeuristicEvidenceGateAgent implements EvidenceGateAgent {
                         item.text(),
                         false,
                         SEMANTIC_OFF_TOPIC,
-                        List.of()
+                        List.of(),
+                        item.citationSource()
                 ));
             }
         }

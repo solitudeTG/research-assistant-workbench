@@ -1,13 +1,34 @@
 ---
 id: F016
 doc_kind: feature
-status: active
+status: completed
 owner: codex
 created: 2026-05-12
-updated: 2026-05-12
+updated: 2026-05-17
 parent_feature: F002
 ---
 # Retrieval Observability
+
+## 2026-05-17 Closeout
+
+F016 is closed as an interview-demo-ready retrieval observability capability.
+
+Completed capability:
+
+- `paper_rag` now records structured retrieval observations for query rewrite strategy, retrieval queries, per-backend stats, returned scoped chunks, and zero-hit reason classification.
+- Vector retrieval exposes pre-scope and post-scope counts, including `SCOPE_FILTERED_EMPTY` when global vector candidates are filtered out by project scope.
+- The Project Agent tool boundary deduplicates repeated `paper_rag` calls and enforces a bounded per-answer backend call budget.
+- Retrieval diagnostics are queryable through `GET /api/projects/{projectId}/sessions/{sessionId}/retrieval-diagnostics`.
+- The workbench has an Observability / answer-evidence diagnostics workspace for summary metrics, zero-hit taxonomy, retrieval steps, answer-run grouping, and drill-down details.
+- Final paper evidence metadata carries `answerId`, `runId`, `origin`, `tool`, `documentId`, `chunkId`, and `chunkIndex`, while `evidence_source.source_id` remains the normalized source identifier.
+
+Known follow-ups that do not reopen F016:
+
+- No dedicated `retrieval_observation` table or observation id was added; exact citation-to-retrieval-call linkage remains a future storage/analytics decision.
+- Keyword and metadata retrieval still apply scope internally, so only vector retrieval currently exposes true pre/post scope diagnostics.
+- Diagnostics are scoped to the current project session and answer runs, not cross-session trend analytics.
+
+Primary evidence: [EV-015-f016-retrieval-observability-slice.md](../evidence/EV-015-f016-retrieval-observability-slice.md).
 
 ## 目标
 

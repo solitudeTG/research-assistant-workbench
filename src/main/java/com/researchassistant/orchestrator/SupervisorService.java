@@ -5,9 +5,11 @@ import com.researchassistant.chat.dto.ChatResponse;
 import com.researchassistant.chat.dto.CitationDto;
 import com.researchassistant.chat.dto.ProjectMessageRequest;
 import com.researchassistant.chat.dto.ProjectMessageResponse;
+import com.researchassistant.candidates.KnowledgeCandidateExtractionService;
 import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.EvidenceAssessment;
 import com.researchassistant.evidence.EvidenceBoundaryService;
+import com.researchassistant.evidence.EvidenceCitationSource;
 import com.researchassistant.evidence.EvidenceLevel;
 import com.researchassistant.evidence.EvidenceSourceRepository;
 import com.researchassistant.evidence.ProjectEvidenceScope;
@@ -16,6 +18,8 @@ import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.events.WorkbenchEventType;
 import com.researchassistant.ingest.model.ResearchDocument;
+import com.researchassistant.knowledge.KnowledgeBoardRepository;
+import com.researchassistant.knowledge.KnowledgeEntryRecord;
 import com.researchassistant.memory.ExplicitMemoryService;
 import com.researchassistant.memory.GlobalKnowledgeService;
 import com.researchassistant.memory.MemoryEntry;
@@ -70,6 +74,8 @@ public class SupervisorService {
     private final MultiAgentWorkflowDecider multiAgentWorkflowDecider;
     private final MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop;
     private final AgentTracePublisher agentTracePublisher;
+    private final KnowledgeCandidateExtractionService candidateExtractionService;
+    private final KnowledgeBoardRepository knowledgeBoardRepository;
 
     public SupervisorService(
             TaskRouter taskRouter,
@@ -93,7 +99,9 @@ public class SupervisorService {
             ProjectAgentToolLoop projectAgentToolLoop,
             MultiAgentWorkflowDecider multiAgentWorkflowDecider,
             MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop,
-            AgentTracePublisher agentTracePublisher) {
+            AgentTracePublisher agentTracePublisher,
+            KnowledgeCandidateExtractionService candidateExtractionService,
+            KnowledgeBoardRepository knowledgeBoardRepository) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
         this.evidenceBoundaryService = evidenceBoundaryService;
@@ -116,6 +124,8 @@ public class SupervisorService {
         this.multiAgentWorkflowDecider = multiAgentWorkflowDecider;
         this.multiAgentPlanExecuteLoop = multiAgentPlanExecuteLoop;
         this.agentTracePublisher = agentTracePublisher;
+        this.candidateExtractionService = candidateExtractionService;
+        this.knowledgeBoardRepository = knowledgeBoardRepository;
     }
 
     public ProjectMessageResponse answerProject(String projectId, String sessionId, ProjectMessageRequest request) {
@@ -204,18 +214,33 @@ public class SupervisorService {
                 );
                 RagResult ragResult = new RagResult(request.question(), documentIds, List.of());
                 WebSearchResult webSearchResult = null;
-                EvidenceAssessment assessment = planExecuteEvidenceAssessment(planExecuteResult);
+                List<EvidenceCitationSource> planCitationSources = planExecuteCitationSources(
+                        planExecuteResult,
+                        evidenceScope
+                );
+                EvidenceAssessment assessment = planExecuteEvidenceAssessment(planExecuteResult, planCitationSources);
                 String answer = planExecuteAnswer(planExecuteResult);
                 persistProjectAnswerAndEvidence(
                         answerId,
                         projectId,
                         sessionId,
+                        runId,
                         request.question(),
                         answer,
                         assessment,
                         ragResult,
                         webSearchResult,
-                        evidenceScope
+                        evidenceScope,
+                        planCitationSources
+                );
+                extractKnowledgeCandidatesIfRequested(
+                        request,
+                        projectId,
+                        sessionId,
+                        runId,
+                        answerId,
+                        answer,
+                        assessment
                 );
                 publishRunEvent(
                         WorkbenchEventType.RETRIEVAL_COMPLETED,
@@ -227,12 +252,12 @@ public class SupervisorService {
                         payload(
                                 "retrievalMode", RetrievalMode.NO_RETRIEVAL.name(),
                                 "sourceFilterCount", request.sourceFilters() == null ? 0 : request.sourceFilters().size(),
-                                "paperEvidenceCount", 0,
+                                "paperEvidenceCount", planExecuteSourceCount(planCitationSources, "paper"),
                                 "memoryRecallCount", 0,
                                 "webSupplementAllowed", allowWebSupplement,
                                 "intent", "MULTI_AGENT_PLAN_EXECUTE",
                                 "toolsUsed", List.of(),
-                                "webEvidenceCount", 0,
+                                "webEvidenceCount", planExecuteSourceCount(planCitationSources, "web"),
                                 "webSearchStatus", webSearchStatus(webSearchResult),
                                 "topPaperScore", 0.0,
                                 "citationCount", assessment.citationCount(),
@@ -250,7 +275,7 @@ public class SupervisorService {
                                 "evidenceState", assessment.evidenceLevel().name(),
                                 "outputMode", assessment.answerMode().name(),
                                 "citationCount", assessment.citationCount(),
-                                "sourceTypes", List.of()
+                                "sourceTypes", planExecuteSourceTypes(planCitationSources)
                         )
                 );
                 List<String> deltas = answerDeltas(answer);
@@ -301,6 +326,10 @@ public class SupervisorService {
                         "/api/projects/" + projectId + "/sessions/" + sessionId + "/runs/" + runId + "/events"
                 );
             }
+            List<KnowledgeEntryRecord> projectKnowledge = knowledgeBoardRepository.listConfirmedProjectKnowledge(
+                    projectId,
+                    MAX_TRACE_HITS
+            );
             ProjectAgentRun agentRun = projectAgentToolLoop.run(new ProjectAgentRequest(
                     projectId,
                     sessionId,
@@ -310,6 +339,7 @@ public class SupervisorService {
                     request.question(),
                     memory,
                     globalKnowledgeService.snapshot(),
+                    projectKnowledge,
                     evidenceScope,
                     allowWebSupplement
             ));
@@ -336,6 +366,7 @@ public class SupervisorService {
                     answerId,
                     projectId,
                     sessionId,
+                    runId,
                     request.question(),
                     answer,
                     assessment,
@@ -343,8 +374,17 @@ public class SupervisorService {
                     webSearchResult,
                     evidenceScope
             );
+            extractKnowledgeCandidatesIfRequested(
+                    request,
+                    projectId,
+                    sessionId,
+                    runId,
+                    answerId,
+                    answer,
+                    assessment
+            );
 
-            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, memoryRecallResult, agentRun);
+            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, projectKnowledge, memoryRecallResult, agentRun);
             publishRetrievalHitEvents(projectId, sessionId, runId, answerId, ragResult, webSearchResult, evidenceScope);
             publishRunEvent(
                     WorkbenchEventType.RETRIEVAL_COMPLETED,
@@ -555,32 +595,105 @@ public class SupervisorService {
         return result.finalSynthesisContext();
     }
 
-    private EvidenceAssessment planExecuteEvidenceAssessment(MultiAgentPlanExecuteResult result) {
-        AnswerMode answerMode = planExecuteAnswerMode(result);
+    private List<EvidenceCitationSource> planExecuteCitationSources(
+            MultiAgentPlanExecuteResult result,
+            ProjectEvidenceScope evidenceScope
+    ) {
+        if (result == null || result.researchPacket() == null) {
+            return List.of();
+        }
+        return result.researchPacket().citationSources().stream()
+                .filter(source -> planExecuteCitationIsPersistable(source, evidenceScope))
+                .toList();
+    }
+
+    private boolean planExecuteCitationIsPersistable(
+            EvidenceCitationSource source,
+            ProjectEvidenceScope evidenceScope
+    ) {
+        if (source == null) {
+            return false;
+        }
+        if ("web".equals(source.sourceType())) {
+            return true;
+        }
+        return "paper".equals(source.sourceType())
+                && source.documentId() != null
+                && evidenceScope.sourceIdByIndexedDocumentId().containsKey(source.documentId());
+    }
+
+    private int planExecuteSourceCount(List<EvidenceCitationSource> sources, String sourceType) {
+        if (sources == null || sources.isEmpty()) {
+            return 0;
+        }
+        return (int) sources.stream()
+                .filter(source -> sourceType.equals(source.sourceType()))
+                .count();
+    }
+
+    private List<String> planExecuteSourceTypes(List<EvidenceCitationSource> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return List.of();
+        }
+        List<String> sourceTypes = new ArrayList<>();
+        for (EvidenceCitationSource source : sources) {
+            if (!sourceTypes.contains(source.sourceType())) {
+                sourceTypes.add(source.sourceType());
+            }
+        }
+        return List.copyOf(sourceTypes);
+    }
+
+    private EvidenceAssessment planExecuteEvidenceAssessment(
+            MultiAgentPlanExecuteResult result,
+            List<EvidenceCitationSource> citationSources
+    ) {
+        int citationCount = citationSources == null ? 0 : citationSources.size();
+        AnswerMode answerMode = planExecuteAnswerMode(result, citationSources);
         EvidenceLevel evidenceLevel = switch (answerMode) {
             case LOCAL_EVIDENCE -> EvidenceLevel.SUFFICIENT;
             case WEB_SUPPLEMENT, LOCAL_WEAK_EVIDENCE -> EvidenceLevel.WEAK;
             case REFUSAL -> EvidenceLevel.NONE;
         };
-        return new EvidenceAssessment(evidenceLevel, answerMode, 0);
+        return new EvidenceAssessment(evidenceLevel, answerMode, citationCount);
     }
 
-    private AnswerMode planExecuteAnswerMode(MultiAgentPlanExecuteResult result) {
+    private AnswerMode planExecuteAnswerMode(
+            MultiAgentPlanExecuteResult result,
+            List<EvidenceCitationSource> citationSources
+    ) {
         AnswerMode recommendedMode;
         if (result.auditVerdict() != null) {
             recommendedMode = parseAnswerMode(result.auditVerdict().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
-            return planExecutePersistedAnswerMode(recommendedMode);
+            return planExecutePersistedAnswerMode(recommendedMode, citationSources);
         }
         if (result.researchPacket() != null) {
             recommendedMode = parseAnswerMode(result.researchPacket().recommendedAnswerMode(), AnswerMode.LOCAL_WEAK_EVIDENCE);
-            return planExecutePersistedAnswerMode(recommendedMode);
+            return planExecutePersistedAnswerMode(recommendedMode, citationSources);
         }
         return AnswerMode.LOCAL_WEAK_EVIDENCE;
     }
 
-    private AnswerMode planExecutePersistedAnswerMode(AnswerMode recommendedMode) {
+    private AnswerMode planExecutePersistedAnswerMode(
+            AnswerMode recommendedMode,
+            List<EvidenceCitationSource> citationSources
+    ) {
         if (recommendedMode == AnswerMode.REFUSAL) {
             return AnswerMode.REFUSAL;
+        }
+        boolean hasPaperEvidence = planExecuteSourceCount(citationSources, "paper") > 0;
+        boolean hasWebEvidence = planExecuteSourceCount(citationSources, "web") > 0;
+        if (recommendedMode == AnswerMode.LOCAL_EVIDENCE) {
+            if (hasPaperEvidence) {
+                return AnswerMode.LOCAL_EVIDENCE;
+            }
+            if (hasWebEvidence) {
+                return AnswerMode.WEB_SUPPLEMENT;
+            }
+            return AnswerMode.LOCAL_WEAK_EVIDENCE;
+        }
+        if (recommendedMode == AnswerMode.WEB_SUPPLEMENT) {
+            return hasWebEvidence ? AnswerMode.WEB_SUPPLEMENT : AnswerMode.LOCAL_WEAK_EVIDENCE;
         }
         return AnswerMode.LOCAL_WEAK_EVIDENCE;
     }
@@ -599,17 +712,45 @@ public class SupervisorService {
     private void persistProjectAnswerAndEvidence(String answerId,
                                                  String projectId,
                                                  String sessionId,
+                                                 String runId,
                                                  String question,
                                                  String answer,
                                                  EvidenceAssessment assessment,
                                                  RagResult ragResult,
                                                  WebSearchResult webSearchResult,
                                                  ProjectEvidenceScope evidenceScope) {
+        persistProjectAnswerAndEvidence(
+                answerId,
+                projectId,
+                sessionId,
+                runId,
+                question,
+                answer,
+                assessment,
+                ragResult,
+                webSearchResult,
+                evidenceScope,
+                List.of()
+        );
+    }
+
+    private void persistProjectAnswerAndEvidence(String answerId,
+                                                 String projectId,
+                                                 String sessionId,
+                                                 String runId,
+                                                 String question,
+                                                 String answer,
+                                                 EvidenceAssessment assessment,
+                                                 RagResult ragResult,
+                                                 WebSearchResult webSearchResult,
+                                                 ProjectEvidenceScope evidenceScope,
+                                                 List<EvidenceCitationSource> planCitationSources) {
         transactionTemplate.executeWithoutResult(status -> {
             assistantAnswerRepository.insert(
                     answerId,
                     projectId,
                     sessionId,
+                    runId,
                     question,
                     answer,
                     assessment.answerMode().name(),
@@ -622,9 +763,34 @@ public class SupervisorService {
                     evidenceScope.sourceIdByIndexedDocumentId()
             );
             evidenceSourceRepository.insertWebSources(projectId, answerId, webSearchResult);
+            evidenceSourceRepository.insertCitationSources(
+                    projectId,
+                    answerId,
+                    planCitationSources,
+                    evidenceScope.sourceIdByIndexedDocumentId()
+            );
             workingMemoryService.appendExchange(sessionId, question, answer, assessment.answerMode().name());
             projectRepository.markSessionMessaged(projectId, sessionId);
         });
+    }
+
+    private void extractKnowledgeCandidatesIfRequested(
+            ProjectMessageRequest request,
+            String projectId,
+            String sessionId,
+            String runId,
+            String answerId,
+            String answer,
+            EvidenceAssessment assessment) {
+        candidateExtractionService.extractFromAnswer(
+                projectId,
+                sessionId,
+                runId,
+                answerId,
+                answer,
+                assessment,
+                Boolean.TRUE.equals(request.extractKnowledgeCandidates())
+        );
     }
 
     private RetrievalMode projectRetrievalMode(ProjectEvidenceScope evidenceScope,
@@ -854,6 +1020,7 @@ public class SupervisorService {
                                           String runId,
                                           String answerId,
                                           WorkingMemory memory,
+                                          List<KnowledgeEntryRecord> projectKnowledge,
                                           MemoryRecallResult memoryRecallResult,
                                           ProjectAgentRun agentRun) {
         List<MemoryRecallHit> hits = memoryRecallResult == null || memoryRecallResult.hits() == null
@@ -864,8 +1031,33 @@ public class SupervisorService {
             workingMemoryHitCount = 1;
             Map<String, Object> data = payload(
                     "memoryLayer", "L1",
+                    "sourceType", "working_memory",
+                    "sourceId", memory.sessionKey(),
+                    "contextOnly", true,
                     "label", "\u5de5\u4f5c\u8bb0\u5fc6",
                     "snippet", bounded(workingMemorySnippet(memory)),
+                    "score", 1.0
+            );
+            publishRunEvent(
+                    WorkbenchEventType.MEMORY_HIT,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "memory_worker",
+                    answerId,
+                    payload("data", data)
+            );
+        }
+        int projectKnowledgeHitCount = 0;
+        for (KnowledgeEntryRecord entry : projectKnowledge == null ? List.<KnowledgeEntryRecord>of() : projectKnowledge) {
+            projectKnowledgeHitCount++;
+            Map<String, Object> data = payload(
+                    "memoryLayer", "L2",
+                    "sourceType", "project_knowledge",
+                    "sourceId", entry.id(),
+                    "contextOnly", true,
+                    "label", "已确认项目知识",
+                    "snippet", bounded(projectKnowledgeSnippet(entry)),
                     "score", 1.0
             );
             publishRunEvent(
@@ -881,6 +1073,9 @@ public class SupervisorService {
         for (MemoryRecallHit hit : hits) {
             Map<String, Object> data = payload(
                     "memoryLayer", "L3",
+                    "sourceType", "long_term_memory",
+                    "sourceId", memorySourceId(hit),
+                    "contextOnly", true,
                     "label", "\u957f\u671f\u8bb0\u5fc6\u53ec\u56de",
                     "snippet", bounded(memorySnippet(hit)),
                     "score", hit.finalScore()
@@ -895,7 +1090,7 @@ public class SupervisorService {
                     payload("data", data)
             );
         }
-        if (workingMemoryHitCount > 0 || !hits.isEmpty() || toolWasUsed(agentRun, "memory_recall")) {
+        if (workingMemoryHitCount > 0 || projectKnowledgeHitCount > 0 || !hits.isEmpty() || toolWasUsed(agentRun, "memory_recall")) {
             publishRunEvent(
                     WorkbenchEventType.MEMORY_COMPLETED,
                     projectId,
@@ -904,12 +1099,26 @@ public class SupervisorService {
                     "memory_worker",
                     answerId,
                     payload("data", payload(
-                            "hitCount", workingMemoryHitCount + hits.size(),
+                            "hitCount", workingMemoryHitCount + projectKnowledgeHitCount + hits.size(),
                             "workingMemoryHitCount", workingMemoryHitCount,
+                            "l2HitCount", projectKnowledgeHitCount,
                             "l3HitCount", hits.size()
                     ))
             );
         }
+    }
+
+    private String projectKnowledgeSnippet(KnowledgeEntryRecord entry) {
+        if (entry == null) {
+            return "";
+        }
+        String title = entry.title() == null ? "" : entry.title();
+        String content = entry.content() == null ? "" : entry.content();
+        return (title + ": " + content).trim();
+    }
+
+    private String memorySourceId(MemoryRecallHit hit) {
+        return hit == null || hit.entry() == null ? "" : String.valueOf(hit.entry().id());
     }
 
     private boolean hasWorkingMemorySummary(WorkingMemory memory) {

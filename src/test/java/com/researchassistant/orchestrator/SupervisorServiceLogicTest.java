@@ -8,6 +8,7 @@ import com.researchassistant.evidence.EvidenceLevel;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.ingest.model.DocumentStatus;
 import com.researchassistant.ingest.model.ResearchDocument;
+import com.researchassistant.knowledge.KnowledgeBoardRepository;
 import com.researchassistant.memory.ExplicitMemoryService;
 import com.researchassistant.memory.GlobalKnowledgeService;
 import com.researchassistant.memory.GlobalKnowledgeSnapshot;
@@ -77,6 +78,9 @@ class SupervisorServiceLogicTest {
 
     @Mock
     private AssistantAnswerRepository assistantAnswerRepository;
+
+    @Mock
+    private KnowledgeBoardRepository knowledgeBoardRepository;
 
     @InjectMocks
     private SupervisorService supervisorService;

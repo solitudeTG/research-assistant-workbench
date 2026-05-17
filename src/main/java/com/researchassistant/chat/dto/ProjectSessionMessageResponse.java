@@ -7,6 +7,8 @@ public record ProjectSessionMessageResponse(
         String sessionId,
         String role,
         String content,
+        String answerId,
+        String runId,
         String answerMode,
         OffsetDateTime createdAt
 ) {

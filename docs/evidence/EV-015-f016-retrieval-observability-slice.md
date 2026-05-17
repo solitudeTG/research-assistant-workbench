@@ -1,16 +1,16 @@
 ---
 id: EV-015
 doc_kind: evidence
-status: active
+status: completed
 created: 2026-05-12
-updated: 2026-05-12
+updated: 2026-05-17
 feature_ids: [F016]
 ---
 # EV-015 F016 Retrieval Observability Slice
 
 ## Scope Verified
 
-This evidence records the first F016 backend slice. It does not close the full Feature.
+This evidence began as the first F016 backend slice and now records the closeout of the interview-demo retrieval observability capability.
 
 Implemented capability:
 
@@ -22,6 +22,11 @@ Implemented capability:
 - `ProjectAgentTools.paperRag(...)` publishes `retrieval.query.rewritten` and `retrieval.completed` trace events when an observation exists.
 - `tool.completed.data` now carries `retrievalObservationSummary` so consumers do not need to parse `resultSummary`.
 - Added startup warmup for `LocalVectorSearchPort` so already-indexed document chunks are restored into the in-memory vector index after backend restart.
+- Added `RetrievalSearchResult` so vector retrieval exposes pre-scope candidate count, post-scope candidate count, and returned chunks separately.
+- `LocalVectorSearchPort` and `PgVectorSearchPort` now report vector pre/post scope counts without changing the public `search(...)` compatibility contract.
+- `PaperRagService` now records vector pre/post scope stats and classifies vector pre-scope-only matches as `SCOPE_FILTERED_EMPTY` instead of `NO_BACKEND_HITS`.
+- Query rewrite coverage now includes non-CJK original-only and blank-query behavior.
+- Final paper evidence metadata now carries `answerId`, `runId`, `origin`, and `tool`, while `sourceId` remains the normalized `evidence_source.source_id` column.
 
 ## Evidence
 
@@ -65,6 +70,43 @@ UI regression follow-up:
 - Root cause: the diagnostics UI slice introduced a second top-level `sampleRetrievalDiagnostics()` definition. `node --check` did not catch this browser-module strict-mode failure.
 - Fix: removed the duplicate definition and added a frontend regression test that rejects duplicate top-level function declarations in `workbench-app.js`.
 
+Evidence diagnostics UI follow-up:
+
+- The Observability workspace now presents the same retrieval-backed data through a researcher-facing `证据诊断` lens instead of a raw `检索诊断` lens.
+- The drawer navigation separates `证据诊断`, `检索调用`, `查询改写`, `引用链路`, and `异常`, while keeping the underlying session-scoped diagnostics endpoint unchanged.
+- The top strip now explains coverage, retrieval efficiency, zero-hit count, and evidence-chain state. `引用链路` intentionally remains `待核验` when returned chunks exist because final citation-to-observation linkage is not yet implemented.
+- The main pane adds `本轮判断` and explicit table headers: `调用`, `策略`, `查询`, `返回`, `命中来源`, `状态`, and `时间`.
+- The inspector keeps engineering fields available but translates them into `检索细分`, `改写查询`, `返回片段`, and `证据缺口`.
+- `最近运行` is visible but disabled with `跨运行聚合待后续补齐`, because the current API is still session-scoped and does not support cross-run aggregation.
+
+Answer evidence diagnostics clarity follow-up:
+
+- User review showed the `证据诊断` page was still understandable mainly as an engineering log, not as a researcher's answer to "can I trust this response?".
+- Stitch was used as a visual intent anchor for a clearer `回答取证诊断` page: first explain what the page audits, then show what was found, what is still unproven, and where to inspect the next step.
+- A parallel read-only subagent review independently recommended replacing internal retrieval language with researcher-facing labels.
+- The page title is now `回答取证诊断`, with the purpose statement `检查本轮回答背后的论文证据：哪些结论已有材料支持，哪些还不能使用。`
+- The four summary cards now use task-language labels: `找到多少证据`, `问了几种查法`, `没有找到的次数`, and `是否进入引用`.
+- The main conclusion now starts with `一句话结论`, classifying the current answer as no evidence, weak evidence, or candidate evidence before showing counts.
+- The table is now a `检索步骤` explanation rather than an event log: `步骤`, `系统动作`, `查法数`, `候选材料`, `主要来源`, `这意味着`, and `时间`.
+- The inspector now starts from `这一步代表什么` and surfaces `原始问题`, `找到的材料`, `为什么没找到`, `对结论的影响`, and `下一步建议` before lower-level retrieval stats.
+- Zero-hit reasons now map to user actions such as importing papers, changing keywords, checking project scope, or relaxing filters.
+
+Vector scope and citation linkage follow-up:
+
+- Focused RED/GREEN work added vector pre/post scope diagnostics to the vector retrieval contract.
+- A vector-only global hit that is filtered to zero scoped chunks now produces `SCOPE_FILTERED_EMPTY`, which prevents the diagnostics layer from misclassifying project-scope misses as total backend misses.
+- Final paper evidence can now be traced through `evidence_source.source_id`, `citation_meta_json.documentId`, `chunkId`, `chunkIndex`, `answerId`, `runId`, `origin`, and `tool`.
+- This intentionally avoids a dedicated observation table until cross-run aggregate diagnostics require it.
+
+Answer Run and Session diagnostics follow-up:
+
+- User review showed the session-scoped diagnostics table was still ambiguous because a row did not say which answer/question/retrieval step it belonged to.
+- `RetrievalTraceContext` now carries `projectId`, project `sessionId`, `runId`, `messageId`, `answerId`, original answer question, and `toolCallIndex` from `ProjectAgentTools.paperRag(...)` into `PaperRagService`.
+- `PaperRagService.retrieve(...)` keeps the legacy four-argument overload, while the Project Agent path uses the new context overload and persists the attribution fields in `retrieval_trace.filters_json`.
+- `RetrievalDiagnosticsService` now returns per-row attribution fields and a session-level `answerRuns` array with retrieval call count, zero-hit count, and returned scoped chunk totals.
+- The Observability workspace now defaults to `当前回答`, offers `本会话` as the session aggregation view, and labels retrieval rows with the answer question plus the retrieval step number.
+- The previous disabled `最近运行` toggle was removed from this surface because the real need was current-answer versus current-session grouping, not cross-session analytics.
+
 ## Verification Commands
 
 Focused backend verification:
@@ -74,12 +116,15 @@ Focused backend verification:
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=ProjectEvidenceBoundaryTest,LocalVectorIndexWarmupTest' test
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=ProjectAgentToolsTest' test
 & 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=RetrievalDiagnosticsControllerTest,TraceControllerTest' test
+& 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=PaperRagServiceTest,QueryRewriteServiceTest,LocalVectorSearchPortTest,PgVectorSearchPortTest,LocalVectorIndexWarmupTest,RetrievalDiagnosticsControllerTest,ProjectAgentToolsTest,ProjectEvidenceBoundaryTest#strongPaperEvidenceProducesSufficientLocalEvidenceAndPersistsPaperSources,ProjectFeedbackServiceTest,ChatControllerTest,Phase1HappyPathTest,ProjectRunEventFlowTest' test
+& 'C:\Users\HUAWEI\.cache\codex-runtimes\apache-maven-3.9.11\bin\mvn.cmd' '-Dtest=RetrievalDiagnosticsControllerTest,ProjectAgentToolsTest' test
 node --test src/main/resources/static/tests/f002-workbench-model.test.mjs
 node --test src/main/resources/static/tests/workbench-model.test.mjs
 node --check src/main/resources/static/js/workbench-app.js
 node --check src/main/resources/static/js/workbench-model.js
 git diff --check
 .\scripts\rebuild-dev.cmd
+python scripts/knowledge_check.py
 ```
 
 Result:
@@ -93,12 +138,20 @@ BUILD SUCCESS
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+Tests run: 48, Failures: 0, Errors: 0, Skipped: 0
+Answer Run diagnostics focused slice: `RetrievalDiagnosticsControllerTest,ProjectAgentToolsTest` passed with 10/10 tests.
 Node frontend tests: 15/15 and 3/3 passed.
 JavaScript syntax checks: passed.
 git diff --check: passed with CRLF warnings only.
 Docker rebuild: passed, app container restarted.
 Headless Chrome console smoke after rebuild: no `Uncaught`, `TypeError`, `ReferenceError`, or `SyntaxError` from `workbench-app.js`.
+Evidence diagnostics UI follow-up: `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` passed with 35/35 tests; `node --test src/main/resources/static/tests/workbench-model.test.mjs` passed with 6/6 tests; both JavaScript syntax checks passed; `git diff --check` passed with CRLF warnings only; `.\scripts\rebuild-dev.cmd` completed with `BUILD SUCCESS`; HTTP smoke after rebuild confirmed `/` contains `证据诊断`, `本轮判断`, and `最近运行`, and does not contain `检索诊断`.
+Answer evidence diagnostics clarity follow-up: `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` passed with 35/35 tests; `node --test src/main/resources/static/tests/workbench-model.test.mjs` passed with 6/6 tests; both JavaScript syntax checks passed; `python scripts/knowledge_check.py` passed; `git diff --check` passed with CRLF warnings only; `.\scripts\rebuild-dev.cmd` completed with `BUILD SUCCESS`; HTTP smoke after rebuild confirmed `/` contains `回答取证诊断`, `检查本轮回答背后的论文证据`, `查法数`, and `这意味着`, and does not contain `检索诊断`.
+Answer Run diagnostics follow-up: `node --test src/main/resources/static/tests/f002-workbench-model.test.mjs` passed with 46/46 tests; `node --test src/main/resources/static/tests/workbench-model.test.mjs` passed with 6/6 tests; both JavaScript syntax checks passed.
 ```
+
+2026-05-17 note: a full `mvn test` run was also attempted. After the vector mock contract issue was fixed, the remaining full-suite failure was `FATAL: sorry, too many clients already` from the shared Testcontainers PostgreSQL environment. The previously failing `ProjectRunEventFlowTest` passed in isolation, and the expanded 48-test F016/F021 boundary slice passed.
 
 Harness validation:
 
@@ -114,8 +167,35 @@ ok
 
 ## Residual Risk
 
-- This slice does not yet distinguish vector pre-scope and post-scope hits. Current stats use the existing search results, so `SCOPE_FILTERED_EMPTY` still needs a stronger test and likely vector search contract work.
-- This slice does not yet link final persisted citations back to a retrieval observation id or tool-call index.
+- Keyword and metadata retrieval still do not distinguish pre-scope and post-scope hits because their repositories apply scope internally.
+- This slice links persisted retrieval diagnostics to `runId`, `answerId`, and `toolCallIndex`, and final paper citations to `runId` and `answerId`; exact citation-to-retrieval-call linkage still lacks a dedicated retrieval observation id.
 - No dedicated `retrieval_observation` table was added. This intentionally avoids an ADR-triggering storage decision until aggregation needs are proven.
 - The diagnostics endpoint is session scoped, not cross-session trend analytics. A dedicated table or time-series dashboard remains a future decision if aggregate analysis becomes necessary.
 - The current Docker app image must be rebuilt before the new backend endpoint and static UI are visible in container-based manual testing.
+
+## 2026-05-17 Closeout Audit
+
+Closeout verdict: F016 is completed for the current resume/demo claim of RAG retrieval observability and evidence-chain diagnostics.
+
+Code anchor:
+
+- Commit `3dfc440 feat: add answer-run retrieval diagnostics` is the implementation commit that closed the final ambiguity around session rows by carrying `runId`, `answerId`, `messageId`, question text, and `toolCallIndex` into retrieval diagnostics.
+
+What is safe to claim:
+
+- The system records and displays query rewrite, backend retrieval stats, vector scope filtering, zero-hit reasons, bounded top chunks, and Answer Run grouping.
+- The diagnostics endpoint and Observability workspace let a reviewer inspect retrieval behavior without reading database rows by hand.
+- Final paper evidence can be traced at answer/run level through persisted metadata and normalized source ids.
+
+What should not be overstated:
+
+- F016 does not prove exact citation-to-specific-retrieval-call linkage via a stable observation id.
+- F016 does not provide cross-session trend analytics.
+- F016 does not make keyword and metadata repositories expose true pre/post scope counts.
+
+Closeout verification for this docs-only update:
+
+```powershell
+python .\scripts\knowledge_check.py
+git diff --check
+```

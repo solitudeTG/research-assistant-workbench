@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>认知与知识工作区 - Research Alpha</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed": "#1b1c1c",
+                        "tertiary-fixed-dim": "#c8c6c6",
+                        "inverse-on-surface": "#f1f0f0",
+                        "surface": "#faf9f8",
+                        "background": "#faf9f8",
+                        "primary": "#006565",
+                        "surface-bright": "#faf9f8",
+                        "on-primary-container": "#e3fffe",
+                        "tertiary": "#5a5a59",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f4f3f2",
+                        "surface-container-highest": "#e3e2e1",
+                        "inverse-surface": "#2f3130",
+                        "secondary-fixed": "#e0e3e5",
+                        "error-container": "#ffdad6",
+                        "secondary": "#5c5f61",
+                        "tertiary-container": "#737272",
+                        "secondary-fixed-dim": "#c4c7c9",
+                        "outline-variant": "#bdc9c8",
+                        "on-surface": "#1a1c1c",
+                        "surface-container": "#eeeeed",
+                        "error": "#ba1a1a",
+                        "surface-dim": "#dadad9",
+                        "on-primary-fixed": "#002020",
+                        "on-secondary-fixed": "#191c1e",
+                        "on-background": "#1a1c1c",
+                        "on-surface-variant": "#3e4949",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "inverse-primary": "#76d6d5",
+                        "surface-tint": "#006a6a",
+                        "surface-variant": "#e3e2e1",
+                        "tertiary-fixed": "#e4e2e1",
+                        "on-primary-fixed-variant": "#004f4f",
+                        "on-error-container": "#93000a",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-high": "#e9e8e7",
+                        "outline": "#6e7979",
+                        "on-secondary-fixed-variant": "#444749",
+                        "primary-fixed": "#93f2f2",
+                        "on-secondary-container": "#626567",
+                        "on-secondary": "#ffffff",
+                        "secondary-container": "#e0e3e5",
+                        "primary-fixed-dim": "#76d6d5",
+                        "primary-container": "#008080",
+                        "on-tertiary-container": "#fbf8f8",
+                        "on-tertiary-fixed-variant": "#474747"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "density-multiplier": "0.75",
+                        "component-gap": "8px",
+                        "unit": "4px",
+                        "gutter": "12px",
+                        "container-padding": "24px"
+                    },
+                    "fontFamily": {
+                        "title-md": ["Inter"],
+                        "control-sm": ["Inter"],
+                        "title-lg": ["Inter"],
+                        "metadata-xs": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "title-md": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "control-sm": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "title-lg": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "metadata-xs": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #FDFCFB; } /* Level 0 Canvas */
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md h-screen w-screen overflow-hidden flex">
+<!-- SideNavBar -->
+<nav class="bg-inverse-surface dark:bg-inverse-surface h-full w-[240px] fixed left-0 top-0 border-r border-outline-variant transition-colors duration-200 flex flex-col py-container-padding z-20">
+<div class="px-gutter mb-8">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-8 h-8 rounded bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined text-title-md">psychology</span>
+</div>
+<div>
+<h1 class="font-title-lg text-title-lg text-primary-fixed">Research Alpha</h1>
+<p class="font-metadata-xs text-metadata-xs text-secondary-fixed-dim">Deep Focus Mode</p>
+</div>
+</div>
+</div>
+<div class="flex-1 flex flex-col gap-1 px-2">
+<!-- Sessions -->
+<a class="flex items-center gap-3 px-3 py-2 rounded font-control-sm text-control-sm text-secondary-fixed-dim hover:bg-on-surface-variant/10 pl-4" href="#">
+<span class="material-symbols-outlined">history</span>
+                Sessions
+            </a>
+<!-- Sources -->
+<a class="flex items-center gap-3 px-3 py-2 rounded font-control-sm text-control-sm text-secondary-fixed-dim hover:bg-on-surface-variant/10 pl-4" href="#">
+<span class="material-symbols-outlined">menu_book</span>
+                Sources
+            </a>
+<!-- Knowledge (Active) -->
+<a class="flex items-center gap-3 px-3 py-2 rounded font-control-sm text-control-sm hover:bg-on-surface-variant/10 text-primary-fixed font-bold border-l-2 border-primary-fixed pl-3 bg-on-surface-variant/10" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">psychology</span>
+                Knowledge
+            </a>
+<!-- Observability -->
+<a class="flex items-center gap-3 px-3 py-2 rounded font-control-sm text-control-sm text-secondary-fixed-dim hover:bg-on-surface-variant/10 pl-4" href="#">
+<span class="material-symbols-outlined">monitoring</span>
+                Observability
+            </a>
+</div>
+<div class="px-2 mt-auto">
+<!-- Settings -->
+<a class="flex items-center gap-3 px-3 py-2 rounded font-control-sm text-control-sm text-secondary-fixed-dim hover:bg-on-surface-variant/10 pl-4" href="#">
+<span class="material-symbols-outlined">settings</span>
+                Settings
+            </a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 ml-[240px] flex flex-col h-full bg-background relative z-10">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-surface docked full-width top-0 h-16 border-b border-outline-variant transition-all duration-150 flex justify-between items-center w-full px-gutter z-20 shrink-0">
+<div class="flex items-center gap-6 h-full">
+<h2 class="font-title-md text-title-md text-on-surface">认知与知识工作区</h2>
+<nav class="flex h-full gap-4 hidden md:flex">
+<a class="flex items-center h-full px-2 font-control-sm text-control-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Drafts</a>
+<a class="flex items-center h-full px-2 font-control-sm text-control-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Archive</a>
+<a class="flex items-center h-full px-2 font-control-sm text-control-sm text-on-surface-variant hover:text-primary transition-colors" href="#">References</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<!-- Search -->
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-secondary font-control-sm">search</span>
+<input class="pl-8 pr-3 py-1.5 bg-transparent border-b border-outline-variant focus:border-primary focus:ring-0 font-control-sm text-control-sm w-64 transition-colors" placeholder="搜索知识库..." type="text"/>
+</div>
+<!-- Actions -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 border border-outline-variant rounded hover:bg-surface-container transition-colors font-control-sm text-control-sm text-on-surface">
+<span class="material-symbols-outlined font-control-sm">refresh</span>
+                    Refresh
+                </button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary rounded hover:bg-surface-tint transition-colors font-control-sm text-control-sm">
+<span class="material-symbols-outlined font-control-sm">add</span>
+                    New Knowledge Note
+                </button>
+<!-- Trailing Icons -->
+<div class="flex items-center gap-2 border-l border-outline-variant pl-4 ml-2">
+<button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">help_outline</span></button>
+</div>
+</div>
+</header>
+<!-- 3-Column Layout -->
+<main class="flex-1 flex overflow-hidden">
+<!-- Column 1: Navigation/Filters (Left) -->
+<aside class="w-[220px] shrink-0 border-r border-outline-variant bg-surface-container-low flex flex-col p-4 overflow-y-auto">
+<h3 class="font-metadata-xs text-metadata-xs text-secondary uppercase tracking-wider mb-3">Filter Views</h3>
+<div class="flex flex-col gap-1">
+<button class="flex items-center justify-between px-3 py-2 rounded bg-surface-variant text-on-surface font-control-sm text-control-sm border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">account_tree</span>
+                            全局认知
+                        </div>
+</button>
+<button class="flex items-center justify-between px-3 py-2 rounded hover:bg-surface-variant/50 text-secondary font-control-sm text-control-sm transition-colors border border-transparent">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+                            已确认知识
+                        </div>
+<span class="font-metadata-xs bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface-variant">12</span>
+</button>
+<button class="flex items-center justify-between px-3 py-2 rounded hover:bg-surface-variant/50 text-secondary font-control-sm text-control-sm transition-colors border border-transparent">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">pending_actions</span>
+                            待审候选
+                        </div>
+<span class="font-metadata-xs bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface-variant">5</span>
+</button>
+<button class="flex items-center justify-between px-3 py-2 rounded hover:bg-surface-variant/50 text-secondary font-control-sm text-control-sm transition-colors border border-transparent">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">update</span>
+                            近期变更
+                        </div>
+</button>
+</div>
+<h3 class="font-metadata-xs text-metadata-xs text-secondary uppercase tracking-wider mt-8 mb-3">Taxonomy</h3>
+<div class="flex flex-col gap-1 pl-2 border-l border-outline-variant/50">
+<button class="flex items-center gap-2 px-2 py-1.5 text-secondary hover:text-on-surface font-control-sm text-control-sm transition-colors text-left"><span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span> System</button>
+<button class="flex items-center gap-2 px-2 py-1.5 text-secondary hover:text-on-surface font-control-sm text-control-sm transition-colors text-left"><span class="w-1.5 h-1.5 rounded-full bg-secondary-container"></span> Identity</button>
+<button class="flex items-center gap-2 px-2 py-1.5 text-secondary hover:text-on-surface font-control-sm text-control-sm transition-colors text-left"><span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span> State</button>
+<button class="flex items-center gap-2 px-2 py-1.5 text-secondary hover:text-on-surface font-control-sm text-control-sm transition-colors text-left"><span class="w-1.5 h-1.5 rounded-full bg-surface-tint"></span> Finding</button>
+</div>
+</aside>
+<!-- Column 2: Knowledge Board (Center) -->
+<section class="flex-1 flex flex-col bg-background overflow-hidden">
+<div class="flex-1 overflow-y-auto p-6">
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-title-lg text-title-lg text-on-surface">Knowledge Board</h2>
+<div class="flex gap-2">
+<button class="p-1 border border-outline-variant rounded text-secondary hover:text-primary transition-colors"><span class="material-symbols-outlined text-[18px]">view_list</span></button>
+<button class="p-1 border border-outline-variant rounded bg-surface-variant text-on-surface"><span class="material-symbols-outlined text-[18px]">table_rows</span></button>
+</div>
+</div>
+<!-- Dense Table -->
+<div class="border border-outline-variant rounded bg-surface-container-lowest overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low border-b border-outline-variant">
+<th class="py-2 px-3 font-metadata-xs text-metadata-xs text-secondary font-medium w-8"></th>
+<th class="py-2 px-3 font-metadata-xs text-metadata-xs text-secondary font-medium">Item Name</th>
+<th class="py-2 px-3 font-metadata-xs text-metadata-xs text-secondary font-medium w-32">Type</th>
+<th class="py-2 px-3 font-metadata-xs text-metadata-xs text-secondary font-medium w-32">Status</th>
+<th class="py-2 px-3 font-metadata-xs text-metadata-xs text-secondary font-medium w-24 text-right">Updated</th>
+</tr>
+</thead>
+<tbody class="font-control-sm text-control-sm">
+<!-- Row 1 -->
+<tr class="border-b border-outline-variant/30 hover:bg-surface-container/30 transition-colors group cursor-pointer">
+<td class="py-1.5 px-3 text-secondary"><span class="material-symbols-outlined text-[16px]">description</span></td>
+<td class="py-1.5 px-3 text-on-surface font-medium">USER.md</td>
+<td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded bg-tertiary-container/10 text-tertiary-container border border-tertiary-container/20 font-metadata-xs">System</span></td>
+<td class="py-1.5 px-3"><span class="flex items-center gap-1 text-primary"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span> 长期记忆</span></td>
+<td class="py-1.5 px-3 text-secondary text-right font-metadata-xs">2h ago</td>
+</tr>
+<!-- Row 2 -->
+<tr class="border-b border-outline-variant/30 hover:bg-surface-container/30 transition-colors group cursor-pointer">
+<td class="py-1.5 px-3 text-secondary"><span class="material-symbols-outlined text-[16px]">description</span></td>
+<td class="py-1.5 px-3 text-on-surface font-medium">SOUL.md</td>
+<td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded bg-secondary-container/30 text-on-secondary-container border border-secondary-container/50 font-metadata-xs">Identity</span></td>
+<td class="py-1.5 px-3"><span class="flex items-center gap-1 text-primary"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span> 长期记忆</span></td>
+<td class="py-1.5 px-3 text-secondary text-right font-metadata-xs">5h ago</td>
+</tr>
+<!-- Row 3 -->
+<tr class="border-b border-outline-variant/30 hover:bg-surface-container/30 transition-colors group cursor-pointer bg-primary-fixed/10 border-l-2 border-l-primary">
+<td class="py-1.5 px-3 text-primary"><span class="material-symbols-outlined text-[16px]">science</span></td>
+<td class="py-1.5 px-3 text-on-surface font-medium">Research_state.md</td>
+<td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded bg-primary-container/10 text-primary border border-primary/20 font-metadata-xs">State</span></td>
+<td class="py-1.5 px-3"><span class="flex items-center gap-1 text-surface-tint"><span class="w-1.5 h-1.5 rounded-full bg-surface-tint animate-pulse"></span> 活动</span></td>
+<td class="py-1.5 px-3 text-secondary text-right font-metadata-xs">Just now</td>
+</tr>
+<!-- Row 4 -->
+<tr class="border-b border-outline-variant/30 hover:bg-surface-container/30 transition-colors group cursor-pointer">
+<td class="py-1.5 px-3 text-secondary"><span class="material-symbols-outlined text-[16px]">lightbulb</span></td>
+<td class="py-1.5 px-3 text-on-surface">拓扑绝缘体核心结论</td>
+<td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded bg-surface-tint/10 text-surface-tint border border-surface-tint/20 font-metadata-xs">Finding</span></td>
+<td class="py-1.5 px-3"><span class="flex items-center gap-1 text-on-surface-variant"><span class="material-symbols-outlined text-[14px]">check_circle</span> 已确认</span></td>
+<td class="py-1.5 px-3 text-secondary text-right font-metadata-xs">1d ago</td>
+</tr>
+<!-- Row 5 -->
+<tr class="border-b border-outline-variant/30 hover:bg-surface-container/30 transition-colors group cursor-pointer">
+<td class="py-1.5 px-3 text-secondary"><span class="material-symbols-outlined text-[16px]">architecture</span></td>
+<td class="py-1.5 px-3 text-on-surface">自旋轨道耦合方法论</td>
+<td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded bg-tertiary/10 text-tertiary border border-tertiary/20 font-metadata-xs">Method</span></td>
+<td class="py-1.5 px-3"><span class="flex items-center gap-1 text-on-surface-variant"><span class="material-symbols-outlined text-[14px]">check_circle</span> 已确认</span></td>
+<td class="py-1.5 px-3 text-secondary text-right font-metadata-xs">2d ago</td>
+</tr>
+<!-- Row 6 -->
+<tr class="border-b border-outline-variant/30 hover:bg-surface-container/30 transition-colors group cursor-pointer opacity-70">
+<td class="py-1.5 px-3 text-secondary"><span class="material-symbols-outlined text-[16px]">help_outline</span></td>
+<td class="py-1.5 px-3 text-on-surface italic">候选：自旋霍尔效应异常</td>
+<td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded bg-outline-variant/30 text-on-surface-variant border border-outline-variant font-metadata-xs">Candidate</span></td>
+<td class="py-1.5 px-3"><span class="flex items-center gap-1 text-secondary"><span class="material-symbols-outlined text-[14px]">pending</span> 待审</span></td>
+<td class="py-1.5 px-3 text-secondary text-right font-metadata-xs">3d ago</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Bottom Strip (Self-learning loop) -->
+<div class="h-12 border-t border-outline-variant bg-surface-container-lowest shrink-0 flex items-center px-4 overflow-x-auto gap-2">
+<span class="font-metadata-xs text-secondary font-medium mr-2 shrink-0">Self-Learning Loop:</span>
+<div class="flex items-center gap-1 shrink-0 bg-surface-container-low px-2 py-1 rounded border border-outline-variant">
+<span class="material-symbols-outlined text-[14px] text-surface-tint">compress</span>
+<span class="font-metadata-xs text-on-surface-variant">L1 (压缩)</span>
+<span class="w-1.5 h-1.5 rounded-full bg-surface-tint ml-1"></span>
+</div>
+<span class="material-symbols-outlined text-secondary text-[14px] shrink-0">arrow_right_alt</span>
+<div class="flex items-center gap-1 shrink-0 bg-surface-container-low px-2 py-1 rounded border border-outline-variant">
+<span class="material-symbols-outlined text-[14px] text-primary">fact_check</span>
+<span class="font-metadata-xs text-on-surface-variant">L2 (审核)</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse ml-1"></span>
+</div>
+<span class="material-symbols-outlined text-secondary text-[14px] shrink-0">arrow_right_alt</span>
+<div class="flex items-center gap-1 shrink-0 bg-surface-container-low px-2 py-1 rounded border border-outline-variant opacity-60">
+<span class="material-symbols-outlined text-[14px] text-secondary">database</span>
+<span class="font-metadata-xs text-secondary">L3 (入库/反馈)</span>
+<span class="w-1.5 h-1.5 rounded-full bg-outline-variant ml-1"></span>
+</div>
+</div>
+</section>
+<!-- Column 3: Right Inspector (Item Details) -->
+<aside class="w-[320px] shrink-0 border-l border-outline-variant bg-[#F1F3F5] flex flex-col overflow-y-auto">
+<div class="p-4 border-b border-outline-variant bg-[#F1F3F5]">
+<div class="flex items-center justify-between mb-2">
+<span class="font-metadata-xs text-secondary uppercase tracking-wider">Inspector</span>
+<button class="text-secondary hover:text-on-surface"><span class="material-symbols-outlined text-[16px]">close</span></button>
+</div>
+<h3 class="font-title-md text-title-md text-on-surface mb-3 break-words">Research_state.md</h3>
+<!-- Trust Boundary Badges -->
+<div class="flex flex-wrap gap-2 mb-2">
+<span class="inline-flex items-center gap-1 px-2 py-1 rounded-sm bg-surface-tint/10 text-surface-tint border border-surface-tint/20 font-metadata-xs">
+<span class="material-symbols-outlined text-[14px]">verified</span>
+                            已确认知识
+                        </span>
+<span class="inline-flex items-center gap-1 px-2 py-1 rounded-sm bg-primary/10 text-primary border border-primary/20 font-metadata-xs">
+<span class="material-symbols-outlined text-[14px]">memory</span>
+                            长期记忆 - 仅上下文
+                        </span>
+</div>
+</div>
+<div class="p-4 flex-1">
+<!-- Provenance Section -->
+<div class="mb-6">
+<h4 class="font-metadata-xs text-secondary uppercase tracking-wider mb-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">share</span> Provenance
+                        </h4>
+<div class="bg-surface-container-lowest rounded border border-outline-variant p-3 space-y-2">
+<div class="flex justify-between items-center font-metadata-xs">
+<span class="text-secondary">Source Answer ID:</span>
+<span class="text-on-surface font-mono">ANS-992A-4F</span>
+</div>
+<div class="w-full h-px bg-outline-variant/30"></div>
+<div class="flex justify-between items-center font-metadata-xs">
+<span class="text-secondary">Candidate ID:</span>
+<span class="text-on-surface font-mono">CAN-003B-11</span>
+</div>
+<div class="w-full h-px bg-outline-variant/30"></div>
+<div class="flex justify-between items-center font-metadata-xs">
+<span class="text-secondary">Source Doc:</span>
+<a class="text-primary hover:underline truncate w-32 text-right" href="#">paper_v2_final.pdf</a>
+</div>
+<div class="w-full h-px bg-outline-variant/30"></div>
+<div class="flex justify-between items-center font-metadata-xs">
+<span class="text-secondary">Last Editor:</span>
+<span class="text-on-surface">System Agent Alpha</span>
+</div>
+</div>
+</div>
+<!-- Event Trail -->
+<div>
+<h4 class="font-metadata-xs text-secondary uppercase tracking-wider mb-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">timeline</span> Event Trail
+                        </h4>
+<div class="relative pl-3 border-l border-outline-variant space-y-4 ml-1">
+<div class="relative">
+<div class="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-surface-tint border-2 border-[#F1F3F5]"></div>
+<div class="font-metadata-xs text-on-surface font-medium">State Updated</div>
+<div class="font-metadata-xs text-secondary">Added new findings from topology analysis.</div>
+<div class="font-metadata-xs text-tertiary-container mt-0.5">10:42 AM • System</div>
+</div>
+<div class="relative">
+<div class="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-outline border-2 border-[#F1F3F5]"></div>
+<div class="font-metadata-xs text-on-surface font-medium">L2 Audit Passed</div>
+<div class="font-metadata-xs text-secondary">Confidence score: 0.94</div>
+<div class="font-metadata-xs text-tertiary-container mt-0.5">Yesterday • Validator</div>
+</div>
+<div class="relative">
+<div class="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-outline border-2 border-[#F1F3F5]"></div>
+<div class="font-metadata-xs text-on-surface font-medium">Candidate Generated</div>
+<div class="font-metadata-xs text-secondary">Extracted from ANS-992A-4F.</div>
+<div class="font-metadata-xs text-tertiary-container mt-0.5">Yesterday • Extractor</div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</main>
+</div>
+</body></html>
