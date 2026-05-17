@@ -10,6 +10,7 @@ import com.researchassistant.rag.PaperRagService;
 import com.researchassistant.rag.RagChunk;
 import com.researchassistant.rag.RagResult;
 import com.researchassistant.rag.RetrievalObservation;
+import com.researchassistant.rag.RetrievalTraceContext;
 import com.researchassistant.rag.ZeroHitReason;
 import com.researchassistant.websearch.WebSearchPort;
 import com.researchassistant.websearch.WebSearchResult;
@@ -39,6 +40,7 @@ public class ProjectAgentTools {
     private final ObjectMapper objectMapper;
     private final AgentTracePublisher tracePublisher;
     private final AgentTraceContext traceContext;
+    private final String answerQuestion;
     private final List<String> toolsUsed = new ArrayList<>();
     private final Map<String, String> paperRagPayloadByNormalizedQuery = new LinkedHashMap<>();
     private int paperRagBackendCalls;
@@ -54,6 +56,19 @@ public class ProjectAgentTools {
                              ObjectMapper objectMapper,
                              AgentTracePublisher tracePublisher,
                              AgentTraceContext traceContext) {
+        this(sessionId, evidenceScope, paperRagService, memoryRecallPort, webSearchPort,
+                objectMapper, tracePublisher, traceContext, "");
+    }
+
+    public ProjectAgentTools(long sessionId,
+                             ProjectEvidenceScope evidenceScope,
+                             PaperRagService paperRagService,
+                             MemoryRecallPort memoryRecallPort,
+                             WebSearchPort webSearchPort,
+                             ObjectMapper objectMapper,
+                             AgentTracePublisher tracePublisher,
+                             AgentTraceContext traceContext,
+                             String answerQuestion) {
         this.sessionId = sessionId;
         this.evidenceScope = evidenceScope;
         this.paperRagService = paperRagService;
@@ -62,6 +77,7 @@ public class ProjectAgentTools {
         this.objectMapper = objectMapper;
         this.tracePublisher = tracePublisher;
         this.traceContext = traceContext;
+        this.answerQuestion = answerQuestion;
     }
 
     public long sessionId() {
@@ -202,7 +218,8 @@ public class ProjectAgentTools {
                     sessionId,
                     query,
                     evidenceScope.indexedDocumentIds(),
-                    boundedMaxResults
+                    boundedMaxResults,
+                    retrievalTraceContext(paperRagBackendCalls)
             );
             List<RagChunk> scopedChunks = retrieved == null || retrieved.chunks() == null
                     ? List.of()
@@ -391,10 +408,29 @@ public class ProjectAgentTools {
         return observation.summary();
     }
 
+    private RetrievalTraceContext retrievalTraceContext(int toolCallIndex) {
+        if (traceContext == null) {
+            return RetrievalTraceContext.empty();
+        }
+        return new RetrievalTraceContext(
+                traceContext.projectId(),
+                traceContext.sessionId(),
+                traceContext.runId(),
+                traceContext.messageId(),
+                traceContext.answerId(),
+                answerQuestion,
+                toolCallIndex
+        );
+    }
+
     private Map<String, Object> memoryHitPayload(MemoryRecallHit hit) {
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("memoryLayer", "L3");
+        payload.put("sourceType", "long_term_memory");
+        payload.put("contextOnly", true);
         payload.put("score", hit.finalScore());
         if (hit.entry() != null) {
+            payload.put("sourceId", String.valueOf(hit.entry().id()));
             payload.put("topic", safe(hit.entry().topic()));
             payload.put("summary", safe(hit.entry().summary()));
             payload.put("keyFindings", hit.entry().keyFindings() == null ? List.of() : hit.entry().keyFindings());

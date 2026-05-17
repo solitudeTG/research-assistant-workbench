@@ -26,6 +26,7 @@ public class RetrievalDiagnosticsService {
         List<RetrievalTraceView> traces = retrievalTraceRepository.findBySessionKey(sessionId);
         SummaryAccumulator summary = new SummaryAccumulator();
         List<RetrievalDiagnosticsResponse.RetrievalDiagnosticItem> retrievals = new ArrayList<>();
+        Map<String, AnswerRunAccumulator> answerRuns = new LinkedHashMap<>();
 
         for (RetrievalTraceView trace : traces) {
             Map<String, Object> filters = trace.filters() == null ? Map.of() : trace.filters();
@@ -45,12 +46,29 @@ public class RetrievalDiagnosticsService {
             int returnedScopedChunkCount = intValue(observation.get("returnedScopedChunkCount"));
             String zeroHitReason = nullableString(observation.get("zeroHitReason"));
             List<Map<String, Object>> topChunks = boundedTopChunks(trace.topChunks());
+            String runId = nullableString(firstNonNull(filters.get("runId"), observation.get("runId")));
+            String answerId = nullableString(firstNonNull(filters.get("answerId"), observation.get("answerId")));
+            String messageId = nullableString(firstNonNull(filters.get("messageId"), observation.get("messageId")));
+            String question = stringValue(firstNonNull(
+                    filters.get("answerQuestion"),
+                    filters.get("question"),
+                    observation.get("answerQuestion"),
+                    observation.get("question")
+            ), trace.queryText());
+            int toolCallIndex = intValue(firstNonNull(filters.get("toolCallIndex"), observation.get("toolCallIndex")));
+            String answerRunKey = answerRunKey(runId, answerId, messageId, trace.id());
 
             summary.accept(rewriteStrategy, backendStats, returnedScopedChunkCount, zeroHitReason);
-            retrievals.add(new RetrievalDiagnosticsResponse.RetrievalDiagnosticItem(
+            RetrievalDiagnosticsResponse.RetrievalDiagnosticItem item = new RetrievalDiagnosticsResponse.RetrievalDiagnosticItem(
                     trace.id(),
                     trace.queryText(),
                     trace.createdAt(),
+                    answerRunKey,
+                    runId,
+                    answerId,
+                    messageId,
+                    question,
+                    toolCallIndex,
                     observation,
                     rewriteStrategy,
                     retrievalQueries,
@@ -59,16 +77,37 @@ public class RetrievalDiagnosticsService {
                     returnedScopedChunkCount,
                     zeroHitReason,
                     topChunks
-            ));
+            );
+            retrievals.add(item);
+            answerRuns.computeIfAbsent(
+                    answerRunKey,
+                    key -> new AnswerRunAccumulator(key, runId, answerId, messageId, question)
+            ).accept(item);
         }
+        Map<String, Object> summaryMap = summary.toMap();
+        summaryMap.put("answerRunCount", answerRuns.size());
 
         return new RetrievalDiagnosticsResponse(
                 projectId,
                 sessionId,
-                summary.toMap(),
+                summaryMap,
                 retrievals,
+                answerRuns.values().stream().map(AnswerRunAccumulator::toResponse).toList(),
                 List.of()
         );
+    }
+
+    private String answerRunKey(String runId, String answerId, String messageId, long traceId) {
+        if (runId != null && !runId.isBlank()) {
+            return runId;
+        }
+        if (answerId != null && !answerId.isBlank()) {
+            return answerId;
+        }
+        if (messageId != null && !messageId.isBlank()) {
+            return messageId;
+        }
+        return "trace-" + traceId;
     }
 
     private List<Map<String, Object>> boundedTopChunks(Object value) {
@@ -90,6 +129,10 @@ public class RetrievalDiagnosticsService {
             putIfPresent(projected, "sourceId", source.get("sourceId"));
             putIfPresent(projected, "chunkIndex", source.get("chunkIndex"));
             putIfPresent(projected, "score", firstNonNull(source.get("score"), source.get("finalScore")));
+            putIfPresent(projected, "feedbackScore", source.get("feedbackScore"));
+            if (source.containsKey("feedbackScore")) {
+                projected.put("feedbackScoreAdjustment", feedbackScoreAdjustment(source.get("feedbackScore")));
+            }
             putIfPresent(projected, "retrievalModes", source.get("retrievalModes"));
             projected.put("snippet", boundedSnippet(firstNonNull(source.get("snippet"), source.get("content"))));
             bounded.add(projected);
@@ -107,6 +150,24 @@ public class RetrievalDiagnosticsService {
             return normalized;
         }
         return normalized.substring(0, MAX_SNIPPET_LENGTH).trim() + "...";
+    }
+
+    private double feedbackScoreAdjustment(Object value) {
+        double adjustment = RetrievalFeedbackScoring.finalScore(0.0, doubleValue(value));
+        return BigDecimal.valueOf(adjustment)
+                .setScale(4, RoundingMode.HALF_UP)
+                .stripTrailingZeros()
+                .doubleValue();
+    }
+
+    private double doubleValue(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Double.parseDouble(text);
+        }
+        return 0.0;
     }
 
     private void putIfPresent(Map<String, Object> target, String key, Object value) {
@@ -165,6 +226,64 @@ public class RetrievalDiagnosticsService {
             return Integer.parseInt(text);
         }
         return 0;
+    }
+
+    private static class AnswerRunAccumulator {
+        private final String answerRunKey;
+        private final String runId;
+        private final String answerId;
+        private final String messageId;
+        private final String question;
+        private java.time.OffsetDateTime firstRetrievedAt;
+        private java.time.OffsetDateTime lastRetrievedAt;
+        private int retrievalCalls;
+        private int zeroHitCalls;
+        private int returnedScopedChunks;
+
+        private AnswerRunAccumulator(String answerRunKey, String runId, String answerId, String messageId, String question) {
+            this.answerRunKey = answerRunKey;
+            this.runId = runId;
+            this.answerId = answerId;
+            this.messageId = messageId;
+            this.question = question;
+        }
+
+        private void accept(RetrievalDiagnosticsResponse.RetrievalDiagnosticItem item) {
+            retrievalCalls++;
+            if (item.zeroHitReason() != null && !item.zeroHitReason().isBlank()) {
+                zeroHitCalls++;
+            }
+            returnedScopedChunks += item.returnedScopedChunkCount();
+            if (firstRetrievedAt == null || isBefore(item.createdAt(), firstRetrievedAt)) {
+                firstRetrievedAt = item.createdAt();
+            }
+            if (lastRetrievedAt == null || isAfter(item.createdAt(), lastRetrievedAt)) {
+                lastRetrievedAt = item.createdAt();
+            }
+        }
+
+        private RetrievalDiagnosticsResponse.AnswerRunDiagnostic toResponse() {
+            return new RetrievalDiagnosticsResponse.AnswerRunDiagnostic(
+                    answerRunKey,
+                    runId,
+                    answerId,
+                    messageId,
+                    question,
+                    firstRetrievedAt,
+                    lastRetrievedAt,
+                    retrievalCalls,
+                    zeroHitCalls,
+                    returnedScopedChunks
+            );
+        }
+
+        private boolean isBefore(java.time.OffsetDateTime candidate, java.time.OffsetDateTime current) {
+            return candidate != null && (current == null || candidate.isBefore(current));
+        }
+
+        private boolean isAfter(java.time.OffsetDateTime candidate, java.time.OffsetDateTime current) {
+            return candidate != null && (current == null || candidate.isAfter(current));
+        }
     }
 
     private static class SummaryAccumulator {

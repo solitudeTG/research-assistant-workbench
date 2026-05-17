@@ -39,6 +39,11 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                 """
                         {
                           "documentIds": [10],
+                          "runId": "run-attention",
+                          "messageId": "msg-attention",
+                          "answerId": "ans-attention",
+                          "answerQuestion": "How does attention support the answer?",
+                          "toolCallIndex": 1,
                           "rewriteStrategy": "cjk_llm_rewrite",
                           "rewrittenQueries": ["attention mechanisms", "transformer attention"],
                           "keywords": ["attention", "transformer"]
@@ -51,7 +56,8 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                             "documentId": 10,
                             "chunkIndex": 3,
                             "content": "Attention aligns tokens across a sequence with bounded evidence.",
-                            "finalScore": 0.91
+                            "finalScore": 0.91,
+                            "feedbackScore": 3.0
                           }
                         ]
                         """,
@@ -77,6 +83,11 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                 """
                         {
                           "documentIds": [10],
+                          "runId": "run-scope",
+                          "messageId": "msg-scope",
+                          "answerId": "ans-scope",
+                          "answerQuestion": "Why is this query out of scope?",
+                          "toolCallIndex": 1,
                           "rewriteStrategy": "original_only",
                           "rewrittenQueries": ["out of scope query"],
                           "keywords": []
@@ -112,6 +123,7 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.summary.zeroHitCalls").value(1))
                 .andExpect(jsonPath("$.summary.returnedScopedChunks").value(2))
                 .andExpect(jsonPath("$.summary.avgReturnedScopedChunks").value(1.0))
+                .andExpect(jsonPath("$.summary.answerRunCount").value(2))
                 .andExpect(jsonPath("$.summary.backendTotals.keyword.preScopeHits").value(3))
                 .andExpect(jsonPath("$.summary.backendTotals.keyword.postScopeHits").value(2))
                 .andExpect(jsonPath("$.summary.backendTotals.vector.preScopeHits").value(9))
@@ -122,6 +134,18 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.retrievals", isA(java.util.List.class)))
                 .andExpect(jsonPath("$.retrievals[*].queryText", hasItem("attention mechanisms")))
                 .andExpect(jsonPath("$.retrievals[*].queryText", hasItem("out of scope query")))
+                .andExpect(jsonPath("$.retrievals[0].answerRunKey")
+                        .value("run-scope"))
+                .andExpect(jsonPath("$.retrievals[0].runId")
+                        .value("run-scope"))
+                .andExpect(jsonPath("$.retrievals[0].answerId")
+                        .value("ans-scope"))
+                .andExpect(jsonPath("$.retrievals[0].messageId")
+                        .value("msg-scope"))
+                .andExpect(jsonPath("$.retrievals[0].question")
+                        .value("Why is this query out of scope?"))
+                .andExpect(jsonPath("$.retrievals[0].toolCallIndex")
+                        .value(1))
                 .andExpect(jsonPath("$.retrievals[1].retrievalQueries[0]")
                         .value("attention mechanisms"))
                 .andExpect(jsonPath("$.retrievals[1].keywords[0]")
@@ -130,8 +154,26 @@ class RetrievalDiagnosticsControllerTest extends PostgresIntegrationTest {
                         .value(2))
                 .andExpect(jsonPath("$.retrievals[1].topChunks[0].snippet")
                         .value("Attention aligns tokens across a sequence with bounded evidence."))
+                .andExpect(jsonPath("$.retrievals[1].topChunks[0].feedbackScore")
+                        .value(3.0))
+                .andExpect(jsonPath("$.retrievals[1].topChunks[0].feedbackScoreAdjustment")
+                        .value(0.15))
                 .andExpect(jsonPath("$.retrievals[0].zeroHitReason")
-                        .value("SCOPE_FILTERED_EMPTY"));
+                        .value("SCOPE_FILTERED_EMPTY"))
+                .andExpect(jsonPath("$.answerRuns[0].answerRunKey")
+                        .value("run-scope"))
+                .andExpect(jsonPath("$.answerRuns[0].question")
+                        .value("Why is this query out of scope?"))
+                .andExpect(jsonPath("$.answerRuns[0].retrievalCalls")
+                        .value(1))
+                .andExpect(jsonPath("$.answerRuns[0].zeroHitCalls")
+                        .value(1))
+                .andExpect(jsonPath("$.answerRuns[0].returnedScopedChunks")
+                        .value(0))
+                .andExpect(jsonPath("$.answerRuns[1].answerRunKey")
+                        .value("run-attention"))
+                .andExpect(jsonPath("$.answerRuns[1].returnedScopedChunks")
+                        .value(2));
     }
 
     @Test

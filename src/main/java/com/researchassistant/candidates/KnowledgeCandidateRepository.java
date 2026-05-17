@@ -60,6 +60,29 @@ public class KnowledgeCandidateRepository {
             String suggestedSection,
             List<String> sourceTypes,
             List<String> evidenceSourceIds) {
+        return createCandidate(
+                projectId,
+                sessionId,
+                answerId,
+                title,
+                statement,
+                suggestedSection,
+                sourceTypes,
+                evidenceSourceIds,
+                null
+        );
+    }
+
+    public KnowledgeCandidateRecord createCandidate(
+            String projectId,
+            String sessionId,
+            String answerId,
+            String title,
+            String statement,
+            String suggestedSection,
+            List<String> sourceTypes,
+            List<String> evidenceSourceIds,
+            String runId) {
         validateSection(suggestedSection);
         validateEvidenceSourceIds(projectId, evidenceSourceIds);
         String candidateId = UUID.randomUUID().toString();
@@ -84,7 +107,7 @@ public class KnowledgeCandidateRepository {
                 toJson(sourceTypes == null ? List.of() : sourceTypes),
                 toJson(evidenceSourceIds == null ? List.of() : evidenceSourceIds)
         );
-        publishCandidateCreated(candidate);
+        publishCandidateCreated(candidate, runId);
         return candidate;
     }
 
@@ -166,19 +189,24 @@ public class KnowledgeCandidateRepository {
         );
     }
 
-    private void publishCandidateCreated(KnowledgeCandidateRecord candidate) {
+    private void publishCandidateCreated(KnowledgeCandidateRecord candidate, String runId) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("id", candidate.id());
         payload.put("answerId", candidate.answerId());
         payload.put("title", candidate.title());
+        payload.put("statement", candidate.statement());
         payload.put("suggestedSection", candidate.suggestedSection());
+        payload.put("sourceTypes", candidate.sourceTypes());
+        payload.put("evidenceSourceIds", candidate.evidenceSourceIds());
         payload.put("status", candidate.status());
+        payload.put("createdAt", candidate.createdAt());
+        payload.put("updatedAt", candidate.updatedAt());
         eventPublisher.publish(new WorkbenchEvent(
                 null,
                 WorkbenchEventType.CANDIDATE_CREATED,
                 candidate.projectId(),
                 candidate.sessionId(),
-                null,
+                runId,
                 "candidate-api",
                 0,
                 null,

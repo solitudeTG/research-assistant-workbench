@@ -192,6 +192,36 @@ class ProjectControllerTest extends PostgresIntegrationTest {
         assertNumericTableCount("memory_entry", "session_id", legacySessionId, 0);
     }
 
+    @Test
+    void listsAssistantMessagesWithAnswerIdForFeedbackAfterRestart() throws Exception {
+        String projectId = createProject("Project");
+        String sessionId = createSession(projectId, "Feedback session");
+        long legacySessionId = jdbcTemplate.queryForObject("""
+                insert into chat_session(session_key)
+                values (?)
+                returning id
+                """, Long.class, sessionId);
+        jdbcTemplate.update("""
+                insert into chat_message(session_id, role, content, answer_mode)
+                values (?, 'USER', 'Question', null)
+                """, legacySessionId);
+        jdbcTemplate.update("""
+                insert into chat_message(session_id, role, content, answer_mode)
+                values (?, 'ASSISTANT', 'Answer with evidence', 'LOCAL_EVIDENCE')
+                """, legacySessionId);
+        jdbcTemplate.update("""
+                insert into assistant_answer(
+                    id, project_id, session_id, run_id, question, answer, answer_mode, evidence_state
+                )
+                values ('answer-feedback-history', ?, ?, 'run-feedback-history', 'Question', 'Answer with evidence', 'LOCAL_EVIDENCE', 'SUFFICIENT')
+                """, projectId, sessionId);
+
+        mockMvc.perform(get("/api/projects/{projectId}/sessions/{sessionId}/messages", projectId, sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.role == 'assistant')].answerId", hasItem("answer-feedback-history")))
+                .andExpect(jsonPath("$[?(@.role == 'assistant')].runId", hasItem("run-feedback-history")));
+    }
+
     private String createProject(String topic) throws Exception {
         String responseBody = mockMvc.perform(post("/api/projects")
                         .contentType(MediaType.APPLICATION_JSON)

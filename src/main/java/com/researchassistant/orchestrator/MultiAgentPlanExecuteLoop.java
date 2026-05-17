@@ -206,7 +206,12 @@ public class MultiAgentPlanExecuteLoop {
                 && (!rawPacket.paperEvidence().isEmpty() || !rawPacket.webEvidence().isEmpty())) {
             gaps.add("No evidence candidate was accepted by the evidence gate.");
         }
-        return rawPacket.withEvidence(gatedEvidence.acceptedPaperEvidence(), gatedEvidence.acceptedWebEvidence(), gaps);
+        return rawPacket.withEvidence(
+                gatedEvidence.acceptedPaperEvidence(),
+                gatedEvidence.acceptedWebEvidence(),
+                gaps,
+                gatedEvidence.acceptedCitationSources()
+        );
     }
 
     private List<MultiAgentPlan.Step> createSteps(MultiAgentWorkflowDecision decision) {

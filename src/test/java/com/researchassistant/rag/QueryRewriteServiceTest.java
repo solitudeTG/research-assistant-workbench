@@ -54,4 +54,28 @@ class QueryRewriteServiceTest {
         assertThat(plan.strategy()).isEqualTo("original_only");
         assertThat(plan.fallbackReason()).isEqualTo("rewrite_failed");
     }
+
+    @Test
+    void rewriteUsesOriginalOnlyForNonCjkQuestion() {
+        QueryRewriteService service = new QueryRewriteService(chatClient, new ObjectMapper());
+
+        QueryRewritePlan plan = service.rewrite("How does attention help sequence modeling?");
+
+        assertThat(plan.retrievalQueries()).containsExactly("How does attention help sequence modeling?");
+        assertThat(plan.keywords()).isEmpty();
+        assertThat(plan.strategy()).isEqualTo("original_only");
+        assertThat(plan.fallbackReason()).isNull();
+    }
+
+    @Test
+    void rewriteUsesNoRetrievalQueriesForBlankQuestion() {
+        QueryRewriteService service = new QueryRewriteService(chatClient, new ObjectMapper());
+
+        QueryRewritePlan plan = service.rewrite("   ");
+
+        assertThat(plan.retrievalQueries()).isEmpty();
+        assertThat(plan.keywords()).isEmpty();
+        assertThat(plan.strategy()).isEqualTo("original_only");
+        assertThat(plan.fallbackReason()).isNull();
+    }
 }

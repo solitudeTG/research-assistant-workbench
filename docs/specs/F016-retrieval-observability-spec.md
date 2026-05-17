@@ -1,11 +1,17 @@
 ---
 id: SPEC-F016
 doc_kind: spec
-status: draft
-updated: 2026-05-12
+status: accepted
+updated: 2026-05-17
 feature_ids: [F016]
 ---
 # F016 Retrieval Observability Spec
+
+## 2026-05-17 Closeout Note
+
+This spec is accepted as the design basis for the completed F016 interview-demo scope. The landed implementation chose to extend existing `retrieval_trace` JSON plus run events and a session-scoped diagnostics endpoint, rather than adding a dedicated `retrieval_observation` table.
+
+Deferred items remain explicit follow-ups, not hidden completion claims: exact citation-to-retrieval-observation ids, cross-session trend analytics, and true pre/post scope counts for keyword and metadata repositories.
 
 ## Purpose
 

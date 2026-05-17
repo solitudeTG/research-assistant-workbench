@@ -1,6 +1,7 @@
 package com.researchassistant.orchestrator;
 
 import com.researchassistant.evidence.AnswerMode;
+import com.researchassistant.evidence.EvidenceCitationSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +15,8 @@ public record ResearchPacket(
         List<String> memoryContext,
         List<String> conflicts,
         List<String> evidenceGaps,
-        String recommendedAnswerMode
+        String recommendedAnswerMode,
+        List<EvidenceCitationSource> citationSources
 ) {
 
     public ResearchPacket {
@@ -26,6 +28,30 @@ public record ResearchPacket(
         conflicts = List.copyOf(Objects.requireNonNull(conflicts, "conflicts"));
         evidenceGaps = List.copyOf(Objects.requireNonNull(evidenceGaps, "evidenceGaps"));
         recommendedAnswerMode = Objects.requireNonNull(recommendedAnswerMode, "recommendedAnswerMode");
+        citationSources = List.copyOf(Objects.requireNonNull(citationSources, "citationSources"));
+    }
+
+    public ResearchPacket(
+            String question,
+            List<String> claims,
+            List<String> paperEvidence,
+            List<String> webEvidence,
+            List<String> memoryContext,
+            List<String> conflicts,
+            List<String> evidenceGaps,
+            String recommendedAnswerMode
+    ) {
+        this(
+                question,
+                claims,
+                paperEvidence,
+                webEvidence,
+                memoryContext,
+                conflicts,
+                evidenceGaps,
+                recommendedAnswerMode,
+                List.of()
+        );
     }
 
     public static ResearchPacket empty(String question) {
@@ -37,7 +63,8 @@ public record ResearchPacket(
                 List.of(),
                 List.of(),
                 List.of(),
-                AnswerMode.LOCAL_WEAK_EVIDENCE.name()
+                AnswerMode.LOCAL_WEAK_EVIDENCE.name(),
+                List.of()
         );
     }
 
@@ -52,7 +79,8 @@ public record ResearchPacket(
                 memoryContext,
                 conflicts,
                 updatedGaps,
-                recommendedAnswerMode
+                recommendedAnswerMode,
+                citationSources
         );
     }
 
@@ -69,7 +97,27 @@ public record ResearchPacket(
                 memoryContext,
                 conflicts,
                 updatedEvidenceGaps,
-                recommendedAnswerMode
+                recommendedAnswerMode,
+                citationSources
+        );
+    }
+
+    public ResearchPacket withEvidence(
+            List<String> updatedPaperEvidence,
+            List<String> updatedWebEvidence,
+            List<String> updatedEvidenceGaps,
+            List<EvidenceCitationSource> updatedCitationSources
+    ) {
+        return new ResearchPacket(
+                question,
+                claims,
+                updatedPaperEvidence,
+                updatedWebEvidence,
+                memoryContext,
+                conflicts,
+                updatedEvidenceGaps,
+                recommendedAnswerMode,
+                updatedCitationSources
         );
     }
 }

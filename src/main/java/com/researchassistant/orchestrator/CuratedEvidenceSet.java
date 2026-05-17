@@ -1,5 +1,7 @@
 package com.researchassistant.orchestrator;
 
+import com.researchassistant.evidence.EvidenceCitationSource;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -35,6 +37,13 @@ public record CuratedEvidenceSet(List<CuratedEvidenceItem> items) {
 
     public List<String> acceptedWebEvidence() {
         return acceptedEvidenceBySource("web");
+    }
+
+    public List<EvidenceCitationSource> acceptedCitationSources() {
+        return acceptedItems().stream()
+                .map(CuratedEvidenceItem::citationSource)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     private List<String> acceptedEvidenceBySource(String sourceType) {
