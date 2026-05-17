@@ -85,6 +85,31 @@ public class KnowledgeBoardRepository {
                 """, (resultSet, rowNum) -> mapEntry(resultSet), projectId, safeLimit);
     }
 
+    public boolean hasSimilarConfirmedProjectKnowledge(String projectId, String title, String content) {
+        String normalizedTitle = normalizeForComparison(title);
+        String normalizedContent = normalizeForComparison(content);
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                from knowledge_entry
+                where project_id = ?
+                  and archived = false
+                  and evidence_status = 'confirmed'
+                  and (
+                      lower(trim(title)) = ?
+                      or lower(trim(content)) = ?
+                      or lower(trim(title)) = ?
+                      or lower(trim(content)) = ?
+                  )
+                """,
+                Integer.class,
+                projectId,
+                normalizedTitle,
+                normalizedContent,
+                normalizedContent,
+                normalizedTitle);
+        return count != null && count > 0;
+    }
+
     public KnowledgeEntryRecord createEntry(
             String projectId,
             String section,
@@ -181,6 +206,10 @@ public class KnowledgeBoardRepository {
                 resultSet.getObject("created_at", OffsetDateTime.class),
                 resultSet.getObject("updated_at", OffsetDateTime.class)
         );
+    }
+
+    private String normalizeForComparison(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private void publishKnowledgeEntryCreated(KnowledgeEntryRecord entry) {

@@ -46,6 +46,7 @@ const EVENT_TYPES = [
     "run.failed",
     "source.status.changed",
     "candidate.created",
+    "candidate.decayed",
     "knowledge.entry.created",
     "feedback.applied"
 ];
@@ -2505,7 +2506,9 @@ function processMetric(label, value) {
 
 function researchMemoryLoopPanel(trace, memoryHits) {
     const feedbackEvents = recentFeedbackAppliedEvents(trace);
-    const candidateEvents = (trace?.timeline || []).filter((event) => event.eventType === "candidate.created" || event.eventType === "knowledge.entry.created");
+    const candidateEvents = (trace?.timeline || []).filter((event) => event.eventType === "candidate.created"
+            || event.eventType === "candidate.decayed"
+            || event.eventType === "knowledge.entry.created");
     const pendingCandidates = app.candidates.filter((candidate) => candidate.status === "pending");
     const memoryLayers = memoryHitsByLayer(trace, memoryHits);
     const panel = document.createElement("div");

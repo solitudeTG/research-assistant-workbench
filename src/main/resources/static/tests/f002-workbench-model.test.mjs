@@ -581,6 +581,78 @@ test("candidate.created adds a pending candidate without adding a knowledge entr
     assert.deepEqual(next.knowledgeBoard.sections.flatMap((section) => section.entries), []);
 });
 
+test("F024 candidate.created preserves L3 promotion metadata as pending review", () => {
+    const next = applySseEvent(baseState(), {
+        eventId: "event-f024-promotion",
+        eventType: "candidate.created",
+        runId: "run-f024",
+        payload: {
+            id: "candidate-l3-1",
+            title: "Adaptive beamforming",
+            statement: "Adaptive beamforming repeatedly guides antenna scheduling.",
+            suggestedSection: "confirmed_finding",
+            sourceTypes: ["l3_memory"],
+            evidenceSourceIds: [],
+            sourceKind: "l3_memory",
+            sourceMemoryEntryId: 42,
+            promotionHitCount: 2,
+            promotionLastScore: 0.72,
+            promotionReason: "l3_memory_repeated_hit"
+        }
+    });
+
+    const candidate = next.candidates[0];
+    assert.equal(candidate.status, "pending");
+    assert.equal(candidate.sourceKind, "l3_memory");
+    assert.equal(candidate.sourceMemoryEntryId, 42);
+    assert.equal(candidate.promotionHitCount, 2);
+    assert.equal(candidate.promotionLastScore, 0.72);
+    assert.equal(candidate.promotionReason, "l3_memory_repeated_hit");
+    assert.deepEqual(candidate.evidenceSourceIds, []);
+    assert.deepEqual(next.knowledgeBoard.sections.flatMap((section) => section.entries), []);
+    assert.equal(next.agentTraces["run-f024"].summary.candidateEventCount, 1);
+});
+
+test("F024 candidate.decayed removes L3 promotion from pending review without confirming knowledge", () => {
+    const state = {
+        ...baseState(),
+        candidates: [{
+            id: "candidate-l3-1",
+            candidateId: "candidate-l3-1",
+            status: "pending",
+            title: "Adaptive beamforming",
+            statement: "Adaptive beamforming repeatedly guides antenna scheduling.",
+            suggestedSection: "confirmed_finding",
+            sourceKind: "l3_memory",
+            sourceMemoryEntryId: 42,
+            promotionHitCount: 2,
+            promotionLastScore: 0.72,
+            promotionReason: "l3_memory_repeated_hit",
+            sourceTypes: ["l3_memory"],
+            evidenceSourceIds: []
+        }]
+    };
+
+    const next = applySseEvent(state, {
+        eventId: "event-f024-decay",
+        eventType: "candidate.decayed",
+        runId: "run-f024",
+        payload: {
+            id: "candidate-l3-1",
+            status: "decayed",
+            sourceKind: "l3_memory",
+            sourceMemoryEntryId: 42,
+            decayReason: "duplicate_confirmed_knowledge"
+        }
+    });
+
+    assert.equal(next.candidates[0].status, "decayed");
+    assert.equal(next.candidates[0].decayReason, "duplicate_confirmed_knowledge");
+    assert.deepEqual(pendingKnowledgeCandidates(next).map((candidate) => candidate.id), []);
+    assert.deepEqual(next.knowledgeBoard.sections.flatMap((section) => section.entries), []);
+    assert.equal(next.agentTraces["run-f024"].summary.candidateEventCount, 1);
+});
+
 test("knowledge.entry.created adds an entry to the correct section", () => {
     const state = baseState();
 

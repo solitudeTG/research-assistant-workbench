@@ -14,6 +14,12 @@ public record KnowledgeCandidateRecord(
         List<String> sourceTypes,
         List<String> evidenceSourceIds,
         String status,
+        String sourceKind,
+        Long sourceMemoryEntryId,
+        int promotionHitCount,
+        double promotionLastScore,
+        String promotionReason,
+        String decayReason,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {

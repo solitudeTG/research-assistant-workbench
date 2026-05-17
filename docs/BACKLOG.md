@@ -32,6 +32,17 @@ This file records active engineering state that future sessions must be able to 
 
 ## Recently Completed
 
+### F024 L3 To L2 Candidate Promotion And Decay
+
+- Status: completed
+- Feature page: [F024-l3-to-l2-candidate-promotion-decay.md](features/F024-l3-to-l2-candidate-promotion-decay.md)
+- Spec: [F024-l3-to-l2-candidate-promotion-decay-spec.md](specs/F024-l3-to-l2-candidate-promotion-decay-spec.md)
+- Plan: [F024-l3-to-l2-candidate-promotion-decay-plan.md](plans/F024-l3-to-l2-candidate-promotion-decay-plan.md)
+- Evidence: [EV-023-f024-l3-to-l2-candidate-promotion-decay.md](evidence/EV-023-f024-l3-to-l2-candidate-promotion-decay.md)
+- Result: repeated high-score L3 memory recall now records project-scoped promotion hits, dedupes answer/run replay, and creates or updates pending L2 candidates only after repeated distinct hits. Stale or duplicate pending L3 candidates are marked `decayed`, while confirmed L2 knowledge still requires user accept/edit-and-accept.
+- Boundary: F024 never auto-writes `knowledge_entry`, never creates citation `evidence_source` rows from memory, and keeps Paper RAG/citation evidence unchanged. Duplicate blocking is exact normalized title/content matching for this MVP.
+- Verification: service tests cover first/second hit, replay idempotency, update dedupe, duplicate-confirmed decay, and stale decay; routing tests cover `answerProject` promotion without evidence/confirmed pollution; frontend model tests cover F024 candidate metadata and decay projection.
+
 ### F023 L2 Knowledge Semantic Retrieval
 
 - Status: completed

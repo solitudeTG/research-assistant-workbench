@@ -8,6 +8,8 @@ import com.researchassistant.evidence.EvidenceCitationSource;
 import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.memory.MemoryEntry;
+import com.researchassistant.memory.MemoryEntryDraft;
+import com.researchassistant.memory.MemoryEntryRepository;
 import com.researchassistant.memory.MemoryRecallHit;
 import com.researchassistant.memory.MemoryRecallResult;
 import com.researchassistant.project.ProjectRecord;
@@ -58,6 +60,9 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
 
     @Autowired
     private WorkbenchEventPublisher eventPublisher;
+
+    @Autowired
+    private MemoryEntryRepository memoryEntryRepository;
 
     @MockBean
     private PaperRagService paperRagService;
@@ -916,6 +921,64 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void repeatedProjectL3RecallCreatesPendingCandidateWithoutEvidenceOrConfirmedKnowledge() {
+        ResearchSessionRecord session = createSession();
+        String question = "Which prior project memory should become a candidate?";
+        MemoryEntry memory = persistedMemoryEntry(
+                "Candidate promotion memory",
+                "Adaptive beamforming repeatedly appears as a stable project direction."
+        );
+        MemoryRecallResult recallResult = new MemoryRecallResult(question, List.of(new MemoryRecallHit(memory, 0.76)));
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(
+                        agentRun(
+                                "Use the repeated L3 memory as context only.",
+                                new RagResult(question, List.of(), List.of()),
+                                null,
+                                recallResult,
+                                List.of("memory_recall")
+                        ),
+                        agentRun(
+                                "The repeated L3 memory is still context only.",
+                                new RagResult(question, List.of(), List.of()),
+                                null,
+                                recallResult,
+                                List.of("memory_recall")
+                        )
+                );
+
+        var first = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+        assertThat(l3CandidateRows(session.projectId())).isEmpty();
+
+        var second = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        List<Map<String, Object>> candidates = l3CandidateRows(session.projectId());
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates.get(0))
+                .containsEntry("status", "pending")
+                .containsEntry("source_kind", "l3_memory")
+                .containsEntry("source_memory_entry_id", memory.id())
+                .containsEntry("promotion_hit_count", 2)
+                .containsEntry("evidence_count", 0);
+        assertThat(evidenceSourceCount(first.answerId())).isZero();
+        assertThat(evidenceSourceCount(second.answerId())).isZero();
+        assertThat(knowledgeEntryCount(session.projectId())).isZero();
+        assertRetrievalCitationTelemetry(second.streamRunId(), second.answerId(), 0);
+        assertEvidenceEvaluatedTelemetry(second.streamRunId(), second.answerId(), 0);
+        assertThat(eventPublisher.readRunEventsAfter(second.streamRunId(), null).stream()
+                .filter(event -> second.answerId().equals(event.answerId()))
+                .anyMatch(event -> "candidate.created".equals(event.eventType().wireName()))).isTrue();
+    }
+
+    @Test
     void confirmedKnowledgeEntryPublishesL2ProjectKnowledgeMemoryTraceWithoutCitationEvidence() {
         ResearchSessionRecord session = createSession();
         String entryId = insertConfirmedKnowledgeEntry(
@@ -1087,6 +1150,20 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         );
     }
 
+    private MemoryEntry persistedMemoryEntry(String topic, String summary) {
+        return memoryEntryRepository.append(new MemoryEntryDraft(
+                null,
+                "COMPACTION",
+                topic,
+                summary,
+                List.of(summary),
+                List.of(),
+                List.of("adaptive", "beamforming", "candidate"),
+                1L,
+                2L
+        ));
+    }
+
     private MultiAgentWorkflowDecision planDecision(boolean documentRequest) {
         return new MultiAgentWorkflowDecision(
                 MultiAgentExecutionMode.PLAN_EXECUTE,
@@ -1187,6 +1264,17 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 where answer_id = ?
                 order by created_at, id
                 """, answerId);
+    }
+
+    private List<Map<String, Object>> l3CandidateRows(String projectId) {
+        return jdbcTemplate.queryForList("""
+                select source_kind, source_memory_entry_id, status, promotion_hit_count,
+                       jsonb_array_length(evidence_source_ids_json) as evidence_count
+                from knowledge_candidate
+                where project_id = ?
+                  and source_kind = 'l3_memory'
+                order by created_at, id
+                """, projectId);
     }
 
     private int knowledgeEntryCount(String projectId) {

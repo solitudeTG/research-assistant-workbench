@@ -287,6 +287,10 @@ export function applySseEvent(state, event) {
         return applyCandidateCreated(traced, event, payload);
     }
 
+    if (eventType === "candidate.decayed") {
+        return applyCandidateDecayed(traced, event, payload);
+    }
+
     if (eventType === "knowledge.entry.created") {
         return applyKnowledgeEntryCreated(traced, event, payload);
     }
@@ -364,6 +368,9 @@ function applyAgentTraceEvent(state, event, eventType, payload) {
         trace.memory = applyMemoryCompletedToProjection(trace.memory, data, trace.tools);
         trace.summary.memoryCount = Math.max(trace.memoryHits.length, Number(data.hitCount ?? trace.memory.counts.total));
         trace.summary.memoryContextCount = trace.summary.memoryCount;
+    } else if (eventType === "candidate.created" || eventType === "candidate.decayed") {
+        trace.timeline.push(traceEntry);
+        trace.summary.candidateEventCount = Number(trace.summary.candidateEventCount ?? 0) + 1;
     } else if (eventType === "feedback.applied") {
         const feedbackEntry = normalizeFeedbackAppliedTrace(traceEntry);
         trace.feedbackApplications.push(feedbackEntry);
@@ -435,6 +442,7 @@ function ensureAgentTrace(state, runId) {
                     : null,
             subagentCount: Number(existingSummary.subagentCount ?? Object.keys(existing.subagents || {}).length),
             activeSubagentCount: Number(existingSummary.activeSubagentCount ?? Object.keys(existing.subagents || {}).length),
+            candidateEventCount: Number(existingSummary.candidateEventCount ?? 0),
             execution: existingSummary.execution || null,
             mode: existingSummary.mode || existing.mode || null,
             auditVerdict: existingSummary.auditVerdict || existing.audit?.verdict || null,
@@ -861,6 +869,22 @@ function applyCandidateCreated(state, event, payload) {
     };
 }
 
+function applyCandidateDecayed(state, event, payload) {
+    const candidate = normalizeCandidate(payload.candidate || payload, event);
+    const candidates = state.candidates || [];
+    const exists = candidates.some((item) => item.id === candidate.id);
+    const next = {
+        ...state,
+        candidates: exists
+                ? candidates.map((item) => item.id === candidate.id ? { ...item, ...candidate, status: "decayed" } : item)
+                : [{ ...candidate, status: "decayed" }, ...candidates]
+    };
+    return {
+        ...next,
+        cognitionWorkspace: projectCognitionWorkspace(next, cognitionChange(event, "candidate.decayed", candidate))
+    };
+}
+
 function applyKnowledgeEntryCreated(state, event, payload) {
     const entry = normalizeKnowledgeEntry(payload.entry || payload, event);
     const board = normalizeKnowledgeBoard(state.knowledgeBoard);
@@ -923,6 +947,12 @@ function normalizeCandidate(raw, event) {
         sourceTypes: Array.isArray(raw.sourceTypes) ? raw.sourceTypes : [],
         evidenceSourceIds: Array.isArray(raw.evidenceSourceIds) ? raw.evidenceSourceIds : [],
         status: raw.status || "pending",
+        sourceKind: raw.sourceKind || raw.candidateSource || "answer",
+        sourceMemoryEntryId: raw.sourceMemoryEntryId ?? null,
+        promotionHitCount: Number(raw.promotionHitCount ?? 0),
+        promotionLastScore: Number(raw.promotionLastScore ?? 0),
+        promotionReason: raw.promotionReason || "",
+        decayReason: raw.decayReason || "",
         createdAt: raw.createdAt || event.createdAt || "",
         updatedAt: raw.updatedAt || raw.createdAt || event.createdAt || ""
     };

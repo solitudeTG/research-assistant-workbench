@@ -6,6 +6,7 @@ import com.researchassistant.chat.dto.CitationDto;
 import com.researchassistant.chat.dto.ProjectMessageRequest;
 import com.researchassistant.chat.dto.ProjectMessageResponse;
 import com.researchassistant.candidates.KnowledgeCandidateExtractionService;
+import com.researchassistant.candidates.L3KnowledgePromotionService;
 import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.EvidenceAssessment;
 import com.researchassistant.evidence.EvidenceBoundaryService;
@@ -77,6 +78,7 @@ public class SupervisorService {
     private final MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop;
     private final AgentTracePublisher agentTracePublisher;
     private final KnowledgeCandidateExtractionService candidateExtractionService;
+    private final L3KnowledgePromotionService l3KnowledgePromotionService;
     private final ProjectKnowledgeRecallService projectKnowledgeRecallService;
 
     public SupervisorService(
@@ -103,6 +105,7 @@ public class SupervisorService {
             MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop,
             AgentTracePublisher agentTracePublisher,
             KnowledgeCandidateExtractionService candidateExtractionService,
+            L3KnowledgePromotionService l3KnowledgePromotionService,
             ProjectKnowledgeRecallService projectKnowledgeRecallService) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
@@ -127,6 +130,7 @@ public class SupervisorService {
         this.multiAgentPlanExecuteLoop = multiAgentPlanExecuteLoop;
         this.agentTracePublisher = agentTracePublisher;
         this.candidateExtractionService = candidateExtractionService;
+        this.l3KnowledgePromotionService = l3KnowledgePromotionService;
         this.projectKnowledgeRecallService = projectKnowledgeRecallService;
     }
 
@@ -392,6 +396,13 @@ public class SupervisorService {
             );
 
             publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, globalKnowledge, projectKnowledgeHits, memoryRecallResult, agentRun);
+            L3KnowledgePromotionService.PromotionOutcome promotionOutcome = l3KnowledgePromotionService.promoteFromRecall(
+                    projectId,
+                    sessionId,
+                    runId,
+                    answerId,
+                    memoryRecallResult
+            );
             publishRetrievalHitEvents(projectId, sessionId, runId, answerId, ragResult, webSearchResult, evidenceScope);
             publishRunEvent(
                     WorkbenchEventType.RETRIEVAL_COMPLETED,
@@ -411,6 +422,9 @@ public class SupervisorService {
                             "webEvidenceCount", webHitCount(webSearchResult),
                             "webSearchStatus", webSearchStatus(webSearchResult),
                             "topPaperScore", topPaperScore(ragResult),
+                            "promotionCandidateCount", promotionOutcome.createdCount(),
+                            "updatedPromotionCandidateCount", promotionOutcome.updatedCount(),
+                            "decayedPromotionCandidateCount", promotionOutcome.decayedCount(),
                             "citationCount", assessment.citationCount(),
                             "summary", retrievalSummary(ragResult, memoryRecallResult)
                     )

@@ -21,6 +21,7 @@ public enum WorkbenchEventType {
     TOOL_COMPLETED("tool.completed"),
     TOOL_FAILED("tool.failed"),
     CANDIDATE_CREATED("candidate.created"),
+    CANDIDATE_DECAYED("candidate.decayed"),
     KNOWLEDGE_ENTRY_CREATED("knowledge.entry.created"),
     SOURCE_STATUS_CHANGED("source.status.changed"),
     MEMORY_HIT("memory.hit"),
