@@ -68,6 +68,11 @@ public class KnowledgeBoardRepository {
 
     public List<KnowledgeEntryRecord> listConfirmedProjectKnowledge(String projectId, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 10));
+        return listConfirmedProjectKnowledgeCandidates(projectId, safeLimit);
+    }
+
+    public List<KnowledgeEntryRecord> listConfirmedProjectKnowledgeCandidates(String projectId, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 50));
         return jdbcTemplate.query("""
                 select id, project_id, section, title, content, evidence_status, source_candidate_id,
                        evidence_source_ids_json, archived, created_at, updated_at

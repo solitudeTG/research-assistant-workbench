@@ -18,8 +18,9 @@ import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
 import com.researchassistant.events.WorkbenchEventType;
 import com.researchassistant.ingest.model.ResearchDocument;
-import com.researchassistant.knowledge.KnowledgeBoardRepository;
 import com.researchassistant.knowledge.KnowledgeEntryRecord;
+import com.researchassistant.knowledge.ProjectKnowledgeRecallHit;
+import com.researchassistant.knowledge.ProjectKnowledgeRecallService;
 import com.researchassistant.memory.ExplicitMemoryService;
 import com.researchassistant.memory.GlobalKnowledgeService;
 import com.researchassistant.memory.GlobalKnowledgeSnapshot;
@@ -76,7 +77,7 @@ public class SupervisorService {
     private final MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop;
     private final AgentTracePublisher agentTracePublisher;
     private final KnowledgeCandidateExtractionService candidateExtractionService;
-    private final KnowledgeBoardRepository knowledgeBoardRepository;
+    private final ProjectKnowledgeRecallService projectKnowledgeRecallService;
 
     public SupervisorService(
             TaskRouter taskRouter,
@@ -102,7 +103,7 @@ public class SupervisorService {
             MultiAgentPlanExecuteLoop multiAgentPlanExecuteLoop,
             AgentTracePublisher agentTracePublisher,
             KnowledgeCandidateExtractionService candidateExtractionService,
-            KnowledgeBoardRepository knowledgeBoardRepository) {
+            ProjectKnowledgeRecallService projectKnowledgeRecallService) {
         this.taskRouter = taskRouter;
         this.paperRagService = paperRagService;
         this.evidenceBoundaryService = evidenceBoundaryService;
@@ -126,7 +127,7 @@ public class SupervisorService {
         this.multiAgentPlanExecuteLoop = multiAgentPlanExecuteLoop;
         this.agentTracePublisher = agentTracePublisher;
         this.candidateExtractionService = candidateExtractionService;
-        this.knowledgeBoardRepository = knowledgeBoardRepository;
+        this.projectKnowledgeRecallService = projectKnowledgeRecallService;
     }
 
     public ProjectMessageResponse answerProject(String projectId, String sessionId, ProjectMessageRequest request) {
@@ -327,10 +328,14 @@ public class SupervisorService {
                         "/api/projects/" + projectId + "/sessions/" + sessionId + "/runs/" + runId + "/events"
                 );
             }
-            List<KnowledgeEntryRecord> projectKnowledge = knowledgeBoardRepository.listConfirmedProjectKnowledge(
+            List<ProjectKnowledgeRecallHit> projectKnowledgeHits = projectKnowledgeRecallService.recall(
                     projectId,
+                    request.question(),
                     MAX_TRACE_HITS
             );
+            List<KnowledgeEntryRecord> projectKnowledge = projectKnowledgeHits.stream()
+                    .map(ProjectKnowledgeRecallHit::entry)
+                    .toList();
             GlobalKnowledgeSnapshot globalKnowledge = globalKnowledgeService.snapshot();
             ProjectAgentRun agentRun = projectAgentToolLoop.run(new ProjectAgentRequest(
                     projectId,
@@ -386,7 +391,7 @@ public class SupervisorService {
                     assessment
             );
 
-            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, globalKnowledge, projectKnowledge, memoryRecallResult, agentRun);
+            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, globalKnowledge, projectKnowledgeHits, memoryRecallResult, agentRun);
             publishRetrievalHitEvents(projectId, sessionId, runId, answerId, ragResult, webSearchResult, evidenceScope);
             publishRunEvent(
                     WorkbenchEventType.RETRIEVAL_COMPLETED,
@@ -1023,7 +1028,7 @@ public class SupervisorService {
                                           String answerId,
                                           WorkingMemory memory,
                                           GlobalKnowledgeSnapshot globalKnowledge,
-                                          List<KnowledgeEntryRecord> projectKnowledge,
+                                          List<ProjectKnowledgeRecallHit> projectKnowledge,
                                           MemoryRecallResult memoryRecallResult,
                                           ProjectAgentRun agentRun) {
         List<MemoryRecallHit> hits = memoryRecallResult == null || memoryRecallResult.hits() == null
@@ -1087,7 +1092,8 @@ public class SupervisorService {
             );
         }
         int projectKnowledgeHitCount = 0;
-        for (KnowledgeEntryRecord entry : projectKnowledge == null ? List.<KnowledgeEntryRecord>of() : projectKnowledge) {
+        for (ProjectKnowledgeRecallHit hit : projectKnowledge == null ? List.<ProjectKnowledgeRecallHit>of() : projectKnowledge) {
+            KnowledgeEntryRecord entry = hit.entry();
             projectKnowledgeHitCount++;
             String snippet = bounded(projectKnowledgeSnippet(entry));
             Map<String, Object> data = payload(
@@ -1099,10 +1105,13 @@ public class SupervisorService {
                     "label", "Confirmed project knowledge",
                     "snippet", snippet,
                     "summary", bounded(safe(entry.content())),
-                    "score", 1.0,
+                    "score", hit.finalScore(),
+                    "semanticScore", hit.semanticScore(),
+                    "evidenceScore", hit.evidenceScore(),
+                    "recencyScore", hit.recencyScore(),
                     "rank", globalKnowledgeHitCount + projectKnowledgeHitCount,
                     "injectionMode", "preloaded_prompt",
-                    "reason", "recent_confirmed_project_knowledge"
+                    "reason", hit.reason()
             );
             publishRunEvent(
                     WorkbenchEventType.MEMORY_HIT,

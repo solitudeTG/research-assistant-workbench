@@ -32,6 +32,17 @@ This file records active engineering state that future sessions must be able to 
 
 ## Recently Completed
 
+### F023 L2 Knowledge Semantic Retrieval
+
+- Status: completed
+- Feature page: [F023-l2-knowledge-semantic-retrieval.md](features/F023-l2-knowledge-semantic-retrieval.md)
+- Spec: [F023-l2-knowledge-semantic-retrieval-spec.md](specs/F023-l2-knowledge-semantic-retrieval-spec.md)
+- Plan: [F023-l2-knowledge-semantic-retrieval-plan.md](plans/F023-l2-knowledge-semantic-retrieval-plan.md)
+- Evidence: [EV-022-f023-l2-knowledge-semantic-retrieval.md](evidence/EV-022-f023-l2-knowledge-semantic-retrieval.md)
+- Result: confirmed project knowledge recall now ranks a bounded candidate pool by semantic relevance to the current question, confirmed-status confidence, and weak recency tie-breaker. The selected entries are injected as L2 `project_knowledge` context and traced with score components, rank, injection mode, reason, and `contextOnly=true`.
+- Boundary: F023 is Memory Retrieval over `knowledge_entry`; it does not change Paper RAG, create citation evidence, add a vector table, add L3-to-L2 promotion, or introduce schema migration.
+- Verification: ranker unit test, Supervisor prompt/trace integration tests, frontend trace model test, JS syntax checks, and focused Maven tests are recorded in EV-022.
+
 ### F022 Memory Recall Observability
 
 - Status: completed

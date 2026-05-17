@@ -31,6 +31,7 @@ import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -956,7 +957,11 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         assertThat(data.get("summary").asText()).contains("Adaptive beamforming");
         assertThat(data.get("rank").asInt()).isEqualTo(1);
         assertThat(data.get("injectionMode").asText()).isEqualTo("preloaded_prompt");
-        assertThat(data.get("reason").asText()).isEqualTo("recent_confirmed_project_knowledge");
+        assertThat(data.get("score").asDouble()).isGreaterThan(0.0);
+        assertThat(data.get("semanticScore").asDouble()).isGreaterThan(0.0);
+        assertThat(data.get("evidenceScore").asDouble()).isEqualTo(1.0);
+        assertThat(data.get("recencyScore").asDouble()).isGreaterThanOrEqualTo(0.0);
+        assertThat(data.get("reason").asText()).isEqualTo("semantic_confirmed_project_knowledge");
         assertThat(data.get("snippet").asText()).contains("Adaptive beamforming");
         JsonNode memoryCompleted = memoryCompletedData(response.streamRunId(), response.answerId());
         assertThat(memoryCompleted.get("projectKnowledgeHitCount").asInt()).isEqualTo(1);
@@ -965,6 +970,63 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         assertThat(evidenceSourceCount(response.answerId())).isZero();
         assertRetrievalCitationTelemetry(response.streamRunId(), response.answerId(), 0);
         assertEvidenceEvaluatedTelemetry(response.streamRunId(), response.answerId(), 0);
+    }
+
+    @Test
+    void semanticProjectKnowledgeRecallSelectsOlderRelevantEntryForAgentPrompt() {
+        ResearchSessionRecord session = createSession();
+        OffsetDateTime now = OffsetDateTime.now();
+        for (int index = 1; index <= 5; index++) {
+            insertConfirmedKnowledgeEntryAt(
+                    session.projectId(),
+                    "Recent unrelated knowledge " + index,
+                    "This note is about rebuild scripts, calendars, formatting, and UI maintenance.",
+                    now.minusHours(index)
+            );
+        }
+        String relevantEntryId = insertConfirmedKnowledgeEntryAt(
+                session.projectId(),
+                "Adaptive beamforming strategy",
+                "Adaptive beamforming is the stable project direction for antenna scheduling.",
+                now.minusDays(40)
+        );
+        String question = "How should adaptive beamforming guide the project direction?";
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        "Use adaptive beamforming as the stable direction.",
+                        new RagResult(question, List.of(), List.of()),
+                        null,
+                        new MemoryRecallResult(question, List.of()),
+                        List.of()
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        var requestCaptor = forClass(ProjectAgentRequest.class);
+        verify(projectAgentToolLoop).run(requestCaptor.capture());
+        ProjectAgentRequest request = requestCaptor.getValue();
+        assertThat(request.projectKnowledge()).hasSize(5);
+        assertThat(request.projectKnowledge().get(0).id()).isEqualTo(relevantEntryId);
+        assertThat(request.projectKnowledge())
+                .extracting("id")
+                .contains(relevantEntryId);
+
+        JsonNode firstProjectKnowledgeHit = eventPublisher.readRunEventsAfter(response.streamRunId(), null).stream()
+                .filter(candidate -> "memory.hit".equals(candidate.eventType().wireName()))
+                .filter(candidate -> response.answerId().equals(candidate.answerId()))
+                .map(candidate -> objectMapper.valueToTree(candidate.payload()).get("data"))
+                .filter(candidate -> candidate != null && "project_knowledge".equals(candidate.get("sourceType").asText()))
+                .filter(candidate -> candidate.get("rank").asInt() == 1)
+                .findFirst()
+                .orElseThrow();
+        assertThat(firstProjectKnowledgeHit.get("sourceId").asText()).isEqualTo(relevantEntryId);
+        assertThat(firstProjectKnowledgeHit.get("reason").asText()).isEqualTo("semantic_confirmed_project_knowledge");
+        assertThat(firstProjectKnowledgeHit.get("contextOnly").asBoolean()).isTrue();
+        assertThat(firstProjectKnowledgeHit.get("semanticScore").asDouble()).isGreaterThan(0.0);
     }
 
     @Test
@@ -1142,6 +1204,17 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 insert into knowledge_entry(id, project_id, section, title, content, evidence_status, evidence_source_ids_json)
                 values (?, ?, 'confirmed_finding', ?, ?, 'confirmed', '[]'::jsonb)
                 """, entryId, projectId, title, content);
+        return entryId;
+    }
+
+    private String insertConfirmedKnowledgeEntryAt(String projectId, String title, String content, OffsetDateTime updatedAt) {
+        String entryId = java.util.UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+                insert into knowledge_entry(
+                    id, project_id, section, title, content, evidence_status, evidence_source_ids_json, created_at, updated_at
+                )
+                values (?, ?, 'confirmed_finding', ?, ?, 'confirmed', '[]'::jsonb, ?, ?)
+                """, entryId, projectId, title, content, updatedAt.minusDays(1), updatedAt);
         return entryId;
     }
 

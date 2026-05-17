@@ -1078,6 +1078,42 @@ test("F022 preserves backend memory injection metadata when provided", () => {
     assert.equal(hit.reason, "manual_confirmation");
 });
 
+test("F023 preserves semantic project knowledge recall metadata", () => {
+    const state = applySseEvent(createWorkbenchState(), {
+        eventId: "f023-semantic-l2",
+        eventType: "memory.hit",
+        runId: "run-f023",
+        answerId: "answer-f023",
+        payload: {
+            data: {
+                memoryLayer: "L2",
+                sourceType: "project_knowledge",
+                sourceId: "knowledge-semantic-1",
+                title: "Semantic route",
+                snippet: "Adaptive beamforming is the stable project direction.",
+                score: 0.91,
+                semanticScore: 0.98,
+                evidenceScore: 1,
+                recencyScore: 0.12,
+                rank: 1,
+                reason: "semantic_confirmed_project_knowledge",
+                contextOnly: true
+            }
+        }
+    });
+
+    const hit = state.agentTraces["run-f023"].memory.byLayer.L2[0];
+    assert.equal(hit.sourceType, "project_knowledge");
+    assert.equal(hit.contextOnly, true);
+    assert.equal(hit.score, 0.91);
+    assert.equal(hit.semanticScore, 0.98);
+    assert.equal(hit.evidenceScore, 1);
+    assert.equal(hit.recencyScore, 0.12);
+    assert.equal(hit.rank, 1);
+    assert.equal(hit.reason, "semantic_confirmed_project_knowledge");
+    assert.equal(state.agentTraces["run-f023"].summary.citationEvidenceCount, 0);
+});
+
 test("F021 candidate and confirmed knowledge projections stay separated", () => {
     let state = createWorkbenchState({
         candidates: [
