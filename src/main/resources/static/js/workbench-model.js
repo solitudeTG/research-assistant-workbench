@@ -354,13 +354,15 @@ function applyAgentTraceEvent(state, event, eventType, payload) {
     } else if (eventType === "memory.hit") {
         const memoryEntry = normalizeMemoryTraceEntry(traceEntry);
         trace.memoryHits.push(memoryEntry);
-        trace.summary.memoryCount = trace.memoryHits.length;
-        trace.summary.memoryContextCount = trace.memoryHits.length;
+        trace.memory = addMemoryHitToProjection(trace.memory, memoryEntry);
+        trace.summary.memoryCount = trace.memory.counts.total;
+        trace.summary.memoryContextCount = trace.memory.counts.total;
     } else if (eventType === "memory.completed") {
         const memoryEntry = normalizeMemoryTraceEntry(traceEntry);
         trace.timeline.push(memoryEntry);
         trace.memorySummary = memoryEntry;
-        trace.summary.memoryCount = Math.max(trace.memoryHits.length, Number(data.hitCount ?? 0));
+        trace.memory = applyMemoryCompletedToProjection(trace.memory, data, trace.tools);
+        trace.summary.memoryCount = Math.max(trace.memoryHits.length, Number(data.hitCount ?? trace.memory.counts.total));
         trace.summary.memoryContextCount = trace.summary.memoryCount;
     } else if (eventType === "feedback.applied") {
         const feedbackEntry = normalizeFeedbackAppliedTrace(traceEntry);
@@ -407,6 +409,7 @@ function ensureAgentTrace(state, runId) {
         memoryHits: Array.isArray(existing.memoryHits) ? [...existing.memoryHits] : [],
         feedbackApplications: Array.isArray(existing.feedbackApplications) ? [...existing.feedbackApplications] : [],
         answerDeltas: Array.isArray(existing.answerDeltas) ? [...existing.answerDeltas] : [],
+        memory: cloneMemoryProjection(existing.memory),
         subagents: cloneSubagents(existing.subagents),
         plan: existing.plan ? { ...existing.plan, steps: Array.isArray(existing.plan.steps) ? [...existing.plan.steps] : [] } : null,
         mode: existing.mode || null,
@@ -448,15 +451,105 @@ function ensureAgentTrace(state, runId) {
 function normalizeMemoryTraceEntry(entry) {
     const { score: rawScore, ...rest } = entry;
     const score = Number(rawScore);
+    const rank = Number(entry.rank);
+    const memoryLayer = normalizeMemoryLayer(entry.memoryLayer);
+    const sourceType = normalizeMemorySourceType(entry.sourceType, entry.memoryLayer);
     return {
         ...rest,
-        memoryLayer: normalizeMemoryLayer(entry.memoryLayer),
-        sourceType: normalizeMemorySourceType(entry.sourceType, entry.memoryLayer),
+        memoryLayer,
+        sourceType,
+        title: String(entry.title || entry.label || entry.topic || ""),
         snippet: String(entry.snippet || entry.summary || entry.label || ""),
         ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
         ...(Number.isFinite(score) ? { score } : {}),
+        ...(Number.isFinite(rank) ? { rank } : {}),
+        injectionMode: entry.injectionMode || defaultMemoryInjectionMode(memoryLayer),
+        reason: entry.reason || defaultMemoryReason(memoryLayer, sourceType),
         contextOnly: true
     };
+}
+
+function cloneMemoryProjection(memory = null) {
+    const byLayer = memory?.byLayer || {};
+    const counts = memory?.counts || {};
+    const l1Count = Number(counts.L1 ?? byLayer.L1?.length ?? 0);
+    const l2Count = Number(counts.L2 ?? byLayer.L2?.length ?? 0);
+    const l3Count = Number(counts.L3 ?? byLayer.L3?.length ?? 0);
+    return {
+        byLayer: {
+            L1: Array.isArray(byLayer.L1) ? [...byLayer.L1] : [],
+            L2: Array.isArray(byLayer.L2) ? [...byLayer.L2] : [],
+            L3: Array.isArray(byLayer.L3) ? [...byLayer.L3] : []
+        },
+        counts: {
+            L1: l1Count,
+            L2: l2Count,
+            L3: l3Count,
+            total: Number(counts.total ?? l1Count + l2Count + l3Count)
+        },
+        toolCalled: Boolean(memory?.toolCalled),
+        contextOnly: memory?.contextOnly !== false
+    };
+}
+
+function addMemoryHitToProjection(memory, entry) {
+    const next = cloneMemoryProjection(memory);
+    const layer = normalizeMemoryLayer(entry.memoryLayer);
+    if (layer && Array.isArray(next.byLayer[layer])) {
+        next.byLayer[layer].push(entry);
+        next.counts[layer] = next.byLayer[layer].length;
+    }
+    next.counts.total = next.counts.L1 + next.counts.L2 + next.counts.L3;
+    next.contextOnly = true;
+    if (entry.injectionMode === "tool_recall") {
+        next.toolCalled = true;
+    }
+    return next;
+}
+
+function applyMemoryCompletedToProjection(memory, data, tools = []) {
+    const next = cloneMemoryProjection(memory);
+    const l1 = Number(data.workingMemoryHitCount ?? data.l1HitCount ?? next.counts.L1);
+    const globalL2 = Number(data.globalKnowledgeHitCount ?? 0);
+    const projectL2 = Number(data.projectKnowledgeHitCount ?? 0);
+    const l2 = Number(data.l2HitCount ?? (globalL2 + projectL2 || next.counts.L2));
+    const l3 = Number(data.longTermMemoryHitCount ?? data.l3HitCount ?? next.counts.L3);
+    next.counts.L1 = Number.isFinite(l1) ? Math.max(next.counts.L1, l1) : next.counts.L1;
+    next.counts.L2 = Number.isFinite(l2) ? Math.max(next.counts.L2, l2) : next.counts.L2;
+    next.counts.L3 = Number.isFinite(l3) ? Math.max(next.counts.L3, l3) : next.counts.L3;
+    const total = Number(data.hitCount);
+    next.counts.total = Number.isFinite(total)
+            ? Math.max(total, next.counts.L1 + next.counts.L2 + next.counts.L3)
+            : next.counts.L1 + next.counts.L2 + next.counts.L3;
+    next.toolCalled = Boolean(data.toolCalled) || next.toolCalled || tools.some((tool) => tool.toolName === "memory_recall");
+    next.contextOnly = data.contextOnly !== false;
+    return next;
+}
+
+function defaultMemoryInjectionMode(memoryLayer) {
+    if (memoryLayer === "L1" || memoryLayer === "L2") {
+        return "preloaded_prompt";
+    }
+    if (memoryLayer === "L3") {
+        return "tool_recall";
+    }
+    return "summary_only";
+}
+
+function defaultMemoryReason(memoryLayer, sourceType) {
+    if (memoryLayer === "L1") {
+        return "working_memory_window";
+    }
+    if (memoryLayer === "L2" && sourceType === "project_knowledge") {
+        return "recent_confirmed_project_knowledge";
+    }
+    if (memoryLayer === "L2" && sourceType === "global_knowledge") {
+        return "global_cognition_snapshot";
+    }
+    if (memoryLayer === "L3") {
+        return "memory_recall_result";
+    }
+    return "memory_context";
 }
 
 function normalizeMemoryLayer(memoryLayer) {

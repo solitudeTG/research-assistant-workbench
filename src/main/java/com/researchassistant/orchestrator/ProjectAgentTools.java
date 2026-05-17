@@ -265,7 +265,7 @@ public class ProjectAgentTools {
             addToolUsed("memory_recall");
             List<Map<String, Object>> hits = memoryRecallResult == null || memoryRecallResult.hits() == null
                     ? List.of()
-                    : memoryRecallResult.hits().stream().map(this::memoryHitPayload).toList();
+                    : memoryHitPayloads(memoryRecallResult.hits());
             String payload = toJson(Map.of(
                     "query", safe(query),
                     "hits", hits
@@ -438,6 +438,21 @@ public class ProjectAgentTools {
             payload.put("keywords", hit.entry().keywords() == null ? List.of() : hit.entry().keywords());
         }
         return payload;
+    }
+
+    private List<Map<String, Object>> memoryHitPayloads(List<MemoryRecallHit> hits) {
+        List<Map<String, Object>> payloads = new java.util.ArrayList<>();
+        for (int index = 0; index < hits.size(); index++) {
+            Map<String, Object> payload = memoryHitPayload(hits.get(index));
+            payload.put("rank", index + 1);
+            payload.put("injectionMode", "tool_recall");
+            payload.put("reason", "memory_recall_result");
+            if (!payload.containsKey("title") && payload.containsKey("topic")) {
+                payload.put("title", payload.get("topic"));
+            }
+            payloads.add(payload);
+        }
+        return List.copyOf(payloads);
     }
 
     private Map<String, Object> chunkPayload(RagChunk chunk) {

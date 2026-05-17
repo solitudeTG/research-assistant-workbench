@@ -7,6 +7,8 @@ import com.researchassistant.evidence.AnswerMode;
 import com.researchassistant.evidence.EvidenceCitationSource;
 import com.researchassistant.events.WorkbenchEvent;
 import com.researchassistant.events.WorkbenchEventPublisher;
+import com.researchassistant.memory.MemoryEntry;
+import com.researchassistant.memory.MemoryRecallHit;
 import com.researchassistant.memory.MemoryRecallResult;
 import com.researchassistant.project.ProjectRecord;
 import com.researchassistant.project.ProjectRepository;
@@ -18,6 +20,7 @@ import com.researchassistant.websearch.WebSearchHit;
 import com.researchassistant.websearch.WebSearchPort;
 import com.researchassistant.websearch.WebSearchResult;
 import com.researchassistant.rag.RagChunk;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -572,6 +575,50 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void l3MemoryRecallPublishesRankedToolRecallContextOnlyTrace() {
+        ResearchSessionRecord session = createSession();
+        String question = "What prior memory should guide this answer?";
+        MemoryRecallResult recallResult = new MemoryRecallResult(question, List.of(
+                new MemoryRecallHit(memoryEntry(71L, "Prior scope", "Use local evidence first."), 0.82),
+                new MemoryRecallHit(memoryEntry(72L, "Prior constraint", "Do not treat memory as citation evidence."), 0.67)
+        ));
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        "Prior memory is context only.",
+                        new RagResult(question, List.of(), List.of()),
+                        null,
+                        recallResult,
+                        List.of("memory_recall")
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        List<JsonNode> memoryHits = eventPublisher.readRunEventsAfter(response.streamRunId(), null).stream()
+                .filter(candidate -> "memory.hit".equals(candidate.eventType().wireName()))
+                .filter(candidate -> response.answerId().equals(candidate.answerId()))
+                .map(candidate -> objectMapper.valueToTree(candidate.payload()).get("data"))
+                .filter(data -> data != null && "long_term_memory".equals(data.get("sourceType").asText()))
+                .toList();
+        assertThat(memoryHits).hasSize(2);
+        assertThat(memoryHits.get(0).get("memoryLayer").asText()).isEqualTo("L3");
+        assertThat(memoryHits.get(0).get("contextOnly").asBoolean()).isTrue();
+        assertThat(memoryHits.get(0).get("rank").asInt()).isEqualTo(1);
+        assertThat(memoryHits.get(0).get("injectionMode").asText()).isEqualTo("tool_recall");
+        assertThat(memoryHits.get(0).get("reason").asText()).isEqualTo("memory_recall_result");
+        assertThat(memoryHits.get(1).get("rank").asInt()).isEqualTo(2);
+        JsonNode memoryCompleted = memoryCompletedData(response.streamRunId(), response.answerId());
+        assertThat(memoryCompleted.get("longTermMemoryHitCount").asInt()).isEqualTo(2);
+        assertThat(memoryCompleted.get("l3HitCount").asInt()).isEqualTo(2);
+        assertThat(memoryCompleted.get("toolCalled").asBoolean()).isTrue();
+        assertThat(memoryCompleted.get("contextOnly").asBoolean()).isTrue();
+        assertThat(evidenceSourceCount(response.answerId())).isZero();
+    }
+
+    @Test
     void planningQuestionUsesMainAgentToolLoop() {
         ResearchSessionRecord session = createSession();
         String question = "please make a research plan";
@@ -815,8 +862,56 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 .orElseThrow();
         JsonNode data = objectMapper.valueToTree(memoryHit.payload()).get("data");
         assertThat(data.get("memoryLayer").asText()).isEqualTo("L1");
-        assertThat(data.get("label").asText()).isEqualTo("工作记忆");
+        assertThat(data.get("sourceType").asText()).isEqualTo("working_memory");
+        assertThat(data.get("contextOnly").asBoolean()).isTrue();
+        assertThat(data.get("title").asText()).isEqualTo("Working memory");
+        assertThat(data.get("rank").asInt()).isEqualTo(1);
+        assertThat(data.get("injectionMode").asText()).isEqualTo("preloaded_prompt");
+        assertThat(data.get("reason").asText()).isEqualTo("working_memory_window");
         assertThat(data.get("snippet").asText()).contains("satellite communication papers");
+    }
+
+    @Test
+    void globalKnowledgeSnapshotPublishesL2ContextOnlyMemoryTrace() {
+        ResearchSessionRecord session = createSession();
+        jdbcTemplate.update("""
+                insert into global_knowledge_note(note_type, content)
+                values ('RESEARCH_STATE', 'Current research state prefers local-first evidence.')
+                on conflict (note_type) do update set content = excluded.content
+                """);
+        String question = "Use the current research state.";
+        when(projectAgentToolLoop.run(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(agentRun(
+                        "Use local-first evidence.",
+                        new RagResult(question, List.of(), List.of()),
+                        null,
+                        new MemoryRecallResult(question, List.of()),
+                        List.of()
+                ));
+
+        var response = supervisorService.answerProject(
+                session.projectId(),
+                session.id(),
+                new ProjectMessageRequest(question, List.of(), true, false, "local_first")
+        );
+
+        JsonNode data = eventPublisher.readRunEventsAfter(response.streamRunId(), null).stream()
+                .filter(candidate -> "memory.hit".equals(candidate.eventType().wireName()))
+                .filter(candidate -> response.answerId().equals(candidate.answerId()))
+                .map(candidate -> objectMapper.valueToTree(candidate.payload()).get("data"))
+                .filter(candidate -> candidate != null && "global_knowledge".equals(candidate.get("sourceType").asText()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(data.get("memoryLayer").asText()).isEqualTo("L2");
+        assertThat(data.get("sourceId").asText()).isEqualTo("global_knowledge_snapshot");
+        assertThat(data.get("contextOnly").asBoolean()).isTrue();
+        assertThat(data.get("injectionMode").asText()).isEqualTo("preloaded_prompt");
+        assertThat(data.get("reason").asText()).isEqualTo("global_cognition_snapshot");
+        assertThat(data.get("snippet").asText()).contains("Research_state.md");
+        JsonNode memoryCompleted = memoryCompletedData(response.streamRunId(), response.answerId());
+        assertThat(memoryCompleted.get("globalKnowledgeHitCount").asInt()).isEqualTo(1);
+        assertThat(memoryCompleted.get("l2HitCount").asInt()).isEqualTo(1);
+        assertThat(evidenceSourceCount(response.answerId())).isZero();
     }
 
     @Test
@@ -857,7 +952,16 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         assertThat(data.get("sourceType").asText()).isEqualTo("project_knowledge");
         assertThat(data.get("sourceId").asText()).isEqualTo(entryId);
         assertThat(data.get("contextOnly").asBoolean()).isTrue();
+        assertThat(data.get("title").asText()).isEqualTo("Confirmed beamforming finding");
+        assertThat(data.get("summary").asText()).contains("Adaptive beamforming");
+        assertThat(data.get("rank").asInt()).isEqualTo(1);
+        assertThat(data.get("injectionMode").asText()).isEqualTo("preloaded_prompt");
+        assertThat(data.get("reason").asText()).isEqualTo("recent_confirmed_project_knowledge");
         assertThat(data.get("snippet").asText()).contains("Adaptive beamforming");
+        JsonNode memoryCompleted = memoryCompletedData(response.streamRunId(), response.answerId());
+        assertThat(memoryCompleted.get("projectKnowledgeHitCount").asInt()).isEqualTo(1);
+        assertThat(memoryCompleted.get("l2HitCount").asInt()).isEqualTo(1);
+        assertThat(memoryCompleted.get("contextOnly").asBoolean()).isTrue();
         assertThat(evidenceSourceCount(response.answerId())).isZero();
         assertRetrievalCitationTelemetry(response.streamRunId(), response.answerId(), 0);
         assertEvidenceEvaluatedTelemetry(response.streamRunId(), response.answerId(), 0);
@@ -903,6 +1007,24 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
         return new ProjectAgentRun(answer, ragResult, webSearchResult, memoryRecallResult, toolsUsed);
     }
 
+    private MemoryEntry memoryEntry(long id, String topic, String summary) {
+        OffsetDateTime now = OffsetDateTime.now();
+        return new MemoryEntry(
+                id,
+                42L,
+                "COMPACTION",
+                topic,
+                summary,
+                List.of(summary),
+                List.of(),
+                List.of(topic.toLowerCase()),
+                1L,
+                2L,
+                now,
+                now
+        );
+    }
+
     private MultiAgentWorkflowDecision planDecision(boolean documentRequest) {
         return new MultiAgentWorkflowDecision(
                 MultiAgentExecutionMode.PLAN_EXECUTE,
@@ -945,8 +1067,19 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
     }
 
     private ResearchSessionRecord createSession() {
+        resetGlobalKnowledgeNotes();
         ProjectRecord project = projectRepository.createProject("F012 project", "agentic routing");
         return projectRepository.createSession(project.id(), "F012 session");
+    }
+
+    private void resetGlobalKnowledgeNotes() {
+        for (String noteType : List.of("USER", "SOUL", "RESEARCH_STATE")) {
+            jdbcTemplate.update("""
+                    insert into global_knowledge_note(note_type, content)
+                    values (?, '')
+                    on conflict (note_type) do update set content = ''
+                    """, noteType);
+        }
     }
 
     private Map<String, Object> answerRow(String answerId) {
@@ -1032,6 +1165,15 @@ class ProjectAgentRoutingTest extends PostgresIntegrationTest {
                 .orElseThrow();
         JsonNode payload = objectMapper.valueToTree(event.payload());
         assertThat(payload.get("citationCount").asInt()).isEqualTo(expectedCitationCount);
+    }
+
+    private JsonNode memoryCompletedData(String runId, String answerId) {
+        WorkbenchEvent event = eventPublisher.readRunEventsAfter(runId, null).stream()
+                .filter(candidate -> "memory.completed".equals(candidate.eventType().wireName()))
+                .filter(candidate -> answerId.equals(candidate.answerId()))
+                .findFirst()
+                .orElseThrow();
+        return objectMapper.valueToTree(event.payload()).get("data");
     }
 
     private void assertEvidenceEvaluatedTelemetry(

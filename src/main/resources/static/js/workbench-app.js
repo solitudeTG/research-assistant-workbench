@@ -2437,11 +2437,11 @@ function researchProcessPanel(message) {
     const evidenceMatrix = document.createElement("div");
     evidenceMatrix.className = "process-evidence";
     evidenceMatrix.appendChild(textElement("strong", "过程命中"));
-    const evidenceItems = [...retrievalHits, ...memoryHits].slice(0, 5);
+    const evidenceItems = retrievalHits.slice(0, 5);
     if (evidenceItems.length) {
         evidenceMatrix.append(...evidenceItems.map(processEvidenceItem));
     } else {
-        evidenceMatrix.appendChild(textElement("p", "等待资料命中、联网补充或记忆召回事件。过程命中不等于最终引用。"));
+        evidenceMatrix.appendChild(textElement("p", "等待资料命中或联网补充事件。记忆上下文在上方单独展示，不能作为最终引用。"));
     }
 
     if (gaps.length) {
@@ -2507,19 +2507,33 @@ function researchMemoryLoopPanel(trace, memoryHits) {
     const feedbackEvents = recentFeedbackAppliedEvents(trace);
     const candidateEvents = (trace?.timeline || []).filter((event) => event.eventType === "candidate.created" || event.eventType === "knowledge.entry.created");
     const pendingCandidates = app.candidates.filter((candidate) => candidate.status === "pending");
+    const memoryLayers = memoryHitsByLayer(trace, memoryHits);
     const panel = document.createElement("div");
     panel.className = "memory-loop-panel";
     panel.appendChild(textElement("strong", "记忆与自学习闭环"));
     panel.append(
-            memoryLoopItem("L1", "短期工作记忆", l1MemoryDetail(trace), "上下文"),
-            memoryLoopItem("L3", "长期记忆召回", l3MemoryDetail(memoryHits), "仅上下文"),
+            memoryLoopItem("L1", "短期工作记忆", l1MemoryDetail(trace, memoryLayers.L1), "预加载上下文"),
+            memoryLoopItem("L2", "稳定认知/已确认知识", l2MemoryDetail(memoryLayers.L2), "仅上下文"),
+            memoryLoopItem("L3", "长期记忆召回", l3MemoryDetail(trace, memoryLayers.L3), "工具召回"),
             memoryLoopItem("候选", "候选流转", candidateTransitionDetail(candidateEvents, pendingCandidates), "需要审阅"),
             memoryLoopItem("反馈", "反馈已应用", feedbackEvents.length ? feedbackAppliedText(feedbackEvents[0]) : "本轮还没有 feedback.applied 事件", "排序信号")
     );
     return panel;
 }
 
-function l1MemoryDetail(trace) {
+function memoryHitsByLayer(trace, memoryHits) {
+    const byLayer = trace?.memory?.byLayer || {};
+    return {
+        L1: Array.isArray(byLayer.L1) ? byLayer.L1 : (memoryHits || []).filter((hit) => hit.memoryLayer === "L1"),
+        L2: Array.isArray(byLayer.L2) ? byLayer.L2 : (memoryHits || []).filter((hit) => hit.memoryLayer === "L2"),
+        L3: Array.isArray(byLayer.L3) ? byLayer.L3 : (memoryHits || []).filter((hit) => hit.memoryLayer === "L3")
+    };
+}
+
+function l1MemoryDetail(trace, l1Hits = []) {
+    if (l1Hits.length) {
+        return memoryHitDetail(l1Hits[0], `${l1Hits.length} 条 L1 上下文`);
+    }
     const summary = trace?.summary || {};
     const compressedRounds = summary.compressedRounds ?? trace?.workingMemory?.compressedRounds;
     const salientFacts = summary.salientFactCount ?? trace?.workingMemory?.salientFacts?.length;
@@ -2533,14 +2547,26 @@ function l1MemoryDetail(trace) {
     return parts.length ? parts.join(", ") : "等待 working-memory 投影";
 }
 
-function l3MemoryDetail(memoryHits) {
-    if (!memoryHits?.length) {
-        return "本轮没有记忆命中";
+function l2MemoryDetail(l2Hits) {
+    if (!l2Hits?.length) {
+        return "本轮没有 L2 稳定认知进入上下文";
     }
-    const firstHit = memoryHits[0];
-    const layer = firstHit.memoryLayer || "L3";
-    const score = firstHit.score !== undefined ? `，分数 ${firstHit.score}` : "";
-    return `${memoryHits.length} 条记忆上下文命中，首条 ${layer}${score}`;
+    return memoryHitDetail(l2Hits[0], `${l2Hits.length} 条 L2 稳定认知`);
+}
+
+function l3MemoryDetail(trace, l3Hits) {
+    if (!l3Hits?.length) {
+        return trace?.memory?.toolCalled ? "memory_recall 已调用，但没有命中长期记忆" : "本轮没有 L3 长期记忆命中";
+    }
+    const prefix = trace?.memory?.toolCalled ? "memory_recall 工具召回" : "长期记忆上下文";
+    return memoryHitDetail(l3Hits[0], `${prefix} ${l3Hits.length} 条`);
+}
+
+function memoryHitDetail(hit, prefix) {
+    const mode = hit.injectionMode ? `，${hit.injectionMode}` : "";
+    const score = hit.score !== undefined ? `，分数 ${hit.score}` : "";
+    const label = hit.title || hit.label || hit.sourceId || hit.snippet || "记忆上下文";
+    return `${prefix}，首条：${label}${mode}${score}，仅上下文`;
 }
 
 function candidateTransitionDetail(candidateEvents, pendingCandidates) {
@@ -2682,13 +2708,34 @@ function processToolTimelineEvent(event, index) {
 }
 
 function processHitTimelineEvent(event, index, kind) {
+    const isMemory = kind === "memory";
     return {
         eventType: event.eventType,
         status: "completed",
-        label: kind === "memory" ? "记忆命中" : "证据命中",
-        detail: event.title || event.label || event.sourceId || event.snippet || "过程命中事件",
+        label: isMemory ? memoryTimelineLabel(event) : "证据命中",
+        detail: isMemory ? memoryTimelineDetail(event) : (event.title || event.label || event.sourceId || event.snippet || "过程命中事件"),
         order: processEventOrderValue(event, 100 + index)
     };
+}
+
+function memoryTimelineLabel(event) {
+    if (event.memoryLayer === "L2") {
+        if (event.sourceType === "global_knowledge") {
+            return "L2 稳定认知";
+        }
+        return "L2 已确认知识";
+    }
+    if (event.memoryLayer === "L3") {
+        return "L3 长期记忆";
+    }
+    return "L1 工作记忆";
+}
+
+function memoryTimelineDetail(event) {
+    const title = event.title || event.label || event.sourceId || event.snippet || "记忆上下文";
+    const mode = event.injectionMode ? ` · ${event.injectionMode}` : "";
+    const reason = event.reason ? ` · ${event.reason}` : "";
+    return `${title}${mode}${reason} · 仅上下文，不是引用证据`;
 }
 
 function processEvidenceTimelineEvent(event, index) {

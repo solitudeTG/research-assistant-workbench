@@ -224,6 +224,10 @@ class ProjectAgentToolsTest {
         assertThat(json.get("hits").get(0).get("memoryLayer").asText()).isEqualTo("L3");
         assertThat(json.get("hits").get(0).get("sourceType").asText()).isEqualTo("long_term_memory");
         assertThat(json.get("hits").get(0).get("contextOnly").asBoolean()).isTrue();
+        assertThat(json.get("hits").get(0).get("rank").asInt()).isEqualTo(1);
+        assertThat(json.get("hits").get(0).get("injectionMode").asText()).isEqualTo("tool_recall");
+        assertThat(json.get("hits").get(0).get("reason").asText()).isEqualTo("memory_recall_result");
+        assertThat(json.get("hits").get(0).get("title").asText()).isEqualTo(json.get("hits").get(0).get("topic").asText());
     }
 
     private ProjectAgentTools tools(ProjectEvidenceScope scope) {

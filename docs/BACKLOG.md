@@ -32,6 +32,17 @@ This file records active engineering state that future sessions must be able to 
 
 ## Recently Completed
 
+### F022 Memory Recall Observability
+
+- Status: completed
+- Feature page: [F022-memory-recall-observability.md](features/F022-memory-recall-observability.md)
+- Spec: [F022-memory-recall-observability-spec.md](specs/F022-memory-recall-observability-spec.md)
+- Plan: [F022-memory-recall-observability-plan.md](plans/F022-memory-recall-observability-plan.md)
+- Evidence: [EV-021-f022-memory-recall-observability.md](evidence/EV-021-f022-memory-recall-observability.md)
+- Result: L1/L2/L3 memory hits now carry normalized context-only metadata, including rank, injection mode, reason, title, and summary. L2 covers both global cognition and confirmed project knowledge. The frontend trace model groups memory by layer, and the research process UI shows memory separately from paper/web evidence so memory does not look like citation material.
+- Boundary: F022 did not implement L2 semantic retrieval, L3-to-L2 promotion, L3 project scoping, or Paper RAG scoring changes.
+- Verification: focused backend tests, full frontend model tests, JS syntax checks, `knowledge_check`, and `git diff --check` are recorded in EV-021.
+
 ### F016 Retrieval Observability
 
 - Status: completed

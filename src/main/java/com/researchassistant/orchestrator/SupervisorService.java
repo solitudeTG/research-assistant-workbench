@@ -22,6 +22,7 @@ import com.researchassistant.knowledge.KnowledgeBoardRepository;
 import com.researchassistant.knowledge.KnowledgeEntryRecord;
 import com.researchassistant.memory.ExplicitMemoryService;
 import com.researchassistant.memory.GlobalKnowledgeService;
+import com.researchassistant.memory.GlobalKnowledgeSnapshot;
 import com.researchassistant.memory.MemoryEntry;
 import com.researchassistant.memory.MemoryRecallHit;
 import com.researchassistant.memory.MemoryRecallResult;
@@ -330,6 +331,7 @@ public class SupervisorService {
                     projectId,
                     MAX_TRACE_HITS
             );
+            GlobalKnowledgeSnapshot globalKnowledge = globalKnowledgeService.snapshot();
             ProjectAgentRun agentRun = projectAgentToolLoop.run(new ProjectAgentRequest(
                     projectId,
                     sessionId,
@@ -338,7 +340,7 @@ public class SupervisorService {
                     answerId,
                     request.question(),
                     memory,
-                    globalKnowledgeService.snapshot(),
+                    globalKnowledge,
                     projectKnowledge,
                     evidenceScope,
                     allowWebSupplement
@@ -384,7 +386,7 @@ public class SupervisorService {
                     assessment
             );
 
-            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, projectKnowledge, memoryRecallResult, agentRun);
+            publishMemoryTraceEvents(projectId, sessionId, runId, answerId, memory, globalKnowledge, projectKnowledge, memoryRecallResult, agentRun);
             publishRetrievalHitEvents(projectId, sessionId, runId, answerId, ragResult, webSearchResult, evidenceScope);
             publishRunEvent(
                     WorkbenchEventType.RETRIEVAL_COMPLETED,
@@ -1020,23 +1022,59 @@ public class SupervisorService {
                                           String runId,
                                           String answerId,
                                           WorkingMemory memory,
+                                          GlobalKnowledgeSnapshot globalKnowledge,
                                           List<KnowledgeEntryRecord> projectKnowledge,
                                           MemoryRecallResult memoryRecallResult,
                                           ProjectAgentRun agentRun) {
         List<MemoryRecallHit> hits = memoryRecallResult == null || memoryRecallResult.hits() == null
                 ? List.of()
                 : memoryRecallResult.hits();
+        boolean memoryRecallToolUsed = toolWasUsed(agentRun, "memory_recall");
         int workingMemoryHitCount = 0;
         if (hasWorkingMemorySummary(memory)) {
             workingMemoryHitCount = 1;
+            String snippet = bounded(workingMemorySnippet(memory));
             Map<String, Object> data = payload(
                     "memoryLayer", "L1",
                     "sourceType", "working_memory",
                     "sourceId", memory.sessionKey(),
                     "contextOnly", true,
-                    "label", "\u5de5\u4f5c\u8bb0\u5fc6",
-                    "snippet", bounded(workingMemorySnippet(memory)),
-                    "score", 1.0
+                    "title", "Working memory",
+                    "label", "Working memory",
+                    "snippet", snippet,
+                    "summary", snippet,
+                    "score", 1.0,
+                    "rank", 1,
+                    "injectionMode", "preloaded_prompt",
+                    "reason", "working_memory_window"
+            );
+            publishRunEvent(
+                    WorkbenchEventType.MEMORY_HIT,
+                    projectId,
+                    sessionId,
+                    runId,
+                    "memory_worker",
+                    answerId,
+                    payload("data", data)
+            );
+        }
+        int globalKnowledgeHitCount = 0;
+        if (hasGlobalKnowledge(globalKnowledge)) {
+            globalKnowledgeHitCount = 1;
+            String snippet = bounded(globalKnowledgeSnippet(globalKnowledge));
+            Map<String, Object> data = payload(
+                    "memoryLayer", "L2",
+                    "sourceType", "global_knowledge",
+                    "sourceId", "global_knowledge_snapshot",
+                    "contextOnly", true,
+                    "title", "Global cognition",
+                    "label", "Global cognition",
+                    "snippet", snippet,
+                    "summary", snippet,
+                    "score", 1.0,
+                    "rank", 1,
+                    "injectionMode", "preloaded_prompt",
+                    "reason", "global_cognition_snapshot"
             );
             publishRunEvent(
                     WorkbenchEventType.MEMORY_HIT,
@@ -1051,14 +1089,20 @@ public class SupervisorService {
         int projectKnowledgeHitCount = 0;
         for (KnowledgeEntryRecord entry : projectKnowledge == null ? List.<KnowledgeEntryRecord>of() : projectKnowledge) {
             projectKnowledgeHitCount++;
+            String snippet = bounded(projectKnowledgeSnippet(entry));
             Map<String, Object> data = payload(
                     "memoryLayer", "L2",
                     "sourceType", "project_knowledge",
                     "sourceId", entry.id(),
                     "contextOnly", true,
-                    "label", "已确认项目知识",
-                    "snippet", bounded(projectKnowledgeSnippet(entry)),
-                    "score", 1.0
+                    "title", safe(entry.title()),
+                    "label", "Confirmed project knowledge",
+                    "snippet", snippet,
+                    "summary", bounded(safe(entry.content())),
+                    "score", 1.0,
+                    "rank", globalKnowledgeHitCount + projectKnowledgeHitCount,
+                    "injectionMode", "preloaded_prompt",
+                    "reason", "recent_confirmed_project_knowledge"
             );
             publishRunEvent(
                     WorkbenchEventType.MEMORY_HIT,
@@ -1070,15 +1114,21 @@ public class SupervisorService {
                     payload("data", data)
             );
         }
-        for (MemoryRecallHit hit : hits) {
+        for (int index = 0; index < hits.size(); index++) {
+            MemoryRecallHit hit = hits.get(index);
             Map<String, Object> data = payload(
                     "memoryLayer", "L3",
                     "sourceType", "long_term_memory",
                     "sourceId", memorySourceId(hit),
                     "contextOnly", true,
-                    "label", "\u957f\u671f\u8bb0\u5fc6\u53ec\u56de",
+                    "title", memoryTitle(hit),
+                    "label", "Long-term memory recall",
                     "snippet", bounded(memorySnippet(hit)),
-                    "score", hit.finalScore()
+                    "summary", bounded(memorySummary(hit)),
+                    "score", hit.finalScore(),
+                    "rank", index + 1,
+                    "injectionMode", memoryRecallToolUsed ? "tool_recall" : "summary_only",
+                    "reason", "memory_recall_result"
             );
             publishRunEvent(
                     WorkbenchEventType.MEMORY_HIT,
@@ -1090,7 +1140,7 @@ public class SupervisorService {
                     payload("data", data)
             );
         }
-        if (workingMemoryHitCount > 0 || projectKnowledgeHitCount > 0 || !hits.isEmpty() || toolWasUsed(agentRun, "memory_recall")) {
+        if (workingMemoryHitCount > 0 || globalKnowledgeHitCount > 0 || projectKnowledgeHitCount > 0 || !hits.isEmpty() || memoryRecallToolUsed) {
             publishRunEvent(
                     WorkbenchEventType.MEMORY_COMPLETED,
                     projectId,
@@ -1099,10 +1149,16 @@ public class SupervisorService {
                     "memory_worker",
                     answerId,
                     payload("data", payload(
-                            "hitCount", workingMemoryHitCount + projectKnowledgeHitCount + hits.size(),
+                            "hitCount", workingMemoryHitCount + globalKnowledgeHitCount + projectKnowledgeHitCount + hits.size(),
                             "workingMemoryHitCount", workingMemoryHitCount,
-                            "l2HitCount", projectKnowledgeHitCount,
-                            "l3HitCount", hits.size()
+                            "l1HitCount", workingMemoryHitCount,
+                            "l2HitCount", globalKnowledgeHitCount + projectKnowledgeHitCount,
+                            "globalKnowledgeHitCount", globalKnowledgeHitCount,
+                            "projectKnowledgeHitCount", projectKnowledgeHitCount,
+                            "l3HitCount", hits.size(),
+                            "longTermMemoryHitCount", hits.size(),
+                            "toolCalled", memoryRecallToolUsed,
+                            "contextOnly", true
                     ))
             );
         }
@@ -1117,8 +1173,43 @@ public class SupervisorService {
         return (title + ": " + content).trim();
     }
 
+    private boolean hasGlobalKnowledge(GlobalKnowledgeSnapshot snapshot) {
+        return snapshot != null
+                && (!isBlank(snapshot.user())
+                || !isBlank(snapshot.soul())
+                || !isBlank(snapshot.researchState()));
+    }
+
+    private String globalKnowledgeSnippet(GlobalKnowledgeSnapshot snapshot) {
+        if (snapshot == null) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        if (!isBlank(snapshot.user())) {
+            parts.add("USER.md: " + snapshot.user());
+        }
+        if (!isBlank(snapshot.soul())) {
+            parts.add("SOUL.md: " + snapshot.soul());
+        }
+        if (!isBlank(snapshot.researchState())) {
+            parts.add("Research_state.md: " + snapshot.researchState());
+        }
+        return String.join("\n", parts);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     private String memorySourceId(MemoryRecallHit hit) {
         return hit == null || hit.entry() == null ? "" : String.valueOf(hit.entry().id());
+    }
+
+    private String memoryTitle(MemoryRecallHit hit) {
+        if (hit == null || hit.entry() == null) {
+            return "Long-term memory";
+        }
+        return safe(hit.entry().topic());
     }
 
     private boolean hasWorkingMemorySummary(WorkingMemory memory) {
@@ -1251,6 +1342,13 @@ public class SupervisorService {
                 ? ""
                 : "\nFindings: " + String.join("; ", entry.keyFindings());
         return safe(entry.topic()) + "\n" + safe(entry.summary()) + keyFindings;
+    }
+
+    private String memorySummary(MemoryRecallHit hit) {
+        if (hit == null || hit.entry() == null) {
+            return "";
+        }
+        return safe(hit.entry().summary());
     }
 
     private boolean toolWasUsed(ProjectAgentRun agentRun, String toolName) {

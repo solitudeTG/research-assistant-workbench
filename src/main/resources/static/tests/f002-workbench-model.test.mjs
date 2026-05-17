@@ -91,6 +91,42 @@ test("research process timeline includes projected plan execute events", async (
     assert.match(researchProcessSource, /processPlanTimelineEvent/);
 });
 
+test("F022 research memory loop renders L1 L2 L3 sections", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const memoryLoopSource = source.slice(
+            source.indexOf("function researchMemoryLoopPanel"),
+            source.indexOf("function candidateTransitionDetail")
+    );
+
+    assert.match(memoryLoopSource, /memoryLoopItem\("L1"/);
+    assert.match(memoryLoopSource, /memoryLoopItem\("L2"/);
+    assert.match(memoryLoopSource, /memoryLoopItem\("L3"/);
+    assert.match(memoryLoopSource, /injectionMode/);
+});
+
+test("F022 research process evidence list does not mix memory hits into citation evidence list", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const researchProcessSource = source.slice(
+            source.indexOf("function researchProcessPanel"),
+            source.indexOf("function processStatusLabel")
+    );
+
+    assert.doesNotMatch(researchProcessSource, /const evidenceItems = \[\.\.\.retrievalHits, \.\.\.memoryHits\]/);
+    assert.match(researchProcessSource, /const evidenceItems = retrievalHits\.slice\(0, 5\)/);
+    assert.match(researchProcessSource, /researchMemoryLoopPanel\(trace, memoryHits\)/);
+});
+
+test("F022 memory timeline labels context-only memory", async () => {
+    const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
+    const timelineSource = source.slice(
+            source.indexOf("function processHitTimelineEvent"),
+            source.indexOf("function processEvidenceTimelineEvent")
+    );
+
+    assert.match(timelineSource, /memoryTimelineLabel/);
+    assert.match(timelineSource, /仅上下文，不是引用证据/);
+});
+
 test("assistant markdown answers render explicit line breaks instead of relying only on CSS whitespace", async () => {
     const source = await readFile(new URL("../js/workbench-app.js", import.meta.url), "utf8");
     const messageBodySource = source.slice(
@@ -871,12 +907,24 @@ test("memory.completed hit count contributes to trace summary when hit rows are 
         answerId: "answer-memory",
         payload: {
             data: {
-                hitCount: 1
+                hitCount: 3,
+                workingMemoryHitCount: 1,
+                projectKnowledgeHitCount: 1,
+                longTermMemoryHitCount: 1,
+                toolCalled: true,
+                contextOnly: true
             }
         }
     });
 
-    assert.equal(state.agentTraces["run-memory"].summary.memoryCount, 1);
+    const trace = state.agentTraces["run-memory"];
+    assert.equal(trace.summary.memoryCount, 3);
+    assert.equal(trace.memory.counts.L1, 1);
+    assert.equal(trace.memory.counts.L2, 1);
+    assert.equal(trace.memory.counts.L3, 1);
+    assert.equal(trace.memory.counts.total, 3);
+    assert.equal(trace.memory.toolCalled, true);
+    assert.equal(trace.memory.contextOnly, true);
 });
 
 test("F021 memory trace keeps recalled memory context separate from citation evidence", () => {
@@ -913,13 +961,31 @@ test("F021 memory trace keeps recalled memory context separate from citation evi
         }
     });
     state = applySseEvent(state, {
+        eventId: "f022-l2-memory-hit",
+        eventType: "memory.hit",
+        runId: "run-f021",
+        answerId: "answer-f021",
+        payload: {
+            data: {
+                memoryLayer: "L2",
+                sourceType: "project_knowledge",
+                sourceId: "knowledge-3",
+                title: "Confirmed direction",
+                snippet: "Use local evidence first.",
+                contextOnly: true,
+                injectionMode: "preloaded_prompt",
+                reason: "recent_confirmed_project_knowledge"
+            }
+        }
+    });
+    state = applySseEvent(state, {
         eventId: "f021-memory-completed",
         eventType: "memory.completed",
         runId: "run-f021",
         answerId: "answer-f021",
         payload: {
             data: {
-                hitCount: 1,
+                hitCount: 2,
                 memoryLayer: "L1",
                 sourceType: "working_memory",
                 snippet: "Rolling summary loaded"
@@ -937,19 +1003,79 @@ test("F021 memory trace keeps recalled memory context separate from citation evi
         createdAt: "",
         memoryLayer: "L3",
         sourceType: "long_term_memory",
+        title: "",
         sourceId: "memory-7",
         snippet: "Prior project synthesis",
         score: 0.66,
+        injectionMode: "tool_recall",
+        reason: "memory_recall_result",
         contextOnly: true
     });
+    assert.equal(trace.memory.byLayer.L2[0].sourceType, "project_knowledge");
+    assert.equal(trace.memory.byLayer.L2[0].contextOnly, true);
+    assert.equal(trace.memory.byLayer.L2[0].injectionMode, "preloaded_prompt");
     assert.equal(trace.memorySummary.memoryLayer, "L1");
     assert.equal(trace.memorySummary.sourceType, "working_memory");
     assert.equal(trace.memorySummary.snippet, "Rolling summary loaded");
     assert.equal(trace.memorySummary.contextOnly, true);
     assert.equal(trace.summary.citationEvidenceCount, 1);
-    assert.equal(trace.summary.memoryContextCount, 1);
+    assert.equal(trace.summary.memoryContextCount, 2);
     assert.equal(trace.summary.evidenceCount, 1);
-    assert.equal(trace.summary.memoryCount, 1);
+    assert.equal(trace.summary.memoryCount, 2);
+});
+
+test("F022 groups memory hits by L1 L2 L3 and defaults injection metadata", () => {
+    let state = createWorkbenchState();
+    for (const hit of [
+        { memoryLayer: "L1", sourceType: "working_memory", snippet: "Working summary" },
+        { memoryLayer: "L2", sourceType: "project_knowledge", snippet: "Confirmed finding" },
+        { memoryLayer: "L3", sourceType: "long_term_memory", snippet: "Prior memory" }
+    ]) {
+        state = applySseEvent(state, {
+            eventId: `f022-${hit.memoryLayer}`,
+            eventType: "memory.hit",
+            runId: "run-f022",
+            answerId: "answer-f022",
+            payload: { data: hit }
+        });
+    }
+
+    const trace = state.agentTraces["run-f022"];
+    assert.equal(trace.memory.byLayer.L1.length, 1);
+    assert.equal(trace.memory.byLayer.L2.length, 1);
+    assert.equal(trace.memory.byLayer.L3.length, 1);
+    assert.equal(trace.memory.counts.total, 3);
+    assert.equal(trace.memory.byLayer.L1[0].injectionMode, "preloaded_prompt");
+    assert.equal(trace.memory.byLayer.L1[0].reason, "working_memory_window");
+    assert.equal(trace.memory.byLayer.L2[0].reason, "recent_confirmed_project_knowledge");
+    assert.equal(trace.memory.byLayer.L3[0].injectionMode, "tool_recall");
+    assert.equal(trace.memory.byLayer.L3[0].reason, "memory_recall_result");
+});
+
+test("F022 preserves backend memory injection metadata when provided", () => {
+    const state = applySseEvent(createWorkbenchState(), {
+        eventId: "f022-backend-memory",
+        eventType: "memory.hit",
+        runId: "run-f022-backend",
+        answerId: "answer-f022-backend",
+        payload: {
+            data: {
+                memoryLayer: "L2",
+                sourceType: "project_knowledge",
+                title: "Stable route",
+                rank: 4,
+                injectionMode: "preloaded_prompt",
+                reason: "manual_confirmation",
+                snippet: "Use the stable route."
+            }
+        }
+    });
+
+    const hit = state.agentTraces["run-f022-backend"].memory.byLayer.L2[0];
+    assert.equal(hit.title, "Stable route");
+    assert.equal(hit.rank, 4);
+    assert.equal(hit.injectionMode, "preloaded_prompt");
+    assert.equal(hit.reason, "manual_confirmation");
 });
 
 test("F021 candidate and confirmed knowledge projections stay separated", () => {
